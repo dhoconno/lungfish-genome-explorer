@@ -263,7 +263,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Whether the initial divider position has been applied.
     /// `setPosition` only works after the split view has real bounds, so the
     /// initial divider sizing is deferred until a later layout pass.
-    private var didSetInitialSplitPosition = false
+    private(set) var didSetInitialSplitPosition = false
     private var pendingInitialSplitValidation = false
 
     // MARK: - Selection Sync
@@ -1000,7 +1000,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         applyLayoutPreference()
     }
 
-    private func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
+    func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
         switch layout {
         case .detailLeading:
             return 0.6

@@ -14,6 +14,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+import LungfishKit
 @testable import LungfishEsVirituUI
 @testable import LungfishTaxonomyUI
 import LungfishWorkflow
@@ -29,7 +30,8 @@ private let rerunStamp = "2026-11-23T09:00:00Z"
 /// What a person changes in a taxonomy viewer and what the viewer's controls show, for Kraken2 and CZ ID.
 @MainActor
 enum TaxonomyViewStateControls {
-    /// The filter field, the sort by name, the last row selected, the sunburst zoom and the Collections drawer.
+    /// The filter field, the sort by name, the last row selected, the sunburst zoom, the Collections drawer and the
+    /// divider.
     static func change(_ viewer: TaxonomyViewController, filter: String) {
         let table = viewer.taxonomyTableView
         table.testingSetFilterText(filter)
@@ -43,6 +45,7 @@ enum TaxonomyViewStateControls {
             viewer.breadcrumbBar.update(zoomNode: node)
         }
         viewer.toggleTaxaCollectionsDrawer()
+        moveDivider(of: viewer.splitView)
     }
 
     /// One line a field. The rows line is left out when the filter changes the count the reading would compare.
@@ -56,6 +59,7 @@ enum TaxonomyViewStateControls {
             "selected \(selected.joined(separator: ", "))",
             "zoom \(viewer.sunburstView.centerNode?.name ?? "none")",
             "drawer \(viewer.isTaxaCollectionsDrawerOpen ? "open" : "closed")",
+            "split \(splitText(viewer.splitView, start: viewer.defaultLeadingFraction(for: .current())))",
         ]
         if includeRows { reading.append("rows \(outline.numberOfRows)") }
         return reading
@@ -67,6 +71,23 @@ enum TaxonomyViewStateControls {
         guard column >= 0,
               let cell = outline.view(atColumn: column, row: row, makeIfNecessary: true) as? NSTableCellView else { return "?" }
         return cell.textField?.stringValue ?? "?"
+    }
+
+    /// Moves the divider to half the split, away from where either viewer puts it on a first visit, as a drag does.
+    static func moveDivider(of split: NSSplitView) {
+        let extent = split.isVertical ? split.bounds.width : split.bounds.height
+        split.setPosition(round(extent * 0.5), ofDividerAt: 0)
+        split.layoutSubtreeIfNeeded()
+    }
+
+    /// Where the divider stands: "default" within two points of where the viewer puts it on a first visit (`start`, a
+    /// fraction of the split), else the leading pane's share of the split.
+    static func splitText(_ split: NSSplitView, start: CGFloat) -> String {
+        let extent = split.isVertical ? split.bounds.width : split.bounds.height
+        guard split.arrangedSubviews.count == 2, extent > 0 else { return "no size" }
+        let pane = split.arrangedSubviews[0].frame
+        let fraction = (split.isVertical ? pane.maxX : pane.maxY) / extent
+        return abs(fraction - start) * extent <= 2 ? "default" : String(format: "%.2f", fraction)
     }
 
     /// The first node below the root that has children, else the root's first child, which a zoom can centre on.
@@ -99,7 +120,8 @@ struct Kraken2ViewStateDriver: ViewStateDriver {
         (harness.split.viewerController.surfaceHost.activeViewport as? Kraken2Surface)?.controller
     }
 
-    func isShown(in harness: ViewSwitchWindowHarness) -> Bool { viewer(in: harness) != nil }
+    /// Shown once the divider has its first position, which the first layout gives it.
+    func isShown(in harness: ViewSwitchWindowHarness) -> Bool { viewer(in: harness)?.didSetInitialSplitPosition == true }
 
     func change(in harness: ViewSwitchWindowHarness) throws {
         TaxonomyViewStateControls.change(try XCTUnwrap(viewer(in: harness)), filter: "Homo")
@@ -163,7 +185,8 @@ struct CzIdViewStateDriver: ViewStateDriver {
         (harness.split.viewerController.surfaceHost.activeViewport as? CzIdSurface)?.controller?.taxonomyViewController
     }
 
-    func isShown(in harness: ViewSwitchWindowHarness) -> Bool { viewer(in: harness) != nil }
+    /// Shown once the divider has its first position, which the first layout gives it.
+    func isShown(in harness: ViewSwitchWindowHarness) -> Bool { viewer(in: harness)?.didSetInitialSplitPosition == true }
 
     func change(in harness: ViewSwitchWindowHarness) throws {
         TaxonomyViewStateControls.change(try XCTUnwrap(viewer(in: harness)), filter: "virus")
@@ -192,9 +215,10 @@ struct CzIdViewStateDriver: ViewStateDriver {
         _ = try CzIdDataConverter.convertTaxonReport(at: edited, outputDirectory: bundle)
     }
 
-    /// The starting view: no filter, the default sort by reads, no row, no zoom and the drawer closed.
+    /// The starting view: no filter, the default sort by reads, no row, no zoom, the drawer closed and the divider where
+    /// the viewer puts it.
     func readingAfterChangedBundle(changed: [String]) -> [String] {
-        ["filter ", "sort reads descending", "selected ", "zoom none", "drawer closed"]
+        ["filter ", "sort reads descending", "selected ", "zoom none", "drawer closed", "split default"]
     }
 
     var lineAfterChangedBundle: String? { "The data changed since your last visit, so the view was reset." }
@@ -210,10 +234,13 @@ struct EsVirituViewStateDriver: ViewStateDriver {
         (harness.split.viewerController.surfaceHost.activeViewport as? EsVirituSurface)?.controller
     }
 
-    func isShown(in harness: ViewSwitchWindowHarness) -> Bool { viewer(in: harness) != nil }
+    /// Shown once the divider has its first position, which the first layout gives it.
+    func isShown(in harness: ViewSwitchWindowHarness) -> Bool {
+        viewer(in: harness)?.splitCoordinator.didSetInitialSplitPosition == true
+    }
 
-    /// The filter field, the sort by name through the header menu's path, and the first row selected with its
-    /// disclosure turned from how the viewer opened it.
+    /// The filter field, the sort by name through the header menu's path, the first row selected with its disclosure
+    /// turned from how the viewer opened it, and the divider.
     func change(in harness: ViewSwitchWindowHarness) throws {
         let table = try XCTUnwrap(viewer(in: harness)).detectionTableView
         table.testingSubmitSearchTextImmediately("adeno")
@@ -223,10 +250,12 @@ struct EsVirituViewStateDriver: ViewStateDriver {
         let item = try XCTUnwrap(outline.item(atRow: 0))
         XCTAssertTrue(outline.isExpandable(item), "the adenovirus assembly holds two detections")
         if outline.isItemExpanded(item) { outline.collapseItem(item) } else { outline.expandItem(item) }
+        TaxonomyViewStateControls.moveDivider(of: try XCTUnwrap(viewer(in: harness)).splitView)
     }
 
     func read(in harness: ViewSwitchWindowHarness) throws -> [String] {
-        let table = try XCTUnwrap(viewer(in: harness)).detectionTableView
+        let viewer = try XCTUnwrap(viewer(in: harness))
+        let table = viewer.detectionTableView
         let outline = table.outlineView
         let selected = outline.selectedRowIndexes.map { TaxonomyViewStateControls.nameText(of: $0, in: outline) }
         let expansion: [String] = (0..<outline.numberOfRows).compactMap { row in
@@ -239,6 +268,7 @@ struct EsVirituViewStateDriver: ViewStateDriver {
             "selected \(selected.joined(separator: ", "))",
             "assemblies \(expansion.joined(separator: ", "))",
             "rows \(outline.numberOfRows)",
+            "split \(TaxonomyViewStateControls.splitText(viewer.splitView, start: viewer.defaultLeadingFraction(for: .current())))",
         ]
     }
 

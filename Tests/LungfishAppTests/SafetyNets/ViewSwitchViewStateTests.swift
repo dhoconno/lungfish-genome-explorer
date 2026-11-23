@@ -478,6 +478,55 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertNil(harness.resetLineWords, "the route's pick is not a loss, so no line shows")
     }
 
+    /// VS-TAX item 2: the samples a Kraken2 batch view restores show in the Inspector's picker, which holds the viewer's
+    /// own state, and the restored row stays selected once the Inspector has drawn them. A stale Inspector, or one whose
+    /// picker change rebuilt the table, would need the viewer's `announceViewMemory()`.
+    func testKraken2RestoredSamplesShowInTheInspectorAndTheRestoredRowStaysSelected() async throws {
+        let analyses = try SafetyNetFiles.makeDirectory(project.appendingPathComponent("Analyses", isDirectory: true))
+        let batch = try RoutingSafetyNetFixtures.kraken2Result(
+            named: "kraken2-batch-2026-01-15T12-00-00", in: analyses, samples: ["HG002", "MMU-17"],
+            sampleSubdirectories: true
+        )
+        try RoutingSafetyNetTable.metadata("kraken2", isBatch: true, in: batch)
+        let batchRow = SidebarItem(title: batch.lastPathComponent, type: .classificationResult, url: batch)
+        let other = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Status only"), in: project)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        func viewer() -> TaxonomyViewController? {
+            (harness.split.viewerController.surfaceHost.activeViewport as? Kraken2Surface)?.controller
+        }
+        func visit(expecting samples: Set<String>) async {
+            harness.select(batchRow)
+            let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+                viewer()?.samplePickerState?.selectedSamples == samples
+            }
+            XCTAssertTrue(shown, "the picker shows \(String(describing: viewer()?.samplePickerState?.selectedSamples))")
+        }
+
+        await visit(expecting: ["HG002", "MMU-17"])
+        let first = try XCTUnwrap(viewer())
+        first.samplePickerState?.selectedSamples = ["HG002"]
+        first.applyBatchSampleFilter()
+        let table = first.batchTableView.tableView
+        XCTAssertGreaterThan(table.numberOfRows, 0, "the HG002 rows show")
+        table.selectRowIndexes(IndexSet(integer: table.numberOfRows - 1), byExtendingSelection: false)
+        let selected = table.selectedRowIndexes
+        try await leave(for: other, in: harness, driver: Kraken2ViewStateDriver())
+
+        await visit(expecting: ["HG002"])
+        let back = try XCTUnwrap(viewer())
+        let summary = harness.split.inspectorController.viewModel.documentSectionViewModel
+        let inspectorShows = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+            summary.classifierPickerState === back.samplePickerState && summary.classifierPickerState?.selectedSamples == ["HG002"]
+        }
+        XCTAssertTrue(
+            inspectorShows, "the Inspector shows \(String(describing: summary.classifierPickerState?.selectedSamples))"
+        )
+        harness.window.displayIfNeeded()
+        XCTAssertEqual(back.batchTableView.tableView.selectedRowIndexes, selected, "the restored row stays selected")
+    }
+
     /// VS A10 and QA 6: the Kraken2 and EsViritu tables write no column layout to the account's defaults when the route
     /// sets their result, and a moved column comes back after a switch, from view memory.
     func testKraken2AndEsVirituKeepAMovedColumnInViewMemoryAndWriteNoLayoutToTheAccountDefaults() async throws {

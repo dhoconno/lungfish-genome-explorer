@@ -258,7 +258,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     // MARK: - Split View State
 
     /// Shared raw split-view coordinator for pane ordering and divider state.
-    private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
+    let splitCoordinator = TwoPaneTrackedSplitCoordinator()
 
     // MARK: - Selection Sync
 
@@ -1106,7 +1106,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         applyLayoutPreference()
     }
 
-    private func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
+    func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
         switch layout {
         case .detailLeading, .stacked:
             return 0.4
