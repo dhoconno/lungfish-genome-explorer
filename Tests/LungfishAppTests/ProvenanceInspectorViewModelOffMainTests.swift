@@ -119,11 +119,12 @@ final class ProvenanceInspectorViewModelOffMainTests: XCTestCase {
         XCTAssertEqual(outcome?.affectedResultKind, .viralRecon, "the lookup's outcome carries the kind")
         let shown = viewModel.warnings.filter { $0.title == ProvenanceInspectorViewModel.affectedResultsWarningTitle }
             .map(\.message)
-        // The rows of the S1 fixes of 5.6 hold every build up to 14072 and have their own pins, so the count leaves them
-        // out. The two loose-pair rows name Viral Recon results.
+        // The rows of the S1 fixes of 5.6 hold every build up to 14072 or 14223 and have their own pins, so the count
+        // leaves them out. The two loose-pair rows name Viral Recon results.
         let rowsOf56: Set<String> = [
             "TAXTRIAGE-BUNDLE-NAMES-PAIRED", "GROUPER-CROSS-FOLDER-PAIR", "LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP",
-            "CZID-REAL-EXPORT-FORMAT",
+            "CZID-REAL-EXPORT-FORMAT", "FASTQ-INGEST-PAIR-NO-MATE-CHECK", "RIBODETECTOR-TWO-FILES-NO-MATE-CHECK",
+            "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK",
         ]
         let wordsOf56 = Set(AffectedResults.rows.filter { rowsOf56.contains($0.backlogID) }.map(\.words))
         let older = shown.filter { !wordsOf56.contains($0) }

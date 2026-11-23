@@ -85,11 +85,12 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         model.warnings.filter { $0.title == ProvenanceInspectorViewModel.affectedResultsWarningTitle }.map(\.message)
     }
 
-    /// The rows of the S1 fixes of 5.6 hold every build up to 14072 and have their own pins
+    /// The rows of the S1 fixes of 5.6 hold every build up to 14072 or 14223 and have their own pins
     /// (`ProvenanceInspectorLoosePairAffectedTests`), so the pins of the older rows here leave them out.
     private let rowsOf56: Set<String> = [
         "TAXTRIAGE-BUNDLE-NAMES-PAIRED", "GROUPER-CROSS-FOLDER-PAIR", "LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP",
-        "CZID-REAL-EXPORT-FORMAT",
+        "CZID-REAL-EXPORT-FORMAT", "FASTQ-INGEST-PAIR-NO-MATE-CHECK", "RIBODETECTOR-TWO-FILES-NO-MATE-CHECK",
+        "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK",
     ]
 
     private func olderRows(_ shown: [String]) -> [String] {

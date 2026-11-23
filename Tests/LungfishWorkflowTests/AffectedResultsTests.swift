@@ -11,16 +11,18 @@ final class AffectedResultsTests: XCTestCase {
     /// and 2026.9.52 (`git rev-list --count v2026.9.52`), the last build without the older Viral Recon lineage fix.
     private let publishedBuilds: Set<Int> = [
         5442, 11609, 11807, 12045, 12518, 12591, 12803, 12818, 12859, 12962, 12972, 13190, 13300, 13603, 13672, 13764,
-        13924, 14072,
+        13924, 14072, 14223,
     ]
 
     private func version(_ build: Int) -> String { "Lungfish 2026.10.29 (\(build))" }
 
-    /// The rows of the S1 fixes of 5.6 (`AffectedResults.loosePairAndImportRows`). They hold every build up to 14072 and
-    /// have their own pins (`AffectedResultsLoosePairAndImportTests`), so the pins of the older rows here leave them out.
+    /// The rows of the S1 fixes of 5.6 (`AffectedResults.loosePairAndImportRows`). They hold every build up to 14072 or
+    /// 14223 and have their own pins (`AffectedResultsLoosePairAndImportTests`), so the pins of the older rows here leave
+    /// them out.
     private static let rowsOf56: Set<String> = [
         "TAXTRIAGE-BUNDLE-NAMES-PAIRED", "GROUPER-CROSS-FOLDER-PAIR", "LOOSE-PAIR-SHORT-MATE", "LOOSE-PAIR-OUT-OF-STEP",
-        "CZID-REAL-EXPORT-FORMAT",
+        "CZID-REAL-EXPORT-FORMAT", "FASTQ-INGEST-PAIR-NO-MATE-CHECK", "RIBODETECTOR-TWO-FILES-NO-MATE-CHECK",
+        "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK",
     ]
 
     private func olderRows(_ ids: [String]) -> [String] { ids.filter { !Self.rowsOf56.contains($0) } }
@@ -567,7 +569,7 @@ final class AffectedResultsTests: XCTestCase {
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.10.29"), 11808...12045, "after 2026.10.28, up to its own")
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.8.1"), 4192...4192, "the first published release")
         XCTAssertEqual(AffectedResults.builds(ofVersion: "2026.9.5"), 4363...4440, "never published, between 9.4 and 9.6")
-        for text in ["2026.11.16", "2026.7.30", "Lungfish 2026.10.29 (12045)", "2026.10.29.1", "dev", ""] {
+        for text in ["2026.11.17", "2026.7.30", "Lungfish 2026.10.29 (12045)", "2026.10.29.1", "dev", ""] {
             XCTAssertNil(AffectedResults.builds(ofVersion: text), text)
         }
         var fixture = ProvenanceEnvelope.fixture()

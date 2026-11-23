@@ -78,11 +78,13 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// of a bundle look alike, and the kind holds every such result.
     case rnaSeqPlanRun
     /// A FASTQ file that `lungfish fastq ingest <R1> --pair <R2>` or `lungfish debug fastq-ingest --pair` wrote from two
-    /// loose files, which the ingestion pipeline paired by position (LOOSE-PAIR-OUT-OF-STEP, BIO-ROUTES-5 item 2). A cut R2
-    /// stopped after the tool, so LOOSE-PAIR-SHORT-MATE leaves it out, as it leaves out ``fastqLoosePairImport``.
+    /// loose files, which the ingestion pipeline paired by position (FASTQ-INGEST-PAIR-NO-MATE-CHECK, BIO-ROUTES-5
+    /// item 2). A cut R2 stopped after the tool, so its row has only the out-of-step words, as the row of
+    /// ``fastqLoosePairImport`` has.
     case fastqIngestLoosePair
     /// The reads `lungfish fastq ribodetector` or `lungfish fastq deacon-ribo` kept from two loose files, which the tool
-    /// paired by position (LOOSE-PAIR-SHORT-MATE, LOOSE-PAIR-OUT-OF-STEP, BIO-ROUTES-5 item 2).
+    /// paired by position (RIBODETECTOR-TWO-FILES-NO-MATE-CHECK and DEACON-RIBO-TWO-FILES-NO-MATE-CHECK,
+    /// BIO-AFFECTED-14223).
     case fastqRiboFilterLoosePair
 }
 
@@ -231,8 +233,8 @@ public enum AffectedResults {
     }
 
     /// The table, with the rows of the S1 fixes of sub-phase 5.6 in ``loosePairAndImportRows``. The newest published
-    /// builds are `Lungfish 2026.11.15 (14072)`, 13927 (Stable 2026.11.14, a patch build), 13924 (2026.11.13), 13764
-    /// (2026.11.12) and `Lungfish 2026.11.11 (13672)` and, before it, 13603 (2026.11.10),
+    /// builds are `Lungfish 2026.11.16 (14223)`, 14072 (2026.11.15), 13927 (Stable 2026.11.14, a patch build), 13924
+    /// (2026.11.13), 13764 (2026.11.12) and `Lungfish 2026.11.11 (13672)` and, before it, 13603 (2026.11.10),
     /// 13300 (2026.11.9), 13190 (2026.11.8), 12972 (2026.11.7), 12962 (2026.11.6), 12859, 12818, 12803, 12591, 12518
     /// (2026.11.1), 12045 (2026.10.29), 11807 (2026.10.28) and 11609 (2026.10.27).
     public static let rows: [AffectedResultRow] = [
@@ -644,6 +646,7 @@ public enum AffectedResults {
         // Stable 2026.11.14 was packaged from a patch branch of v2026.11.7, whose tag counts 12984 commits, and stamped
         // 13927. It is left out, so its version names the builds between the two Previews, which hold 13927.
         .init("2026.11.15", 14072),
+        .init("2026.11.16", 14223),
     ]
 
     /// A patch build: stamped on a patch branch of an older release, so its number says nothing of the fixes between that

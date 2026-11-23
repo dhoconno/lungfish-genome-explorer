@@ -21,10 +21,10 @@ extension AffectedResults.RecordName {
 }
 
 extension AffectedResults {
-    /// The rows of the S1 fixes of sub-phase 5.6 (`docs/reports/2026.11.16-technical.md`, S1 and S2 results). No
-    /// published build holds any of them, so each ends at Preview 2026.11.15 (14072), and Stable 2026.11.14, a patch build
-    /// stamped 13927, lacks each too. No record names a commit that brought a fault in after 2026.8.1, so none has a
-    /// first build.
+    /// The rows of the S1 fixes of sub-phase 5.6 (`docs/reports/2026.11.16-technical.md`, S1 and S2 results). Preview
+    /// 2026.11.16 (14223) holds the fixes of the first five, so they end at Preview 2026.11.15 (14072). It was published
+    /// before FIX-ROUTES-6, so the last three end at 14223. Stable 2026.11.14, a patch build stamped 13927, lacks each fix.
+    /// No record names a commit that brought a fault in after 2026.8.1, so none has a first build.
     static let loosePairAndImportRows: [AffectedResultRow] = [
         // TT-PAIR fixed the TaxTriage dialog (cf12d6ba7 to 91f863bd7) and TT-GROUP the grouper behind the Classification
         // and EsViritu dialogs and both --batch commands (4d19103d6 to 61acb5bfc), two of the three kinds, so the row
@@ -51,12 +51,11 @@ extension AffectedResults {
         // pair before the recipe of an import, whose fastp pairs two files by position and leaves equal counts that no
         // later check sees, so the row holds the recipe import. The import with no recipe refused unequal counts after
         // its tools (BIO-ROUTES-3 D1), so the row leaves that kind out.
-        // FIX-ROUTES-6 (51f0f3f8f) refuses both on `fastq ingest --pair`, `fastq ribodetector` and `fastq deacon-ribo` (BIO-ROUTES-5).
         AffectedResultRow(
             backlogID: "LOOSE-PAIR-SHORT-MATE",
             kinds: [
                 .taxTriage, .kraken2, .esViritu, .mappingLoosePair, .assembly, .viralRecon, .fastqRecipeImport,
-                .rnaSeqPlanRun, .fastqRiboFilterLoosePair,
+                .rnaSeqPlanRun,
             ],
             firstBuild: nil, lastBuild: 14072,
             sentence: "If this result used separate R1 and R2 files, the old version did not check for equal read "
@@ -69,13 +68,11 @@ extension AffectedResults {
         // Viral Recon, FIX-ROUTES-2 (ab7520464) on the import with a recipe, and FIX-ROUTES-4 (cccc812a2) on the
         // import with no recipe and on executor plans (BIO-ROUTES-3 D1 and D2). FIX-B2 and FIX-ROUTES fix three kinds
         // each, so the row names FIX-ROUTES, as LOOSE-PAIR-SHORT-MATE does.
-        // FIX-ROUTES-6 (51f0f3f8f) refuses both on `fastq ingest --pair`, `fastq ribodetector` and `fastq deacon-ribo` (BIO-ROUTES-5).
         AffectedResultRow(
             backlogID: "LOOSE-PAIR-OUT-OF-STEP",
             kinds: [
                 .taxTriage, .kraken2, .esViritu, .mappingLoosePair, .assembly, .viralRecon, .fastqRecipeImport,
-                .fastqLoosePairImport, .fastqIngestLoosePair,
-                .rnaSeqPlanRun, .fastqRiboFilterLoosePair,
+                .fastqLoosePairImport, .rnaSeqPlanRun,
             ],
             firstBuild: nil, lastBuild: 14072,
             sentence: "If this result used separate R1 and R2 files with equal read counts but different read orders, "
@@ -93,6 +90,40 @@ extension AffectedResults {
             whatToDo: "Import the CZ ID report again with this version, which reads CSV or tab report tables, then "
                 + "remove this result.",
             fixCommit: "f58ecdaae"
+        ),
+        // Preview 2026.11.16 (14223) was published from 330177c76 before FIX-ROUTES-6 (17f2ab40a, 73ed4d251, f56577c52)
+        // refused a cut or shuffled R2 on `fastq ingest --pair`, `fastq ribodetector` and `fastq deacon-ribo`, so these
+        // rows end at 14223 and the two kinds leave the rows above (BIO-AFFECTED-14223). FIX-ROUTES-7 (8683ef76c to
+        // 3c58c1fb3) names the kinds. A cut R2 stopped `fastq ingest` after the tool, so its row has only the out-of-step
+        // words. RiboDetector and Deacon share one kind, so one row says the short-mate words and one the out-of-step
+        // words for both.
+        AffectedResultRow(
+            backlogID: "FASTQ-INGEST-PAIR-NO-MATE-CHECK", kinds: [.fastqIngestLoosePair], firstBuild: nil, lastBuild: 14223,
+            sentence: "If this result used separate R1 and R2 files with equal read counts but different read orders, "
+                + "the old version paired reads by position, so reads from different fragments could be treated as "
+                + "mates.",
+            whatToDo: "If the files may have been sorted or subsampled separately, import them again or rerun the "
+                + "analysis with this version, which checks that each pair's read names match.",
+            fixCommit: "f56577c52"
+        ),
+        AffectedResultRow(
+            backlogID: "RIBODETECTOR-TWO-FILES-NO-MATE-CHECK", kinds: [.fastqRiboFilterLoosePair], firstBuild: nil,
+            lastBuild: 14223,
+            sentence: "If this result used separate R1 and R2 files, the old version did not check for equal read "
+                + "counts, so it could skip reads or pair them with the wrong mates.",
+            whatToDo: "If the read counts differ, rerun the analysis with this version, which stops and reports the "
+                + "mismatch.",
+            fixCommit: "f56577c52"
+        ),
+        AffectedResultRow(
+            backlogID: "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK", kinds: [.fastqRiboFilterLoosePair], firstBuild: nil,
+            lastBuild: 14223,
+            sentence: "If this result used separate R1 and R2 files with equal read counts but different read orders, "
+                + "the old version paired reads by position, so reads from different fragments could be treated as "
+                + "mates.",
+            whatToDo: "If the files may have been sorted or subsampled separately, import them again or rerun the "
+                + "analysis with this version, which checks that each pair's read names match.",
+            fixCommit: "f56577c52"
         ),
     ]
 
