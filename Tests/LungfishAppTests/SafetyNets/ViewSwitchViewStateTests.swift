@@ -40,6 +40,8 @@ protocol ViewStateDriver {
     func resetLineWords(in harness: ViewSwitchWindowHarness) -> String?
     /// Waits for the view's own reads after a show or a change, for a view whose controls settle off the main actor.
     func settle(in harness: ViewSwitchWindowHarness) async
+    /// Shapes the kind's fixture on disk before its first show, when the routing fixture is too small to change.
+    func prepare(_ fixture: ViewSwitchFixture) throws
 }
 
 extension ViewStateDriver {
@@ -47,6 +49,7 @@ extension ViewStateDriver {
     func resetLineWords(in harness: ViewSwitchWindowHarness) -> String? { harness.resetLineWords }
     /// A view whose controls hold the change at once has nothing to wait for.
     func settle(in harness: ViewSwitchWindowHarness) async {}
+    func prepare(_ fixture: ViewSwitchFixture) throws {}
 }
 
 @MainActor
@@ -80,14 +83,21 @@ final class ViewSwitchViewStateTests: XCTestCase {
     private var root: URL!
     private var project: URL!
     private var storeRoot: URL!
+    /// The App's Kraken2 and EsViritu tables key their column layouts by the result's path in the runner's defaults
+    /// when the route sets their result, before the surface loads, so no seam takes a suite. The restorer owns the
+    /// keys that name this test's folder (Phase 3.1 ruling QA-RELEASE-LOOP, section 5).
+    private var hostDefaults: HostDefaultsRestorer?
 
     override func setUp() async throws {
         root = try TestTempDirectory.make(prefix: "ViewSwitchViewState")
         project = try SafetyNetFiles.makeDirectory(root.appendingPathComponent("ViewState.lungfish", isDirectory: true))
         storeRoot = root.appendingPathComponent("view-memory", isDirectory: true)
+        hostDefaults = HostDefaultsRestorer(keysContaining: root.lastPathComponent)
     }
 
     override func tearDown() async throws {
+        hostDefaults?.restore()
+        hostDefaults = nil
         TestTempDirectory.cleanup(root)
     }
 
@@ -419,7 +429,9 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await assertRelaunch(CzIdViewStateDriver())
     }
 
-    func testCzIdOpensAChangedBundleWithItsFilterDroppedAndOneLine() async throws {
+    /// A new import in a new folder at the same path drops the whole record (VS A3), so the view starts over and the
+    /// reset line says so (word 3).
+    func testCzIdOpensARecreatedBundleAtItsStartWithTheResetLine() async throws {
         try await assertChangedBundle(CzIdViewStateDriver())
     }
 
@@ -505,6 +517,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
     private func fixtures(for driver: any ViewStateDriver) async throws -> (ViewSwitchFixture, ViewSwitchFixture) {
         let kind = try ViewSwitchFixtures.kind(named: driver.kind)
         let fixture = try await ViewSwitchFixtures.build(kind, in: project)
+        try driver.prepare(fixture)
         let other = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Status only"), in: project)
         return (fixture, other)
     }

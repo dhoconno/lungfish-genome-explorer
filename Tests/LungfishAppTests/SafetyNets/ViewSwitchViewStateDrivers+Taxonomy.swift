@@ -21,6 +21,11 @@ import LungfishWorkflow
 /// The one line a changed bundle shows when the filter text drops (word 2, `.filters`).
 private let filtersNotKeptLine = "The data changed since your last visit, so your filters were not kept."
 
+/// When the fixture's run was built, and when the rerun of the changed-bundle case was, as `build-db` records them in
+/// the database's `created_at` (`BuildDbCommand+Kraken2Core.swift`, `BuildDbCommand+EsVirituCore.swift`).
+private let firstRunStamp = "2026-01-15T11:00:00Z"
+private let rerunStamp = "2026-11-23T09:00:00Z"
+
 /// What a person changes in a taxonomy viewer and what the viewer's controls show, for Kraken2 and CZ ID.
 @MainActor
 enum TaxonomyViewStateControls {
@@ -104,26 +109,45 @@ struct Kraken2ViewStateDriver: ViewStateDriver {
         TaxonomyViewStateControls.read(try XCTUnwrap(viewer(in: harness)), includeRows: true)
     }
 
-    /// A rerun with other counts. The data key is made from the loaded counts, so a touched file would not change it.
+    /// The routing fixture's one row is the tree's root, so the outline draws no row and a pick or a zoom has nothing
+    /// to act on. The database is built again as a run makes it: a root, two genera and a species under each.
+    func prepare(_ fixture: ViewSwitchFixture) throws {
+        try Self.build(in: try XCTUnwrap(fixture.item.url), stamp: firstRunStamp)
+    }
+
+    /// A rerun in place with the same counts, which `build-db` stamps with a new `created_at`. A rerun must change the
+    /// data key (VS B1), so the filter drops even though every count is the same.
     func changeBundle(of fixture: ViewSwitchFixture) throws {
-        let folder = try XCTUnwrap(fixture.item.url)
+        try Self.build(in: try XCTUnwrap(fixture.item.url), stamp: rerunStamp)
+    }
+
+    /// The filter drops, so every taxon below the root shows again: the outline opens the root's children, which
+    /// shows both genera and both species.
+    func readingAfterChangedBundle(changed: [String]) -> [String] {
+        var reading = TaxonomyViewStateControls.readingAfterChangedBundle(changed: changed)
+        reading[reading.count - 1] = "rows 4"
+        return reading
+    }
+
+    private static func build(in folder: URL, stamp: String) throws {
         let database = folder.appendingPathComponent("kraken2.sqlite")
-        try FileManager.default.removeItem(at: database)
+        try? FileManager.default.removeItem(at: database)
+        func row(_ name: String, _ taxId: Int, _ rank: String, _ reads: Int, _ parent: Int?, _ depth: Int) -> Kraken2ClassificationRow {
+            Kraken2ClassificationRow(
+                sample: "HG002", taxonName: name, taxId: taxId, rank: rank, rankDisplayName: rank,
+                readsDirect: rank == "S" ? reads : 0, readsClade: reads, percentage: Double(reads) / 2,
+                parentTaxId: parent, depth: depth, fractionDirect: 0.0
+            )
+        }
         _ = try Kraken2Database.create(
             at: database,
             rows: [
-                Kraken2ClassificationRow(
-                    sample: "HG002", taxonName: "Homo sapiens", taxId: 9606, rank: "S",
-                    rankDisplayName: "Species", readsDirect: 60, readsClade: 120, percentage: 1.0,
-                    parentTaxId: nil, depth: 0, fractionDirect: 0.0
-                ),
+                row("root", 1, "R", 200, nil, 0),
+                row("Homo", 9605, "G", 120, 1, 1), row("Homo sapiens", 9606, "S", 120, 9605, 2),
+                row("Mus", 10088, "G", 80, 1, 1), row("Mus musculus", 10090, "S", 80, 10088, 2),
             ],
-            metadata: ["tool": "kraken2"]
+            metadata: ["tool": "kraken2", "created_at": stamp, "total_reads_HG002": "200", "classified_reads_HG002": "200"]
         )
-    }
-
-    func readingAfterChangedBundle(changed: [String]) -> [String] {
-        TaxonomyViewStateControls.readingAfterChangedBundle(changed: changed)
     }
 
     var lineAfterChangedBundle: String? { filtersNotKeptLine }
@@ -150,7 +174,10 @@ struct CzIdViewStateDriver: ViewStateDriver {
         TaxonomyViewStateControls.read(try XCTUnwrap(viewer(in: harness)), includeRows: false)
     }
 
-    /// Converts the report again with one more taxon row, so the manifest's row count and the tree's counts change.
+    /// Imports the report again with one more taxon row into a new folder at the same path, as a person who deletes an
+    /// import and imports again does. The record keeps the folder's file number and creation date, and a new folder
+    /// has others, so the whole record drops and the view opens at its start with the reset line (VS A3, word 3). An
+    /// import has no rerun in place, so this is CZ ID's changed bundle.
     func changeBundle(of fixture: ViewSwitchFixture) throws {
         let bundle = try XCTUnwrap(fixture.item.url)
         let report = try String(contentsOf: SafetyNetPaths.fixture("czid/minimal_taxon_report.tsv"), encoding: .utf8)
@@ -165,11 +192,12 @@ struct CzIdViewStateDriver: ViewStateDriver {
         _ = try CzIdDataConverter.convertTaxonReport(at: edited, outputDirectory: bundle)
     }
 
+    /// The starting view: no filter, the default sort by reads, no row, no zoom and the drawer closed.
     func readingAfterChangedBundle(changed: [String]) -> [String] {
-        TaxonomyViewStateControls.readingAfterChangedBundle(changed: changed)
+        ["filter ", "sort reads descending", "selected ", "zoom none", "drawer closed"]
     }
 
-    var lineAfterChangedBundle: String? { filtersNotKeptLine }
+    var lineAfterChangedBundle: String? { "The data changed since your last visit, so the view was reset." }
 }
 
 // MARK: - EsViritu
@@ -184,14 +212,17 @@ struct EsVirituViewStateDriver: ViewStateDriver {
 
     func isShown(in harness: ViewSwitchWindowHarness) -> Bool { viewer(in: harness) != nil }
 
-    /// The filter field, the sort by name through the header menu's path, the first row selected and collapsed.
+    /// The filter field, the sort by name through the header menu's path, and the first row selected with its
+    /// disclosure turned from how the viewer opened it.
     func change(in harness: ViewSwitchWindowHarness) throws {
         let table = try XCTUnwrap(viewer(in: harness)).detectionTableView
         table.testingSubmitSearchTextImmediately("adeno")
         table.columnHeaderFilterMenu(sortByKey: "name", ascending: true)
         let outline = table.outlineView
         outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        if let item = outline.item(atRow: 0), outline.isExpandable(item) { outline.collapseItem(item) }
+        let item = try XCTUnwrap(outline.item(atRow: 0))
+        XCTAssertTrue(outline.isExpandable(item), "the adenovirus assembly holds two detections")
+        if outline.isItemExpanded(item) { outline.collapseItem(item) } else { outline.expandItem(item) }
     }
 
     func read(in harness: ViewSwitchWindowHarness) throws -> [String] {
@@ -211,32 +242,53 @@ struct EsVirituViewStateDriver: ViewStateDriver {
         ]
     }
 
-    /// A rerun with a second detection in the assembly, so the sample's virus count and the key change. The assembly
-    /// stays collapsed, so the rows shown are the same.
-    func changeBundle(of fixture: ViewSwitchFixture) throws {
-        let folder = try XCTUnwrap(fixture.item.url)
-        let database = folder.appendingPathComponent("esviritu.sqlite")
-        try FileManager.default.removeItem(at: database)
-        func row(_ accession: String) -> EsVirituDetectionRow {
-            EsVirituDetectionRow(
-                sample: "HG002", virusName: "Human mastadenovirus C", description: nil,
-                contigLength: 1_000, segment: nil, accession: accession,
-                assembly: "GCF_000845085.1", assemblyLength: 35_937, kingdom: nil, phylum: nil,
-                tclass: nil, torder: nil, family: nil, genus: nil, species: nil,
-                subspecies: nil, rpkmf: 1, readCount: 4, uniqueReads: 3,
-                coveredBases: 1_000, meanCoverage: 1, avgReadIdentity: 0.99,
-                pi: nil, filteredReadsInSample: 4, bamPath: nil, bamIndexPath: nil
-            )
-        }
-        try EsVirituDatabase.create(
-            at: database, rows: [row("NC_001405.1"), row("NC_001406.1")], metadata: ["tool": "esviritu"]
-        )
+    /// The routing fixture's assembly holds one detection, which the outline draws as a row with no disclosure. The
+    /// database is built again with two detections of an adenovirus assembly and one of an HIV assembly, so the
+    /// adenovirus row opens and closes and the filter hides the HIV row.
+    func prepare(_ fixture: ViewSwitchFixture) throws {
+        try Self.build(in: try XCTUnwrap(fixture.item.url), stamp: firstRunStamp)
     }
 
+    /// A rerun in place with the same rows, which `build-db` stamps with a new `created_at`. A rerun must change the
+    /// data key (VS B1), so the filter drops even though every count is the same.
+    func changeBundle(of fixture: ViewSwitchFixture) throws {
+        try Self.build(in: try XCTUnwrap(fixture.item.url), stamp: rerunStamp)
+    }
+
+    /// The filter drops and the HIV row shows again. The adenovirus assembly is the same assembly of the same sample,
+    /// so its disclosure comes back as the person left it (VS B4): it is a presentation of rows the assembly row
+    /// sums, not a filter (VS B6).
     func readingAfterChangedBundle(changed: [String]) -> [String] {
         var reading = changed
         reading[0] = "filter "
+        let collapsed = changed[3] == "assemblies closed"
+        reading[4] = collapsed ? "rows 2" : "rows 4"
         return reading
+    }
+
+    private static func build(in folder: URL, stamp: String) throws {
+        let database = folder.appendingPathComponent("esviritu.sqlite")
+        try? FileManager.default.removeItem(at: database)
+        func row(_ virus: String, _ accession: String, _ assembly: String) -> EsVirituDetectionRow {
+            EsVirituDetectionRow(
+                sample: "HG002", virusName: virus, description: nil,
+                contigLength: 1_000, segment: nil, accession: accession,
+                assembly: assembly, assemblyLength: 35_937, kingdom: nil, phylum: nil,
+                tclass: nil, torder: nil, family: nil, genus: nil, species: nil,
+                subspecies: nil, rpkmf: 1, readCount: 4, uniqueReads: 3,
+                coveredBases: 1_000, meanCoverage: 1, avgReadIdentity: 0.99,
+                pi: nil, filteredReadsInSample: 12, bamPath: nil, bamIndexPath: nil
+            )
+        }
+        try EsVirituDatabase.create(
+            at: database,
+            rows: [
+                row("Human mastadenovirus C", "NC_001405.1", "GCF_000845085.1"),
+                row("Human mastadenovirus C", "NC_001406.1", "GCF_000845085.1"),
+                row("Human immunodeficiency virus 1", "NC_001802.1", "GCF_000864765.1"),
+            ],
+            metadata: ["tool": "esviritu", "created_at": stamp]
+        )
     }
 
     var lineAfterChangedBundle: String? { filtersNotKeptLine }
