@@ -77,28 +77,21 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
 
     // MARK: - ChromosomeReadStat
 
-    func testChromosomeReadStatEstimatedCoverage() {
-        let stat = ChromosomeReadStat(
-            chromosome: "MN908947.3",
-            length: 29903,
-            mappedReads: 169022,
-            unmappedReads: 0
-        )
+    func testChromosomeReadStatShowsOnlyAMeasuredDepth() throws {
+        let unmeasured = ChromosomeReadStat(chromosome: "MN908947.3", length: 29903, mappedReads: 169022, unmappedReads: 0)
+        XCTAssertNil(unmeasured.estimatedCoverage, "no read length is assumed")
 
-        // 169022 * 150 / 29903 ≈ 847.8x
-        let coverage = stat.estimatedCoverage
-        XCTAssertGreaterThan(coverage, 800)
-        XCTAssertLessThan(coverage, 900)
+        let measured = ChromosomeReadStat(
+            chromosome: "MN908947.3", length: 29903, mappedReads: 169022, unmappedReads: 0, measuredMeanDepth: 84.58
+        )
+        XCTAssertEqual(try XCTUnwrap(measured.estimatedCoverage), 84.58, accuracy: 1e-9)
     }
 
     func testChromosomeReadStatZeroLength() {
         let stat = ChromosomeReadStat(
-            chromosome: "empty",
-            length: 0,
-            mappedReads: 100,
-            unmappedReads: 0
+            chromosome: "empty", length: 0, mappedReads: 100, unmappedReads: 0, measuredMeanDepth: 5
         )
-        XCTAssertEqual(stat.estimatedCoverage, 0)
+        XCTAssertNil(stat.estimatedCoverage)
     }
 
     func testChromosomeReadStatIdentifiable() {

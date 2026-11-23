@@ -593,6 +593,24 @@ public final class ReadStyleSectionViewModel {
         }
 
         (totalMappedReads, totalUnmappedReads, totalsByKind) = (kinds.shownMapped, kinds.shownUnmapped, kinds)
+        // A one-sequence bundle shows its mean depth. It is measured off the main thread, so no depth shows until it returns.
+        if chromStatsList.count == 1, let only = chromStatsList.first,
+           let source = databases.first(where: { countedTrackIDs.contains($0.trackID) && !$0.db.chromosomeStats().isEmpty }),
+           let track = bundle.alignmentTrack(id: source.trackID) {
+            let alignmentURL = bundle.url.appendingPathComponent(track.sourcePath)
+            let chromosome = only.chromosome
+            chromStatsList = [ChromosomeReadStat(
+                chromosome: chromosome, length: only.length, mappedReads: only.mappedReads,
+                unmappedReads: only.unmappedReads, alignmentURL: alignmentURL
+            )]
+            Task { [weak self] in
+                guard let depth = await ReadStyleMeanDepthMeasurement.meanDepth(of: alignmentURL, chromosome: chromosome) else { return }
+                guard let self else { return }
+                self.chromosomeStats = self.chromosomeStats.map {
+                    $0.alignmentURL == alignmentURL && $0.chromosome == chromosome ? $0.withMeasuredMeanDepth(depth) : $0
+                }
+            }
+        }
         chromosomeStats = chromStatsList
         flagStats = flagStatsList
         readGroups = readGroupList
@@ -1037,12 +1055,51 @@ public struct ChromosomeReadStat: Identifiable {
     public let length: Int64
     public let mappedReads: Int64
     public let unmappedReads: Int64
+    /// The alignment file the depth is measured from. Nil where no single file stands for the sequence.
+    public let alignmentURL: URL?
+    /// The mean depth over the whole sequence as `samtools coverage` measured it. Nil until it is measured, and where it cannot be.
+    public let measuredMeanDepth: Double?
 
-    /// Approximate coverage depth (mapped reads × avg read length / chrom length).
-    /// Uses 150 bp assumed read length when unknown.
-    public var estimatedCoverage: Double {
-        guard length > 0 else { return 0 }
-        return Double(mappedReads) * 150.0 / Double(length)
+    public init(
+        chromosome: String, length: Int64, mappedReads: Int64, unmappedReads: Int64,
+        alignmentURL: URL? = nil, measuredMeanDepth: Double? = nil
+    ) {
+        self.chromosome = chromosome
+        self.length = length
+        self.mappedReads = mappedReads
+        self.unmappedReads = unmappedReads
+        self.alignmentURL = alignmentURL
+        self.measuredMeanDepth = measuredMeanDepth
+    }
+
+    /// The depth the Inspector shows: the measured mean depth, or nil for no row. No read length is assumed (EST-COVERAGE-150BP).
+    public var estimatedCoverage: Double? {
+        length > 0 ? measuredMeanDepth : nil
+    }
+
+    func withMeasuredMeanDepth(_ depth: Double) -> ChromosomeReadStat {
+        ChromosomeReadStat(
+            chromosome: chromosome, length: length, mappedReads: mappedReads, unmappedReads: unmappedReads,
+            alignmentURL: alignmentURL, measuredMeanDepth: depth
+        )
+    }
+}
+
+/// Measures the mean depth of one sequence with `samtools coverage`, the pass behind the mapping table's Mean Depth.
+enum ReadStyleMeanDepthMeasurement {
+    static func meanDepth(of alignmentURL: URL, chromosome: String) async -> Double? {
+        guard alignmentURL.pathExtension.lowercased() == "bam",
+              FileManager.default.fileExists(atPath: alignmentURL.path),
+              let result = try? await NativeToolRunner.shared.run(
+                  .samtools, arguments: ["coverage", alignmentURL.path], timeout: 300
+              ),
+              result.exitCode == 0 else { return nil }
+        for line in result.stdout.split(separator: "\n") {
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard fields.count >= 7, fields[0] == chromosome, let depth = Double(fields[6]) else { continue }
+            return depth
+        }
+        return nil
     }
 }
 
@@ -1284,8 +1341,8 @@ public struct AlignmentBundleSection: View {
 
             statRow("Chromosomes", value: "\(viewModel.chromosomeStats.count)")
 
-            if viewModel.chromosomeStats.count == 1, let stat = viewModel.chromosomeStats.first {
-                statRow("Est. Coverage", value: String(format: "%.1fx", stat.estimatedCoverage))
+            if viewModel.chromosomeStats.count == 1, let depth = viewModel.chromosomeStats.first?.estimatedCoverage {
+                statRow("Mean Depth", value: String(format: "%.1fx", depth))
             }
         }
     }
