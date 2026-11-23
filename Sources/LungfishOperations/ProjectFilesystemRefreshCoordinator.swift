@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 @MainActor
@@ -15,6 +16,9 @@ public final class ProjectFilesystemRefreshCoordinator {
     }
 
     public static let shared = ProjectFilesystemRefreshCoordinator()
+
+    /// The root's identity, which LungfishIO's ``ProjectRoot`` reads for this module and for view memory.
+    package typealias RootIdentity = ProjectRoot.RootIdentity
 
     private final class ProjectWatcher {
         var projectURL: URL
@@ -205,6 +209,10 @@ public final class ProjectFilesystemRefreshCoordinator {
         guard entry.unavailableReason != reason else { return }
         entry.unavailableReason = reason
         for handler in Array(entry.handlers.values) { handler(.unavailable(reason: reason)) }
+    }
+
+    package nonisolated static func rootIdentity(at url: URL) throws -> RootIdentity {
+        try ProjectRoot.rootIdentity(at: url)
     }
 
     private static func canonicalProjectURL(_ url: URL) -> URL { url.standardizedFileURL.resolvingSymlinksInPath() }

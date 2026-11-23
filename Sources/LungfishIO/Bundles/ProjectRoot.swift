@@ -10,9 +10,9 @@ package enum ProjectRoot {
     /// Continuity evidence only; native format and write access are revalidated
     /// by the existing project-open path after a successful filesystem rebind.
     package struct RootIdentity: Equatable, Sendable {
-        let volume: String
-        let fileNumber: UInt64
-        let createdAt: Date
+        package let volume: String
+        package let fileNumber: UInt64
+        package let createdAt: Date
     }
 
     package nonisolated static func rootIdentity(at url: URL) throws -> RootIdentity {
