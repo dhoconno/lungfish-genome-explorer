@@ -622,6 +622,10 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
         )
     }
 
+    /// The statistics of reads built from sequence counts. Counts, lengths and GC are measured. The reads hold no
+    /// measured scores, so Mean Q, Q20, Q30, the score histogram and the per-position summaries are left empty, the
+    /// form `FASTQDatasetStatistics.withoutQualities` gives and a view reads as "No quality scores". They were once
+    /// stored as Mean Q 40, Q20 100%, Q30 100% and a flat Q40 at every position, which a view showed as measured.
     private static func countedInsertStatistics(for sequenceCounts: [String: Int]) -> FASTQDatasetStatistics {
         var readCount = 0
         var baseCount: Int64 = 0
@@ -649,19 +653,6 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             return .empty
         }
 
-        let trackedPositions = min(maxReadLength, 1_000)
-        let perPositionQuality = (0..<trackedPositions).map { position in
-            PositionQualitySummary(
-                position: position,
-                mean: 40,
-                median: 40,
-                lowerQuartile: 40,
-                upperQuartile: 40,
-                percentile10: 40,
-                percentile90: 40
-            )
-        }
-
         return FASTQDatasetStatistics(
             readCount: readCount,
             baseCount: baseCount,
@@ -670,13 +661,13 @@ public final class ONTFluidigmAmpliconMaterializer: Sendable {
             maxReadLength: maxReadLength,
             medianReadLength: medianReadLength(from: readLengthHistogram, readCount: readCount),
             n50ReadLength: n50ReadLength(from: readLengthHistogram, baseCount: baseCount),
-            meanQuality: 40,
-            q20Percentage: 100,
-            q30Percentage: 100,
+            meanQuality: 0,
+            q20Percentage: 0,
+            q30Percentage: 0,
             gcContent: baseCount > 0 ? Double(gcCount) / Double(baseCount) : 0,
             readLengthHistogram: readLengthHistogram,
-            qualityScoreHistogram: [40: Int(clamping: baseCount)],
-            perPositionQuality: perPositionQuality
+            qualityScoreHistogram: [:],
+            perPositionQuality: []
         )
     }
 

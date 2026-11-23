@@ -89,8 +89,8 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         XCTAssertEqual(lf2871Manifest.cachedStatistics.minReadLength, lf2871Insert.count)
         XCTAssertEqual(lf2871Manifest.cachedStatistics.maxReadLength, lf2871Insert.count)
         XCTAssertEqual(lf2871Manifest.cachedStatistics.n50ReadLength, lf2871Insert.count)
-        XCTAssertEqual(lf2871Manifest.cachedStatistics.q30Percentage, 100.0)
-        XCTAssertEqual(lf2871Manifest.cachedStatistics.perPositionQuality.count, lf2871Insert.count)
+        XCTAssertEqual(lf2871Manifest.cachedStatistics.q30Percentage, 0)
+        XCTAssertEqual(lf2871Manifest.cachedStatistics.perPositionQuality.count, 0)
 
         let lf2872Bundle = outputDirectory.appendingPathComponent("LF2872.lungfishfastq", isDirectory: true)
         let lf2872FASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: lf2872Bundle))
@@ -102,8 +102,8 @@ final class ONTFluidigmAmpliconMaterializerTests: XCTestCase {
         XCTAssertEqual(lf2872Manifest.cachedStatistics.minReadLength, lf2872Insert.count)
         XCTAssertEqual(lf2872Manifest.cachedStatistics.maxReadLength, lf2872Insert.count)
         XCTAssertEqual(lf2872Manifest.cachedStatistics.n50ReadLength, lf2872Insert.count)
-        XCTAssertEqual(lf2872Manifest.cachedStatistics.q30Percentage, 100.0)
-        XCTAssertEqual(lf2872Manifest.cachedStatistics.perPositionQuality.count, lf2872Insert.count)
+        XCTAssertEqual(lf2872Manifest.cachedStatistics.q30Percentage, 0)
+        XCTAssertEqual(lf2872Manifest.cachedStatistics.perPositionQuality.count, 0)
 
         let manifest = try jsonObject(at: result.manifestURL)
         XCTAssertEqual(manifest["inputReadCount"] as? Int, 3)
