@@ -149,8 +149,22 @@ final class BatchTableViewMemoryTests: XCTestCase {
         let table = makeTable(rowCount: 5)
         let report = table.applyViewMemory(memory, dataChanged: false)
         XCTAssertTrue(report.filtersDropped)
+        XCTAssertFalse(report.filtersRestored, "nothing was applied")
         XCTAssertEqual(table.displayedRows.count, 5)
         XCTAssertTrue(table.columnFilterSet.filters.isEmpty)
+    }
+
+    func testALostColumnFilterWithRestoredTextReportsBoth() {
+        let memory = BatchTableMemory(
+            columnFilters: ColumnFilterSet(filters: [ColumnFilter(columnId: "gone", op: .contains, value: "x")]),
+            filterText: "row-3"
+        )
+        let table = makeTable(rowCount: 40)
+        let report = table.applyViewMemory(memory, dataChanged: false)
+        XCTAssertTrue(report.filtersRestored, "the filter text was applied")
+        XCTAssertTrue(report.filtersDropped, "the filter on the lost column was not")
+        XCTAssertEqual(table.displayedRows.count, 10, "row-30 to row-39")
+        XCTAssertEqual(table.currentFilterText, "row-3")
     }
 
     func testIdentitiesPartlyGoneKeepTheSurvivorsAndAllGoneSelectNothingNeverRowZero() {
