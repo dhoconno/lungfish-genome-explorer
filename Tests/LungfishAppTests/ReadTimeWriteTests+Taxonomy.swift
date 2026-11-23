@@ -42,7 +42,7 @@ extension ReadTimeWriteTests {
             harness.select(fixture.item)
             let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
             XCTAssertTrue(shown, "\(driver.kind) did not show")
-            try driver.change(in: harness)
+            try await driver.change(in: harness)
             harness.select(other.item)
             let left = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { !driver.isShown(in: harness) }
             XCTAssertTrue(left, "\(driver.kind) stayed after the switch")
