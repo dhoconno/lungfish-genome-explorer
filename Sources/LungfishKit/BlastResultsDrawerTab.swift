@@ -444,7 +444,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation, ResultRo
         displayState = .results(result, recordURL: recordURL)
         shownSubject = subject
         let total = result.totalReads
-        judgedAtLabel.show(presentationStyle == .verification ? result.judgedAtWords : nil)
+        judgedAtLabel.show(presentationStyle == .verification && result.confidence == .notJudged ? result.judgedAtWords : nil)
 
         switch presentationStyle {
         case .verification:

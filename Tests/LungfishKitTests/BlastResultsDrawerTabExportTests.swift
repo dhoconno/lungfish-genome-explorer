@@ -63,13 +63,30 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
 
     // MARK: - BLAST-ESVIRITU-FIRST-WORD (BIO): the pane and the table say what a row was judged at
 
-    /// A pane that shows a result judged at `basis`, laid out 600 pt wide.
-    private func tab(judgedAt basis: BlastTaxonomyContext.Basis?) -> BlastResultsDrawerTab {
-        var result = makeResult()
+    /// A result judged at `basis` whose one read has a significant hit that matches the row, so it reads Not judged at
+    /// `.rowTaxId` or `.names` and Supported at a species. With `significantHit` false its one read has no significant
+    /// hit, and it reads Inconclusive at any basis (BLAST-BIO-UX should-fix 1).
+    private func makeJudgedResult(
+        judgedAt basis: BlastTaxonomyContext.Basis?, significantHit: Bool = true
+    ) -> BlastVerificationResult {
+        var result = BlastVerificationResult(
+            taxonName: "Oxbow virus", taxId: 12345,
+            readResults: [
+                significantHit
+                    ? BlastReadResult(id: "read_1", verdict: .verified, matchesQueriedTaxon: true)
+                    : BlastReadResult(id: "read_1", verdict: .unverified)
+            ],
+            submittedAt: Date(), completedAt: Date(), rid: "TEST-RID", blastProgram: "blastn", database: "nt"
+        )
         result.judgedAt = basis
+        return result
+    }
+
+    /// A pane that shows a result judged at `basis`, laid out 600 pt wide.
+    private func tab(judgedAt basis: BlastTaxonomyContext.Basis?, significantHit: Bool = true) -> BlastResultsDrawerTab {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
         tab.presentationStyle = .verification
-        tab.showResults(result, recordURL: nil)
+        tab.showResults(makeJudgedResult(judgedAt: basis, significantHit: significantHit), recordURL: nil)
         tab.layoutSubtreeIfNeeded()
         return tab
     }
@@ -106,8 +123,7 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         for basis in [BlastTaxonomyContext.Basis.species, nil] {
             XCTAssertEqual(tab(judgedAt: basis).judgedAtLabel.frame.height, 0, "no words, no row")
         }
-        var judged = makeResult()
-        judged.judgedAt = .names
+        let judged = makeJudgedResult(judgedAt: .names)
         let contig = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
         contig.showResults(judged, recordURL: nil)
         contig.layoutSubtreeIfNeeded()
@@ -115,6 +131,23 @@ final class BlastResultsDrawerTabExportTests: XCTestCase {
         contig.presentationStyle = .contigBlast
         contig.layoutSubtreeIfNeeded()
         XCTAssertEqual(contig.judgedAtLabel.frame.height, 0, "another presentation style shows no judged-at row")
+    }
+
+    /// BLAST-BIO-UX should-fix 1, red at `b77143ece`: a result judged at its own tax ID or by names showed "Not judged: ...
+    /// Each read's best match is listed below" under an Inconclusive badge when no read had a significant hit, though nothing
+    /// was withheld, no read has a best match and a rerun finds the same. The line belongs to the Not judged state, so a
+    /// result with no significant hit shows the badge and no line, and one with a significant hit still shows both.
+    func testAResultWithNoSignificantHitShowsNoJudgedLineUnderItsInconclusiveBadge() {
+        for basis in [BlastTaxonomyContext.Basis.rowTaxId, .names] {
+            let pane = tab(judgedAt: basis, significantHit: false)
+            XCTAssertEqual(pane.confidenceLabel.stringValue, "Inconclusive")
+            XCTAssertEqual(pane.judgedAtLabel.stringValue, "", "nothing was withheld, so there is no line to read")
+            XCTAssertEqual(pane.judgedAtLabel.frame.height, 0, "no words, no row")
+
+            let judged = tab(judgedAt: basis)
+            XCTAssertEqual(judged.confidenceLabel.stringValue, "Not judged")
+            XCTAssertEqual(judged.judgedAtLabel.stringValue, basis.judgedAtWords(taxId: 12345))
+        }
     }
 
     /// UX-BLAST-NOTAX item 5 moved these words. A row judged at its own tax ID names the place that installs NCBI
