@@ -53,7 +53,8 @@ extension ReadTimeWriteTests {
         let (first, _) = try makeTwoReferences()
         try writeOlderViewStateFile(into: first)
         let olderBytes = try Data(contentsOf: first.url.appendingPathComponent(BundleViewState.filename))
-        let viewer = makeViewer()
+        let store = makeViewMemoryStore()
+        let viewer = makeViewer(store: store)
         try await displayRemembered(first, in: viewer)
 
         XCTAssertEqual(viewer.viewerView.annotationHeight, 31, "The old file's row height is the starting view.")
@@ -67,6 +68,9 @@ extension ReadTimeWriteTests {
         XCTAssertEqual(frame.end, Double(frame.sequenceLength), "The old file's locus was restored.")
 
         viewer.clearBundleDisplay()
+        let key = try XCTUnwrap(store.key(for: ViewMemoryItem.read(at: first.url)))
+        XCTAssertFalse(
+            store.hasRecord(for: key), "Showing an older bundle's look and leaving made an entry, which retires its file (VS S3).")
         XCTAssertEqual(
             try Data(contentsOf: first.url.appendingPathComponent(BundleViewState.filename)), olderBytes,
             "Showing and leaving the bundle changed its old file.")
@@ -93,6 +97,26 @@ extension ReadTimeWriteTests {
         try await displayRemembered(first, in: viewer)
         XCTAssertEqual(viewer.viewerView.annotationHeight, defaultHeight, "The next open read the old file again.")
         XCTAssertEqual(try? Data(contentsOf: olderURL), olderBytes, "The reopen changed or deleted the old file.")
+    }
+
+    /// BIO's condition for the revisit: an item's first entry in the store ends the reading of the older file.
+    func testTheFirstStoreEntryEndsTheReadingOfTheOlderFile() async throws {
+        let (first, _) = try makeTwoReferences()
+        try writeOlderViewStateFile(into: first)
+        let store = makeViewMemoryStore()
+        let viewer = makeViewer(store: store)
+        try await displayRemembered(first, in: viewer)
+        let request = ReferenceViewerMemoryRequest(input: nil, bundleURL: first.url)
+        XCTAssertNotNil(
+            ReferenceViewerMemoryRead.read(request, bundleURL: first.url, store: store).olderFile,
+            "With no entry the older file is the starting view.")
+
+        viewer.zoomIn() // a person's change
+        viewer.clearBundleDisplay()
+        XCTAssertNotNil(keptReferenceView(of: first.url, in: store), "The change was not kept.")
+        XCTAssertNil(
+            ReferenceViewerMemoryRead.read(request, bundleURL: first.url, store: store).olderFile,
+            "An item with an entry read the older file again.")
     }
 
     // MARK: - Helpers
