@@ -91,18 +91,22 @@ final class MetadataColumnMemoryTests: XCTestCase {
         legacy.controller.visibleColumns = ["Type"]
         legacy.controller.update(store: store, sampleId: "S1")
         let oldKey = Self.layoutKeyPrefix + "result-A"
-        let written = try XCTUnwrap(defaults.data(forKey: oldKey), "before adoption the layout is written as it always was")
+        XCTAssertNotNil(defaults.data(forKey: oldKey), "before adoption the layout is written as it always was")
         XCTAssertFalse(legacy.controller.isViewMemoryAdopted)
 
+        // The second controller is made before it adopts, so it writes the same layout to the old key
+        // once more, and the encoder may put the object keys in another order. The bytes that count
+        // are the ones after the adoption call.
         let adopted = makeController(key: "result-A", in: defaults, store: store)
         XCTAssertEqual(adopted.controller.visibleColumns, ["Type"], "the old key is the starting value")
         adopted.controller.applyViewMemory(nil)
+        let afterAdoption = try XCTUnwrap(defaults.data(forKey: oldKey), "the old key still holds the layout")
         XCTAssertTrue(adopted.controller.isViewMemoryAdopted)
         adopted.controller.visibleColumns = ["Type", "Location"]
         adopted.controller.update(store: store, sampleId: "S1")
         adopted.table.moveColumn(3, toColumn: 0)
 
-        XCTAssertEqual(defaults.data(forKey: oldKey), written, "never written back")
+        XCTAssertEqual(defaults.data(forKey: oldKey), afterAdoption, "never written back after adoption")
         XCTAssertEqual(adopted.controller.captureViewMemory()?.visibleMetadata, ["Location", "Type"])
     }
 
@@ -134,18 +138,20 @@ final class MetadataColumnMemoryTests: XCTestCase {
         legacy.controller.visibleColumns = ["Type"]
         legacy.controller.update(store: store, sampleId: "S1")
         let oldKey = Self.layoutKeyPrefix + "result-C"
-        let written = try XCTUnwrap(defaults.data(forKey: oldKey))
+        XCTAssertNotNil(defaults.data(forKey: oldKey), "before adoption the layout is written as it always was")
 
+        // As in the first test, the bytes that count are the ones after the adoption call.
         let adopted = makeController(key: "result-C", in: defaults, store: store)
         XCTAssertEqual(adopted.controller.visibleColumns, ["Type"], "no store entry yet, so the old key is the start")
         adopted.controller.applyViewMemory(
             MetadataColumnLayoutMemory(visibleMetadata: ["Location"], columnOrder: [], metadataWidths: [:])
         )
+        let afterAdoption = try XCTUnwrap(defaults.data(forKey: oldKey), "the old key still holds the layout")
         adopted.controller.update(store: store, sampleId: "S1")
 
         XCTAssertEqual(adopted.controller.visibleColumns, ["Location"], "a store entry wins over the old key")
         XCTAssertEqual(adopted.controller.captureViewMemory()?.visibleMetadata, ["Location"])
-        XCTAssertEqual(defaults.data(forKey: oldKey), written, "the old key is never written back")
+        XCTAssertEqual(defaults.data(forKey: oldKey), afterAdoption, "the old key is never written back after adoption")
     }
 
     func testSwitchingKeysAfterAdoptionKeepsEachLayoutInMemoryAndWritesNoDefaults() throws {
