@@ -420,6 +420,8 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
                 throw CLIError.inputFileNotFound(path: pairURL.path)
             }
             inputs.append(pairURL)
+            // FIX-ROUTES-6 A. The pipeline pairs the two files by position, so they are read whole first, as `fastq ingest` reads them.
+            try FastqIngestRun.refuseMatesOutOfStep(r1: inputURL, r2: pairURL)
             pairingMode = .pairedEnd
         } else {
             pairingMode = .singleEnd

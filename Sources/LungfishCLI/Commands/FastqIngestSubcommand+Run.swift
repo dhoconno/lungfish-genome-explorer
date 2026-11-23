@@ -144,6 +144,22 @@ struct FastqIngestRun {
         if inputs.count == 2, inputs[0] == inputs[1] {
             throw CLIError.validationFailed(errors: ["--pair names the input file again. Give the R2 file."])
         }
+        if inputs.count == 2 {
+            try Self.refuseMatesOutOfStep(r1: inputs[0], r2: inputs[1])
+        }
+    }
+
+    /// FIX-ROUTES-6 A (BIO-ROUTES-3 D1, S1). The pipeline pairs two files by position, so an R2 cut short stopped only
+    /// after the tool, and an R2 out of step by name came out as a file of wrong pairs with exit 0. Both files are read
+    /// whole before anything is staged, as the importer reads a loose pair (`FASTQBatchImporter.swift:965`). The words
+    /// are the interleaver's own, and the exit code is that of an input error, 3. `debug fastq-ingest --pair` calls it
+    /// too. A cancel is thrown as it is.
+    static func refuseMatesOutOfStep(r1: URL, r2: URL) throws {
+        do {
+            _ = try FASTQPairInterleaver.verifyMates(r1: r1, r2: r2, launcher: ToolProcessChildLauncher())
+        } catch let error as FASTQPairInterleaver.InterleaveError {
+            throw CLIError.validationFailed(errors: [error.localizedDescription])
+        }
     }
 
     private func ingest(folder: URL, staging: URL, published: inout Bool) async throws -> Outcome {
