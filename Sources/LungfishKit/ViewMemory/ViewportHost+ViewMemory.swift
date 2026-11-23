@@ -30,32 +30,41 @@ extension ViewportHost {
         let store = viewMemoryStore
         let start = ViewMemoryStart(adopter.captureViewMemory())
         var words: String?
+        var kept: (view: Adopter.ViewState, dataKey: String?, selectionDropped: Bool)?
         switch store.restorable(Adopter.ViewState.self, for: key, folder: item.folder) {
         case .nothing:
             break
         case .folderChanged:
             words = ViewMemoryWords.viewReset
-        case .view(let kept, let keptDataKey, let selectionDropped):
-            if adopter.viewMemoryLoadIsPending {
-                adopter.viewMemoryHandle = ViewMemoryHandle { [weak self, weak adopter] startingView in
-                    guard let adopter else { return }
-                    if let startingView { start.view = startingView }
-                    guard adopter.captureViewMemory() == start.view else { return }
-                    let changed = Self.dataChanged(from: keptDataKey, to: adopter.viewMemoryDataKey)
-                    let loss = adopter.restoreViewMemory(kept, dataChanged: changed)
-                    if let line = ViewMemoryWords.line(loss: loss, selectionDropped: selectionDropped) {
-                        self?.showResetLine(line)
-                    }
+        case .view(let view, let dataKey, let selectionDropped):
+            kept = (view, dataKey, selectionDropped)
+        }
+        var pending: ViewMemoryHandle<Adopter.ViewState>?
+        if adopter.viewMemoryLoadIsPending {
+            // Every pending adopter gets a handle, kept view or none, so its apply always moves the start (VS A2, S3).
+            // A late apply reaches only the installed surface, so its line never draws over another one.
+            let handle = ViewMemoryHandle<Adopter.ViewState> { [weak self, weak adopter] startingView in
+                guard let self, let adopter, self.activeViewport === adopter else { return }
+                if let startingView { start.view = startingView }
+                guard let kept, adopter.captureViewMemory() == start.view else { return }
+                let changed = Self.dataChanged(from: kept.dataKey, to: adopter.viewMemoryDataKey)
+                let loss = adopter.restoreViewMemory(kept.view, dataChanged: changed)
+                if let line = ViewMemoryWords.line(loss: loss, selectionDropped: kept.selectionDropped) {
+                    self.showResetLine(line)
                 }
-            } else {
-                let changed = Self.dataChanged(from: keptDataKey, to: adopter.viewMemoryDataKey)
-                let loss = adopter.restoreViewMemory(kept, dataChanged: changed)
-                words = ViewMemoryWords.line(loss: loss, selectionDropped: selectionDropped)
             }
+            adopter.viewMemoryHandle = handle
+            pending = handle
+        } else if let kept {
+            let changed = Self.dataChanged(from: kept.dataKey, to: adopter.viewMemoryDataKey)
+            let loss = adopter.restoreViewMemory(kept.view, dataChanged: changed)
+            words = ViewMemoryWords.line(loss: loss, selectionDropped: kept.selectionDropped)
         }
         let session = ViewMemorySession(
-            capture: { [weak adopter] in
-                guard let adopter else { return }
+            capture: { [weak adopter, pending] in
+                // Before the adopter's own load commits its starting view is not known, so nothing tells a person's
+                // change from the app's own default. A visit that ends then keeps what the store holds.
+                guard let adopter, pending?.isApplied ?? true else { return }
                 store.keep(adopter.captureViewMemory(), startingView: start.view, for: key,
                            dataKey: adopter.viewMemoryDataKey, folder: item.folder)
             },

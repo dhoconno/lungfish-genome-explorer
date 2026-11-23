@@ -23,7 +23,7 @@ public protocol ViewMemoryAdopting: ResultViewport {
     var viewMemoryDataKey: String? { get }
 
     /// Whether the adopter's own load runs on after `load` returns, so the host hands it a ``ViewMemoryHandle`` in
-    /// place of the kept view (VS A2).
+    /// place of the kept view, and keeps nothing for the visit until the handle applies (VS A2).
     var viewMemoryLoadIsPending: Bool { get }
 
     /// The handle the host sets after `load` when the adopter's own load is pending.
@@ -59,10 +59,14 @@ public final class ViewMemoryHandle<State: ViewMemoryState> {
         self.apply = apply
     }
 
+    /// Whether the adopter's own load has committed. Until it has, the host keeps nothing for the visit.
+    var isApplied: Bool { applied }
+
     /// Applies the kept view when the adopter's own load commits, under its own load counter. It applies only while
     /// the view still equals `startingView`, or the view the host saw after `load` when that is nil, so a sort, a pick
     /// or typed text made before it is never overwritten. `startingView` is also the view a later capture compares
-    /// with (VS S3). A second call does nothing.
+    /// with (VS S3), and the host keeps nothing for the visit before this call. A second call, or a call after the
+    /// host removed the surface, does nothing.
     public func applyPending(startingView: State? = nil) {
         guard !applied else { return }
         applied = true
