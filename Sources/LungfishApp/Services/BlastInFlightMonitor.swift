@@ -428,7 +428,8 @@ extension BlastInFlightMonitor.Worker {
         guard let record = try? BlastSubmissionRecord.load(recordURL) else { return nil }
         let counts = blastVerificationCompletionDetail(record.result)
         guard let file = try? BlastSearchStore(folder: output).load(), let line = BlastSearchWords.collected(in: file) else { return counts }
-        return "\(counts). \(line)"
+        // The words of a result that was not judged end in a period, so none is doubled (UX-BLAST-NOTAX item 5).
+        return counts.hasSuffix(".") ? "\(counts) \(line)" : "\(counts). \(line)"
     }
 
     /// The worker that runs `lungfish-cli`. A pass runs as a child, so that a project folder that hangs never holds up the app.

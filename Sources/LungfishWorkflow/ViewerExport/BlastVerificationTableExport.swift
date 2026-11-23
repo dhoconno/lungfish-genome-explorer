@@ -76,9 +76,11 @@ extension BlastVerificationTableExport {
         let queriedTaxon = asked ? escapeField(result.taxonName, separator: separator) : ""
         // What the verdicts were judged at, empty on a record from before the field (BLAST-ESVIRITU-FIRST-WORD).
         let judgedAt = (result.judgedAt ?? taxonomy?.basis)?.rawValue ?? ""
+        // A result that was not judged marks no read for or against the row (UX-BLAST-NOTAX item 7).
+        let notJudged = result.confidence == .notJudged
         let rows = result.readResults.flatMap { fragment in
             ([fragment] + (fragment.otherMates ?? [])).map {
-                (readResult: $0, taxonCheck: asked ? taxonCheckWord(fragment) : "no taxon queried")
+                (readResult: $0, taxonCheck: asked ? taxonCheckWord(fragment, notJudged: notJudged) : "no taxon queried")
             }
         }
         for (readResult, taxonCheck) in rows {
@@ -146,9 +148,11 @@ extension BlastVerificationTableExport {
     /// What a fragment says about the queried taxon, by the rule of the counts behind the badge
     /// (`BlastVerificationResult.supportingCount`, `contradictingCount` and `inconclusiveCount`). Every mate of a
     /// fragment carries the one word, since the counts read only the fragment's row. A pair whose mates conflict
-    /// counts as neither, and its other mate still holds its own `.verified`.
-    private static func taxonCheckWord(_ fragment: BlastReadResult) -> String {
+    /// counts as neither, and its other mate still holds its own `.verified`. A read with a significant hit in a result
+    /// that was not judged reads `not judged`.
+    private static func taxonCheckWord(_ fragment: BlastReadResult, notJudged: Bool) -> String {
         guard fragment.verdict == .verified else { return "inconclusive" }
+        if notJudged { return "not judged" }
         return fragment.matchesQueriedTaxon ? "supporting" : "contradicting"
     }
 

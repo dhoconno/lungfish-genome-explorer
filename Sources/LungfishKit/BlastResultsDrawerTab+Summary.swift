@@ -14,6 +14,10 @@ extension BlastResultsDrawerTab {
     /// `subject` names the sample the verdict is about, right after the taxon, so the summary says whose verdict it is
     /// (lane ROWPANE). The label wraps, so no part of it is cut (lane BLASTWORDS). Nil names no sample.
     public static func verificationSummary(for result: BlastVerificationResult, subject: String? = nil) -> String {
+        if result.confidence == .notJudged {
+            // UX-BLAST-NOTAX item 5: no counts for or against a result that was not judged.
+            return "BLAST for \(result.taxonName)\(subjectWords(subject)): " + notJudgedWords(of: result)
+        }
         var text = "BLAST for \(result.taxonName)\(subjectWords(subject)): \(result.supportingCount) supporting, \(result.contradictingCount) contradicting"
         if result.errorCount > 0 {
             text += ", \(result.errorCount) with no BLAST result"
@@ -34,12 +38,19 @@ extension BlastResultsDrawerTab {
     }
 
     /// The summary and the sentences after it, with one period between two sentences. A sentence that ends in a period and has
-    /// another after it gives that period up, so none are doubled (BLAST-DOUBLE-PERIOD). The last keeps its own.
-    nonisolated static func sentencesJoined(_ summary: String, _ sentences: [String]) -> String {
-        let joined = sentences.enumerated().map { index, sentence in
-            index < sentences.count - 1 && sentence.hasSuffix(".") ? String(sentence.dropLast()) : sentence
-        }
-        return ([summary] + joined).joined(separator: ". ")
+    /// another after it gives that period up, so none are doubled (BLAST-DOUBLE-PERIOD). The last keeps its own. The summary
+    /// of a result that was not judged ends in a period too.
+    nonisolated public static func sentencesJoined(_ summary: String, _ sentences: [String]) -> String {
+        let all = [summary] + sentences
+        return all.enumerated().map { index, sentence in
+            index < all.count - 1 && sentence.hasSuffix(".") ? String(sentence.dropLast()) : sentence
+        }.joined(separator: ". ")
+    }
+
+    /// What a result that was not judged gives in place of its counts, for the pane and the Operations row
+    /// (UX-BLAST-NOTAX item 5).
+    nonisolated public static func notJudgedWords(of result: BlastVerificationResult) -> String {
+        "not judged, \(result.significantHitCount) of \(result.totalReads) reads with a significant hit. NCBI Taxonomy is needed to judge them."
     }
 
     /// What a verdict's counts are of, and what went out when that differs, one reading for the pane and the Operations row.

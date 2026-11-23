@@ -474,6 +474,8 @@ func kraken2BlastVerificationRequest(
 /// drawer. The old "N/M reads verified" text counted alignment quality only,
 /// so it could read "17/20" while the drawer said "0 supporting".
 func blastVerificationCompletionDetail(_ result: BlastVerificationResult) -> String {
+    // UX-BLAST-NOTAX item 5: a result that was not judged gives no counts for or against, on every route.
+    if result.confidence == .notJudged { return BlastResultsDrawerTab.notJudgedWords(of: result) }
     let base = "\(result.supportingCount) supporting, \(result.contradictingCount) contradicting of \(BlastResultsDrawerTab.countedRowWords(of: result))"
     return result.errorCount > 0 ? "\(base), \(result.errorCount) with no BLAST result" : base
 }

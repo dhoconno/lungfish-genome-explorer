@@ -204,6 +204,7 @@ public enum BlastVerificationArchive {
         let resolved: [String: ParameterValue] = [
             "supportingCount": .integer(result.supportingCount),
             "contradictingCount": .integer(result.contradictingCount),
+            "confidence": .string(result.confidence.rawValue),
             "errorCount": .integer(result.errorCount),
             "totalReads": .integer(result.totalReads),
         ]

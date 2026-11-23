@@ -275,7 +275,7 @@ extension ViewerViewController {
                     monitor.viewerRunEnded(output: output)
                     let counts = completeDetail(result)
                     let collected = await readBlastSearch(in: output).flatMap { BlastSearchWords.collected(in: $0.file) }
-                    let detail = collected.map { "\(counts). \($0)" } ?? counts
+                    let detail = collected.map { BlastResultsDrawerTab.sentencesJoined(counts, [$0]) } ?? counts
                     guard OperationCenter.shared.complete(id: operationID, detail: detail, outputURLs: [recordURL.deletingLastPathComponent()]) else { return }
                     drawer.results(result, recordURL)
                     BlastSearchNews.post()
