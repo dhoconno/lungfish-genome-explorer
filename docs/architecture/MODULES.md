@@ -21,7 +21,7 @@ The map holds no file counts, no line counts and no line numbers, so a lane rege
 | LungfishExecutor | executable | Sources/LungfishExecutor | 0 | CLungfishExecutor, LungfishPortable |
 | LungfishGenotypeUI | library | Sources/LungfishGenotypeUI | 59 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishIO | library | Sources/LungfishIO | 689 | LungfishCore |
-| LungfishKit | library | Sources/LungfishKit | 164 | LungfishCore, LungfishIO, LungfishWorkflow |
+| LungfishKit | library | Sources/LungfishKit | 193 | LungfishCore, LungfishIO, LungfishWorkflow |
 | LungfishNaoMgsUI | library | Sources/LungfishNaoMgsUI | 4 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishNvdUI | library | Sources/LungfishNvdUI | 3 | LungfishCore, LungfishIO, LungfishKit, LungfishWorkflow |
 | LungfishOperations | library | Sources/LungfishOperations | 17 | LungfishCore, LungfishIO, LungfishWorkflow |
@@ -1626,6 +1626,7 @@ None.
 | Accessibility |
 | Classifiers |
 | Surfaces |
+| ViewMemory |
 
 ### Public types
 
@@ -1643,6 +1644,8 @@ None.
 - `AsyncRequestToken` struct, `Sources/LungfishKit/Surfaces/AsyncRequestGate.swift`
 - `BatchColumnSpec` struct, `Sources/LungfishKit/BatchTableView.swift`
 - `BatchTableCellView` class, `Sources/LungfishKit/BatchTableView.swift`
+- `BatchTableMemory` struct, `Sources/LungfishKit/BatchTableView+ViewMemory.swift`
+- `BatchTableRestoreReport` struct, `Sources/LungfishKit/BatchTableView+ViewMemory.swift`
 - `BatchTableView` class, `Sources/LungfishKit/BatchTableView.swift`
 - `BlastConfigPopoverView` struct, `Sources/LungfishKit/BlastConfigPopoverView.swift`
 - `BlastJobPhase` enum, `Sources/LungfishKit/BlastResultsDrawerTab.swift`
@@ -1714,6 +1717,7 @@ None.
 - `MenuMirroringButton` class, `Sources/LungfishKit/Accessibility/AccessibilityMenuMirror.swift`
 - `MenuMirroringButtonCell` class, `Sources/LungfishKit/Accessibility/AccessibilityMenuMirror.swift`
 - `MetadataColumnController` class, `Sources/LungfishKit/MetadataColumnController.swift`
+- `MetadataColumnLayoutMemory` struct, `Sources/LungfishKit/MetadataColumnController+ViewMemory.swift`
 - `MetagenomicsFilePanelFactory` enum, `Sources/LungfishKit/MetagenomicsFilePanelFactory.swift`
 - `MetagenomicsPanelLayout` enum, `Sources/LungfishKit/MetagenomicsLayoutPreference.swift`
 - `MetagenomicsPaneSizing` typealias, `Sources/LungfishKit/MetagenomicsPaneSizing.swift`
@@ -1767,6 +1771,7 @@ None.
 - `SampleMetadataPresentationConsumer` protocol, `Sources/LungfishKit/SampleMetadataPresentationContext.swift`
 - `SampleMetadataPresentationContext` class, `Sources/LungfishKit/SampleMetadataPresentationContext.swift`
 - `SampleMetadataSection` struct, `Sources/LungfishKit/SampleMetadataSection.swift`
+- `SamplePickerMemory` struct, `Sources/LungfishKit/ClassifierSamplePickerState+ViewMemory.swift`
 - `SavedBlastSearchRestorer` class, `Sources/LungfishKit/SavedBlastSearchRestorer.swift`
 - `SavePanelPresenting` protocol, `Sources/LungfishKit/SavePanelPresenting.swift`
 - `ScopedEventFilter` enum, `Sources/LungfishKit/ScopedEventFilter.swift`
@@ -1776,6 +1781,7 @@ None.
 - `SplitPaneFillContainerView` class, `Sources/LungfishKit/SplitPaneFillContainerView.swift`
 - `SplitPaneHeaderContainerView` class, `Sources/LungfishKit/SplitPaneHeaderContainerView.swift`
 - `SplitPaneSizing` enum, `Sources/LungfishKit/SplitPaneSizing.swift`
+- `SplitPositionMemory` struct, `Sources/LungfishKit/TrackedDividerSplitView+ViewMemory.swift`
 - `SurfaceError` enum, `Sources/LungfishKit/Surfaces/SurfaceRegistry.swift`
 - `SurfaceInspectorBlock` struct, `Sources/LungfishKit/Surfaces/ResultViewport.swift`
 - `SurfaceKind` enum, `Sources/LungfishKit/Surfaces/ResultViewport.swift`
@@ -1786,6 +1792,30 @@ None.
 - `TrackedDividerSplitView` class, `Sources/LungfishKit/TrackedDividerSplitView.swift`
 - `TwoPaneTrackedSplitCoordinator` class, `Sources/LungfishKit/TwoPaneTrackedSplitCoordinator.swift`
 - `UnavailableClassifierAlignmentViewer` class, `Sources/LungfishKit/ClassifierAlignmentEvidence.swift`
+- `ViewMemoryAdopting` protocol, `Sources/LungfishKit/ViewMemory/ViewMemoryAdopting.swift`
+- `ViewMemoryDataKey` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryDataKey.swift`
+- `ViewMemoryFieldOutcome` enum, `Sources/LungfishKit/ViewMemory/ViewMemoryRules.swift`
+- `ViewMemoryFileEntry` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryDataKey.swift`
+- `ViewMemoryFileFacts` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryDataKey.swift`
+- `ViewMemoryFilterLineForm` enum, `Sources/LungfishKit/ViewMemory/ViewMemoryFilterLine.swift`
+- `ViewMemoryFilterLineModel` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryFilterLine.swift`
+- `ViewMemoryFilterLineView` class, `Sources/LungfishKit/ViewMemory/ViewMemoryFilterLine.swift`
+- `ViewMemoryFolderIdentity` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryState.swift`
+- `ViewMemoryHandle` class, `Sources/LungfishKit/ViewMemory/ViewMemoryAdopting.swift`
+- `ViewMemoryIdentityRestore` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryRules.swift`
+- `ViewMemoryItem` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryState.swift`
+- `ViewMemoryKey` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryKey.swift`
+- `ViewMemoryLocus` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryRules.swift`
+- `ViewMemoryLoss` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryState.swift`
+- `ViewMemoryResetLineView` class, `Sources/LungfishKit/ViewMemory/ViewportHost+ViewMemory.swift`
+- `ViewMemoryRestorable` enum, `Sources/LungfishKit/ViewMemory/ViewMemoryStore.swift`
+- `ViewMemoryRules` enum, `Sources/LungfishKit/ViewMemory/ViewMemoryRules.swift`
+- `ViewMemorySampleRestore` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryRules.swift`
+- `ViewMemorySelectionCap` enum, `Sources/LungfishKit/ViewMemory/ViewMemoryRules.swift`
+- `ViewMemorySequence` struct, `Sources/LungfishKit/ViewMemory/ViewMemoryRules.swift`
+- `ViewMemoryState` protocol, `Sources/LungfishKit/ViewMemory/ViewMemoryState.swift`
+- `ViewMemoryStore` class, `Sources/LungfishKit/ViewMemory/ViewMemoryStore.swift`
+- `ViewMemoryWords` enum, `Sources/LungfishKit/ViewMemory/ViewMemoryAdopting.swift`
 - `ViewportHost` class, `Sources/LungfishKit/Surfaces/ViewportHost.swift`
 - `ViewportStatusView` class, `Sources/LungfishKit/ViewportStatusView.swift`
 - `WarningPresenter` enum, `Sources/LungfishKit/WarningPresenter.swift`
