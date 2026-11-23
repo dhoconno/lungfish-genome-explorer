@@ -276,6 +276,31 @@ final class ViewMemoryDataKeyTests: XCTestCase {
         XCTAssertFalse(key.matches(key))
     }
 
+    func testAPathThatIsAFileGivesAnUnreadKey() throws {
+        let folder = try makeFolder()
+        let file = folder.appendingPathComponent("a.txt")
+        try write("hello", to: file)
+        XCTAssertNil(ViewMemoryFileEntry.entries(inFolder: file))
+        XCTAssertFalse(ViewMemoryDataKey.fileList(inFolder: file).isComplete)
+    }
+
+    func testAFolderWithAnUnreadableSubfolderGivesAnUnreadKeyAndNotAListThatSkipsIt() throws {
+        try XCTSkipIf(geteuid() == 0, "root ignores directory permissions")
+        let folder = try makeFolder()
+        try write("hello", to: folder.appendingPathComponent("a.txt"))
+        let locked = folder.appendingPathComponent("locked")
+        try write("inside", to: locked.appendingPathComponent("b.txt"))
+        XCTAssertTrue(ViewMemoryDataKey.fileList(inFolder: folder).isComplete)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        addTeardownBlock {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        }
+        let key = ViewMemoryDataKey.fileList(inFolder: folder)
+        XCTAssertFalse(key.isComplete, "a list that skipped the folder would miss an edit inside it")
+        XCTAssertFalse(key.matches(key))
+    }
+
     func testAPayloadKeyChangesWithTheIdentifierTheRecordAndTheChecksums() {
         let base = ViewMemoryDataKey.payload(manifestIdentifier: "id", recordID: "r1", payloadChecksums: ["a": "1"])
         XCTAssertEqual(base, ViewMemoryDataKey.payload(manifestIdentifier: "id", recordID: "r1", payloadChecksums: ["a": "1"]))

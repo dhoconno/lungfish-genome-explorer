@@ -26,8 +26,8 @@ final class MetadataColumnMemoryTests: XCTestCase {
     private var suite: TestDefaultsSuite!
     private var defaults: UserDefaults { suite.defaults }
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         suite = makeTestDefaultsSuite(prefix: "MetadataColumnMemoryTests")
     }
 
@@ -73,6 +73,7 @@ final class MetadataColumnMemoryTests: XCTestCase {
 
     func testTheLayoutKeyIsPerResultBundleAndPerTableRole() {
         let table = KeyedMemoryTable(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        table.metadataColumns.userDefaults = defaults
         XCTAssertNil(table.metadataColumns.persistenceKey)
         table.resultIdentity = "/project/Analyses/run-1"
         let first = table.metadataColumns.persistenceKey
