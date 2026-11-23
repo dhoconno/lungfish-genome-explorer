@@ -22,8 +22,9 @@ public enum ViewMemoryRestorable<State: ViewMemoryState>: Sendable {
 /// It keeps one map behind a `Mutex`, and memory is the truth within a run, so a switch writes nothing. One serial
 /// queue writes each changed item about a second after the last capture, as one whole file through
 /// ``DurableReplace``, after it has copied the changed items under the lock and released it. A project's entries are
-/// read once, off the main actor, inside the project open, and until then a capture for the project changes nothing,
-/// so "not read" is never taken for "no entry". A restore reads only memory, and the time it marks is written with
+/// read once, off the main actor, inside the project open, or on the writer queue at the first key request of a
+/// project no open read, and until then a capture for the project changes nothing, so "not read" is never taken for
+/// "no entry". A restore reads only memory, and the time it marks is written with
 /// the item's next write or at the quit. ``flushSynchronously()`` is the quit's one write on the main thread.
 ///
 /// The layout under ``root`` is one folder a project, named by the SHA-256 of `v1|<root identity>`, holding one file
@@ -73,6 +74,8 @@ public final class ViewMemoryStore: Sendable {
     struct Contents: Sendable {
         /// Each project root read so far, by its canonical path.
         var roots: [String: Root] = [:]
+        /// The roots a key request found not read and sent to the writer queue, each once a run.
+        var requestedRoots: Set<String> = []
         /// The folders whose files are read.
         var loaded: Set<String> = []
         var entries: [ViewMemoryKey: Entry] = [:]
@@ -167,17 +170,28 @@ public final class ViewMemoryStore: Sendable {
     // MARK: - Keys and restores, which read only memory
 
     /// The key of `item`, or nil while the entries of its project, or of the items outside any project, are not
-    /// read, so nothing is restored or kept for it.
+    /// read, so nothing is restored or kept for it. The first request for a project that no open read starts its
+    /// read on the writer queue (``readInBackground(_:)``), so a later visit has a key.
     public func key(for item: ViewMemoryItem) -> ViewMemoryKey? {
         guard let projectRoot = item.projectRoot else {
             let loaded = contents.withLock { $0.loaded.contains(ViewMemoryKey.looseFolder) }
             return loaded ? .loose(path: item.path) : nil
         }
-        let rootText: String? = contents.withLock { contents in
-            guard let root = contents.roots[projectRoot.path], contents.loaded.contains(root.folder) else { return nil }
-            return root.rootText
+        let found: (rootText: String?, readNow: Bool) = contents.withLock { contents in
+            guard let root = contents.roots[projectRoot.path] else {
+                return (nil, contents.requestedRoots.insert(projectRoot.path).inserted)
+            }
+            return (contents.loaded.contains(root.folder) ? root.rootText : nil, false)
         }
-        return rootText.map { ViewMemoryKey.project(rootText: $0, path: item.path) }
+        if found.readNow { readInBackground(projectRoot) }
+        return found.rootText.map { ViewMemoryKey.project(rootText: $0, path: item.path) }
+    }
+
+    /// Reads the entries of a project that no open read, such as one made with File > New Project in this run or one
+    /// moved while open, on the writer queue and never on the main actor (SWIFT 2). It runs once a root a run, so
+    /// a root whose identity cannot be read is tried once, and ``flushSynchronously()`` joins it.
+    func readInBackground(_ projectRoot: URL) {
+        writer.async { [self] in loadProject(at: projectRoot) }
     }
 
     /// Whether the item holds a kept view or a retire mark, so an older bundle's own view file is not read for it.

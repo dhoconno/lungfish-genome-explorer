@@ -12,8 +12,9 @@ extension ViewMemoryStore {
     // MARK: - Writes
 
     /// Writes every changed item now and joins the writer queue, so a write in flight ends first and an older view
-    /// never lands after a newer one. It reads nothing and writes only changed items, with the restore times. The
-    /// quit calls it on the main thread, its one write there (VS S1), and a test calls it to see the files.
+    /// never lands after a newer one, and a project read the queue holds ends first too. It reads nothing itself and
+    /// writes only changed items, with the restore times. The quit calls it on the main thread, its one write there
+    /// (VS S1), and a test calls it to see the files.
     public func flushSynchronously() {
         writer.sync { writePending(includingRestoreTimes: true) }
     }
