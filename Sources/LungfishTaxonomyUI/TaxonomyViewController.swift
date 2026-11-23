@@ -1064,7 +1064,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         guard totalExtent >= minimumRequiredExtent else { return }
 
         let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
-            proposed: round(totalExtent * defaultLeadingFraction(for: layout)),
+            proposed: round(totalExtent * (keptSplitFraction ?? defaultLeadingFraction(for: layout))),
             containerExtent: totalExtent,
             minimumLeadingExtent: minimumExtents.leading,
             minimumTrailingExtent: minimumExtents.trailing

@@ -1125,7 +1125,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private func applyInitialSplitPositionIfNeeded() {
         splitCoordinator.applyInitialSplitPositionIfNeeded(
             to: splitView,
-            defaultLeadingFraction: defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
+            defaultLeadingFraction: keptSplitFraction ?? defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
             minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
         )
     }
@@ -1152,7 +1152,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 self?.minimumExtents(for: MetagenomicsPanelLayout.current()) ?? (250, 250)
             },
             defaultLeadingFraction: { [weak self] in
-                self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
+                self?.keptSplitFraction ?? self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
             }
         )
     }

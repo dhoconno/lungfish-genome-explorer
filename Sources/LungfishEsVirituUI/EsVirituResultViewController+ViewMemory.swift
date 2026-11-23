@@ -39,7 +39,8 @@ enum EsVirituRowIdentity {
 /// - `collapsedIdentities`, the assemblies a person collapsed, by the same identity. The rest stay expanded.
 /// - `columns` and `batchColumns`, the metadata column layouts of the detection and batch tables, are presentation and
 ///   always come back. They live here and never in the account's defaults (VS A10).
-/// The split position is not kept yet (see the lane report).
+/// - `split`, the divider as the person left it, as a share of the split, is presentation and always comes back. None
+///   means where the viewer puts it.
 struct EsVirituViewMemory: Codable, Sendable, Equatable {
     var filterText = ""
     var sort: BatchTableMemory.Sort?
@@ -49,6 +50,7 @@ struct EsVirituViewMemory: Codable, Sendable, Equatable {
     var samplesRun: String?
     var columns: MetadataColumnLayoutMemory?
     var batchColumns: MetadataColumnLayoutMemory?
+    var split: SplitPositionMemory?
 }
 
 /// What the sidebar route did to this visit (VS B9). The route's pick wins for the visit and is not kept.
@@ -58,6 +60,8 @@ final class EsVirituVisitMemo {
     var samplesBeforeRoute: SamplePickerMemory?
     /// Whether the viewer's table keeps its collapsed assemblies through its re-filter (`keepCollapsedAssembliesThroughRefilters()`).
     var keepsCollapseThroughRefilters = false
+    /// The divider this visit restored, which the first position takes once the split has a size.
+    var restoredSplit: SplitPositionMemory?
 
     private static let registry = NSMapTable<EsVirituResultViewController, EsVirituVisitMemo>.weakToStrongObjects()
 
@@ -101,6 +105,7 @@ extension EsVirituResultViewController {
         memory.collapsedIdentities = collapsedAssemblyIdentities()
         memory.columns = table.metadataColumns.captureViewMemory()
         memory.batchColumns = batchTableView.metadataColumns.captureViewMemory()
+        memory.split = splitToKeep()
         if isBatchMode, let picker = samplePickerState {
             var picked = picker.captureViewMemory(allSampleIDs: Set(sampleEntries.map(\.id)))
             // The route's pick is the app's, not a choice, unless the person changed it afterwards (VS B9, S3).
@@ -134,6 +139,7 @@ extension EsVirituResultViewController {
         // The column layouts before the rows, since a layout change refreshes the columns and re-filters the table.
         table.metadataColumns.applyKeptLayout(memory.columns)
         batchTableView.metadataColumns.applyKeptLayout(memory.batchColumns)
+        restoreSplit(memory.split)
 
         let filter = dataChanged ? "" : memory.filterText
         if dataChanged, !memory.filterText.isEmpty { lost.insert(.filters) }
@@ -229,5 +235,38 @@ extension EsVirituResultViewController {
         }
         memo.routedSample = sampleId
         samplePickerState?.selectedSamples = [sampleId]
+    }
+}
+
+// MARK: - The divider
+
+extension EsVirituResultViewController {
+    /// The kept share the first position takes in place of the default, until the split has a position. The split
+    /// coordinator gives it one after the first layout once the split has a size, so no timer waits.
+    var keptSplitFraction: CGFloat? {
+        guard !splitCoordinator.didSetInitialSplitPosition, let kept = EsVirituVisitMemo.memo(for: self).restoredSplit,
+              kept.isVertical == splitView.isVertical, let first = kept.fractions.first else { return nil }
+        return CGFloat(first)
+    }
+
+    /// The divider as the person left it, or nil while it stands where the viewer put it on a first visit, so a visit
+    /// that moved nothing keeps its starting view. Before the split has a position it is what the restore gave it.
+    func splitToKeep() -> SplitPositionMemory? {
+        let restored = EsVirituVisitMemo.memo(for: self).restoredSplit
+        guard splitCoordinator.didSetInitialSplitPosition, let current = splitView.captureViewMemory(),
+              current.fractions.count == 1 else { return restored }
+        let placed = restored?.fractions.first ?? Double(defaultLeadingFraction(for: .current()))
+        let extent = Double(splitView.isVertical ? splitView.bounds.width : splitView.bounds.height)
+        return abs(current.fractions[0] - placed) * extent <= 2 ? restored : current
+    }
+
+    /// Puts the divider where the view keeps it, or where the viewer puts it when the view keeps none. Before the split
+    /// has a position the first position takes it, and after it the divider moves now.
+    func restoreSplit(_ kept: SplitPositionMemory?) {
+        let usable = kept.flatMap { $0.isVertical == splitView.isVertical && $0.fractions.count == 1 ? $0 : nil }
+        EsVirituVisitMemo.memo(for: self).restoredSplit = usable
+        guard splitCoordinator.didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
+        let share = usable?.fractions.first ?? Double(defaultLeadingFraction(for: .current()))
+        splitView.applyViewMemory(SplitPositionMemory(isVertical: splitView.isVertical, fractions: [share]))
     }
 }
