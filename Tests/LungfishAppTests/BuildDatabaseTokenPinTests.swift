@@ -7,6 +7,7 @@
 // `buildDatabaseToken`, and this suite freezes the argv the app launches. The classify output
 // stems it also froze lost their last reader when lane A41 M3b of Phase 2.10 removed the dialog's
 // classify request, and AnalysisToolRegistryTests pins the descriptor's `outputStem`.
+// Since TT-m1 (S1 sweep, 2026-11-23), the app's recount of a TaxTriage result passes `--no-cleanup`.
 //
 // The argv is observed for real. A script stands in for `lungfish-cli` through
 // `LUNGFISH_CLI_PATH`, records every argument it receives and fails, so the placeholder shows
@@ -29,12 +30,29 @@ final class BuildDatabaseTokenPinTests: XCTestCase {
         let token: String
         /// A folder name the app gave a run of this classifier.
         let batchFolder: String
+        /// The arguments the app passes after `--force` when it recounts a result of this classifier.
+        let recountArguments: [String]
     }
 
     private static let classifiers = [
-        Classifier(name: "TaxTriage", token: "taxtriage", batchFolder: "taxtriage-batch-2026-04-06T20-46-18"),
-        Classifier(name: "EsViritu", token: "esviritu", batchFolder: "esviritu-batch-2026-04-06T20-46-01"),
-        Classifier(name: "Kraken2", token: "kraken2", batchFolder: "kraken2-batch-2026-04-06T20-45-49"),
+        Classifier(
+            name: "TaxTriage",
+            token: "taxtriage",
+            batchFolder: "taxtriage-batch-2026-04-06T20-46-18",
+            recountArguments: ["--no-cleanup"]
+        ),
+        Classifier(
+            name: "EsViritu",
+            token: "esviritu",
+            batchFolder: "esviritu-batch-2026-04-06T20-46-01",
+            recountArguments: []
+        ),
+        Classifier(
+            name: "Kraken2",
+            token: "kraken2",
+            batchFolder: "kraken2-batch-2026-04-06T20-45-49",
+            recountArguments: []
+        ),
     ]
 
     private var folder: URL!
@@ -65,7 +83,11 @@ final class BuildDatabaseTokenPinTests: XCTestCase {
         for classifier in Self.classifiers {
             let result = try makeResultFolder(named: classifier.batchFolder)
             let argv = try await launchedArguments { $0.routeClassifierDisplay(url: result) }
-            XCTAssertEqual(argv, ["build-db", classifier.token, result.path, "--force"], classifier.name)
+            XCTAssertEqual(
+                argv,
+                ["build-db", classifier.token, result.path, "--force"] + classifier.recountArguments,
+                classifier.name
+            )
         }
     }
 
@@ -73,7 +95,11 @@ final class BuildDatabaseTokenPinTests: XCTestCase {
         for classifier in Self.classifiers {
             let result = try makeResultFolder(named: classifier.batchFolder)
             let argv = try await launchedArguments { $0.displayBatchGroup(at: result) }
-            XCTAssertEqual(argv, ["build-db", classifier.token, result.path, "--force"], classifier.name)
+            XCTAssertEqual(
+                argv,
+                ["build-db", classifier.token, result.path, "--force"] + classifier.recountArguments,
+                classifier.name
+            )
         }
     }
 
@@ -87,7 +113,11 @@ final class BuildDatabaseTokenPinTests: XCTestCase {
                 to: result
             )
             let argv = try await launchedArguments { $0.routeClassifierDisplay(url: result) }
-            XCTAssertEqual(argv, ["build-db", classifier.token, result.path, "--force"], classifier.name)
+            XCTAssertEqual(
+                argv,
+                ["build-db", classifier.token, result.path, "--force"] + classifier.recountArguments,
+                classifier.name
+            )
         }
     }
 
