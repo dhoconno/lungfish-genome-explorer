@@ -173,7 +173,7 @@ extension BuildDbCommand {
                 events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rowCount, record: nil).summary)
 
                 // 4. Count Unique Reads on the BAMs, each row on every reference of its organism, as Reads keep the report's
-                let organismAccessions = Self.organismAccessions(in: accessionMap)
+                let organismAccessions = Self.organismAccessions(rows: rows, accessionMap: accessionMap)
                 var idxstatsByBAM: [String: String] = [:]
                 try await updateUniqueReadsInDB(
                     dbPath: dbURL.path,
@@ -265,21 +265,23 @@ extension BuildDbCommand {
             return Build(result: built, removal: removal)
         }
 
-        /// The references of the organism that names `accession` in `sample`'s gcfmap, in its order, each once. A row's
-        /// accession is the first of them, and its reads can sit on the others, as Influenza A's sat on segments 2 and 5
-        /// and not on segment 4 in the NTC-P batch (3.2 TTREADS). An accession the map lacks stands alone.
-        static func organismAccessions(in accessionMap: [TaxTriageAccessionEntry]) -> (String, String) -> [String] {
-            var organismOf: [String: String] = [:]
-            var accessionsOf: [String: [String]] = [:]
-            for entry in accessionMap {
-                let organism = "\(entry.sample)\t\(entry.organism)"
-                let reference = "\(entry.sample)\t\(entry.accession)"
-                if organismOf[reference] == nil { organismOf[reference] = organism }
-                if accessionsOf[organism]?.contains(entry.accession) != true { accessionsOf[organism, default: []].append(entry.accession) }
+        /// The references of the row whose primary accession is `accession` in `sample`, every strain the row sums in gcfmap
+        /// order (`taxTriageStrainGroups`, TT-STRAIN-GROUP), the primary first. Its reads can sit on any of them, as
+        /// Influenza A's sat on segments 2 and 5 and not on segment 4 in the NTC-P batch (3.2 TTREADS). No reference is in
+        /// two rows' lists. An accession no row holds stands alone.
+        static func organismAccessions(
+            rows: [TaxTriageTaxonomyRow], accessionMap: [TaxTriageAccessionEntry]
+        ) -> (String, String) -> [String] {
+            let gcfmaps = Dictionary(grouping: accessionMap, by: \.sample)
+            var listOf: [String: [String]] = [:]
+            for (sample, sampleRows) in Dictionary(grouping: rows, by: \.sample) {
+                let gcfmap = (gcfmaps[sample] ?? []).map { (accession: $0.accession, organism: $0.organism) }
+                let groups = taxTriageStrainGroups(organisms: sampleRows.map(\.organism), gcfmap: gcfmap)
+                for row in sampleRows {
+                    if let primary = row.primaryAccession, let list = groups[row.organism] { listOf["\(sample)\t\(primary)"] = list }
+                }
             }
-            return { [organismOf, accessionsOf] sample, accession in
-                organismOf["\(sample)\t\(accession)"].flatMap { accessionsOf[$0] } ?? [accession]
-            }
+            return { [listOf] sample, accession in listOf["\(sample)\t\(accession)"] ?? [accession] }
         }
 
         // MARK: - A result of taxtriage run (2.10 X7)

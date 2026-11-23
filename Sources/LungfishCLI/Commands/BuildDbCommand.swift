@@ -338,6 +338,12 @@ extension BuildDbCommand.TaxTriageSubcommand {
         let reports = try urls.sorted(by: { $0.path < $1.path }).map { try TaxTriageOrganismReport.parse(url: $0) }
         // Every sample of the result is parsed before a BAM is resolved, so none takes another's (BUILDDB-BAM-FIT).
         let bamCache = resolveTaxTriageBAMPaths(samples: Set(reports.joined().map(\.sample)), resultURL: resultURL)
+        // Every row of a sample is known before its strains are grouped, so each strain goes to one row (TT-STRAIN-GROUP).
+        var organismsOf: [String: [String]] = [:]
+        for parsed in reports.joined() where organismsOf[parsed.sample]?.contains(parsed.organism) != true {
+            organismsOf[parsed.sample, default: []].append(parsed.organism)
+        }
+        var groupsCache: [String: [String: [String]]] = [:]
         var seenKeys: Set<String> = []
         var rows: [TaxTriageTaxonomyRow] = []
 
@@ -348,14 +354,12 @@ extension BuildDbCommand.TaxTriageSubcommand {
                 guard seenKeys.insert("\(sample)\t\(parsed.organism)").inserted else { continue }
 
                 if gcfmapCache[sample] == nil {
-                    gcfmapCache[sample] = loadGCFMap(
-                        at: gcfmapDir.appendingPathComponent("\(sample).combined.gcfmap.tsv")
-                    )
+                    let gcfmap = loadGCFMap(at: gcfmapDir.appendingPathComponent("\(sample).combined.gcfmap.tsv"))
+                    gcfmapCache[sample] = gcfmap
+                    groupsCache[sample] = Self.taxTriageStrainGroups(organisms: organismsOf[sample] ?? [], gcfmap: gcfmap)
                 }
                 let bam = bamCache[sample] ?? (nil, nil)
-                let primaryAccession = gcfmapCache[sample].flatMap {
-                    findAccession(for: parsed.organism, in: $0)
-                }
+                let primaryAccession = groupsCache[sample]?[parsed.organism]?.first
 
                 rows.append(TaxTriageTaxonomyRow(
                     sample: parsed.sample,
@@ -458,6 +462,10 @@ extension BuildDbCommand.TaxTriageSubcommand {
                     at: gcfmapDir.appendingPathComponent("\(sample).combined.gcfmap.tsv")
                 )
             }
+            let organisms = lines.dropFirst().map {
+                cleanOrganismName(field($0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init), nameIndex))
+            }
+            let groups = Self.taxTriageStrainGroups(organisms: organisms.filter { !$0.isEmpty }, gcfmap: gcfmapCache[sample] ?? [])
 
             let (bamPath, bamIndexPath) = bamCache[sample] ?? (nil, nil)
 
@@ -475,7 +483,7 @@ extension BuildDbCommand.TaxTriageSubcommand {
                 let rank = optionalField(fields, rankIndex)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                     .uppercased()
-                let primaryAccession = gcfmapCache[sample].flatMap { findAccession(for: organism, in: $0) }
+                let primaryAccession = groups[organism]?.first
 
                 rows.append(TaxTriageTaxonomyRow(
                     sample: sample,
@@ -642,27 +650,55 @@ extension BuildDbCommand.TaxTriageSubcommand {
         return entries
     }
 
-    /// Finds the best matching accession for a given organism in gcfmap entries.
+    /// The references each report row of one sample counts on, keyed by the row's organism, in gcfmap order, the first
+    /// being the row's primary accession (TT-STRAIN-GROUP).
     ///
-    /// Tries exact match first, then falls back to prefix matching for organism
-    /// names that may differ slightly between the confidence report and gcfmap.
-    private func findAccession(
-        for organism: String,
-        in entries: [(accession: String, organism: String)]
-    ) -> String? {
-        // Exact match
-        if let match = entries.first(where: { $0.organism == organism }) {
-            return match.accession
+    /// TaxTriage sums every strain of an organism into one report row (`match_paths.py:2733`), and the gcfmap names each
+    /// strain, so a row takes every gcfmap organism whose name, ignoring case, is the row's or begins with the row's and
+    /// then a character that is not a letter or digit, such as `Influenza A virus (A/one(H1N1))` under
+    /// `Influenza A virus`. Each gcfmap organism goes to the one row with the longest such name, so a strain with a row
+    /// of its own stays there. An accession listed under two organism names belongs to the first, the one whose tax ID
+    /// TaxTriage keeps for it (`match_paths.py:1559-1560`), so its reads count in one row only. A row that takes no
+    /// organism this way falls back to the first organism whose name begins its own or begins with it, as the earlier
+    /// match did. It takes that organism when no row holds it, and otherwise shares the list of the row that does, as a
+    /// genus row of the Kraken top report shares its species' (the top report counts nested clades).
+    static func taxTriageStrainGroups(
+        organisms: [String],
+        gcfmap: [(accession: String, organism: String)]
+    ) -> [String: [String]] {
+        var organismOf: [String: String] = [:]
+        var names: [String] = []
+        var accessionsOf: [String: [String]] = [:]
+        for entry in gcfmap where organismOf[entry.accession] == nil {
+            organismOf[entry.accession] = entry.organism
+            if accessionsOf[entry.organism] == nil { names.append(entry.organism) }
+            accessionsOf[entry.organism, default: []].append(entry.accession)
         }
-        // Prefix match (organism names in gcfmap may be truncated or different)
-        let lowered = organism.lowercased()
-        if let match = entries.first(where: { lowered.hasPrefix($0.organism.lowercased()) }) {
-            return match.accession
+        var rowOf: [String: String] = [:]
+        for name in names {
+            let lowered = name.lowercased()
+            let rows = organisms.filter { row in
+                let prefix = row.lowercased()
+                guard !prefix.isEmpty, lowered.hasPrefix(prefix) else { return false }
+                guard let next = lowered.dropFirst(prefix.count).first else { return true }
+                return !(next.isLetter || next.isNumber)
+            }
+            rowOf[name] = rows.max { $0.count < $1.count }
         }
-        if let match = entries.first(where: { $0.organism.lowercased().hasPrefix(lowered) }) {
-            return match.accession
+        var sharers: [String: String] = [:]
+        for organism in organisms where !organism.isEmpty && !rowOf.values.contains(organism) {
+            let lowered = organism.lowercased()
+            guard let name = names.first(where: { lowered.hasPrefix($0.lowercased()) })
+                ?? names.first(where: { $0.lowercased().hasPrefix(lowered) }) else { continue }
+            if let owner = rowOf[name] { sharers[organism] = owner } else { rowOf[name] = organism }
         }
-        return nil
+        var groups: [String: [String]] = [:]
+        for entry in gcfmap where organismOf[entry.accession] == entry.organism {
+            guard let row = rowOf[entry.organism], groups[row]?.contains(entry.accession) != true else { continue }
+            groups[row, default: []].append(entry.accession)
+        }
+        for (row, owner) in sharers { groups[row] = groups[owner] }
+        return groups
     }
 
     private func topReportSampleID(from url: URL) -> String {
