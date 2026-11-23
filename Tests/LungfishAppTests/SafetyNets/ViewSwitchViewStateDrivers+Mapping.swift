@@ -274,7 +274,7 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
             ? viewport.contigTableView.displayedRows.map(\.contigName)
             : viewport.sequenceTableView.displayedRows.map(\.summary.name)
         guard let row = names.firstIndex(of: sequence) else { return XCTFail("no row names \(sequence)") }
-        let table = isMapping ? viewport.contigTableView.tableView : viewport.sequenceTableView.tableView
+        let table: NSTableView = isMapping ? viewport.contigTableView.tableView : viewport.sequenceTableView.tableView
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
     }
 
