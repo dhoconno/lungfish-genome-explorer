@@ -2,7 +2,8 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The point size is a display setting that nothing records (5.5 V6). Every slider in LGE is the shared control of
+// The point size is presentation that the cell map's view memory keeps, clamped to 1 to 8 pt, and gives back on any
+// data key (VS-RNA, `RNASeqCellMapViewController+ViewMemory.swift`). Every slider in LGE is the shared control of
 // LungfishKit (the shared-slider-control ratchet), so the size is an InlineNumericSliderField, a slider with a number
 // field for a typed size, in a hosting view in the control row. The model holds the one value that SwiftUI observes.
 // What the slider or the field writes goes to the controller's `choosePointSize(_:)`, which clamps it, shows it here and
