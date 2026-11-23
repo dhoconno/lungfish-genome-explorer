@@ -63,12 +63,13 @@ final class TaxonTreeBlastTaxonomyTests: XCTestCase {
         XCTAssertEqual(tree.blastTaxonomyContext(for: 562).cladeTaxIds, [562])
     }
 
-    /// BLAST-ESVIRITU-FIRST-WORD. The classifier's own tree gave the clade, so the context says `species`, and a taxon the
-    /// tree does not hold is judged by its own tax ID.
+    /// BLAST-ESVIRITU-FIRST-WORD. With no NCBI Taxonomy lineage the classifier's own tree cannot tell another species
+    /// that holds a clade name, so the context says `rowTaxId` and gives no verdict (UX-BLAST-NOTAX item 3, which moved
+    /// the two pins of `species` here), and a taxon the tree does not hold is judged by its own tax ID.
     func testTheContextSaysWhatItWasJudgedAt() throws {
         let tree = try KreportParser.parse(text: report)
-        XCTAssertEqual(tree.blastTaxonomyContext(for: 3050292).basis, .species)
-        XCTAssertEqual(tree.blastTaxonomyContext(for: 10294).basis, .species)
+        XCTAssertEqual(tree.blastTaxonomyContext(for: 3050292).basis, .rowTaxId)
+        XCTAssertEqual(tree.blastTaxonomyContext(for: 10294).basis, .rowTaxId)
         XCTAssertEqual(tree.blastTaxonomyContext(for: 562).basis, .rowTaxId)
     }
 

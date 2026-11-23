@@ -249,7 +249,14 @@ final class BlastHeldSearchEndToEndTests: XCTestCase {
             return self.item(row)?.state == .completed
         }
         XCTAssertTrue(cameBack, "the row reads \(item(row)?.detail ?? "nothing")")
-        XCTAssertEqual(item(row)?.detail.hasPrefix("1 supporting, 0 contradicting of 1 read. Collected "), true, item(row)?.detail ?? "")
+        // UX-BLAST-NOTAX item 6 moved this pin: the plan passes no --judged-at, so the leaf records rowTaxId and the row is
+        // not judged.
+        XCTAssertEqual(
+            item(row)?.detail.hasPrefix(
+                "not judged, 1 of 1 reads with a significant hit. NCBI Taxonomy is needed to judge them. Collected "
+            ),
+            true, item(row)?.detail ?? ""
+        )
         XCTAssertEqual(item(row)?.detail.hasSuffix(", 3 sends"), true, item(row)?.detail ?? "")
         let saved = try record(in: output)
         XCTAssertEqual(saved.result.rid, BlastFaultStandIn.rid(ofPut: 3), "the copy that came back, whichever it was")

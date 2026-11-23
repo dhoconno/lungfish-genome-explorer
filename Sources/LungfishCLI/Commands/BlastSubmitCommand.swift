@@ -117,10 +117,28 @@ extension BlastCommand {
         // MARK: - Run
 
         /// The message of the leaf's complete event. `reads` counts the rows, which are fragments when read pairs
-        /// were sent, and ` sent=M` then says how many sequences went to NCBI.
+        /// were sent, and ` sent=M` then says how many sequences went to NCBI. A result that was not judged gives
+        /// `verdict=not-judged` in place of its counts (UX-BLAST-NOTAX item 6).
         static func completionSummary(for result: BlastVerificationResult) -> String {
-            let summary = "rid=\(result.rid) supporting=\(result.supportingCount) contradicting=\(result.contradictingCount) reads=\(result.totalReads)"
+            let counts = result.confidence == .notJudged
+                ? "verdict=not-judged"
+                : "supporting=\(result.supportingCount) contradicting=\(result.contradictingCount)"
+            let summary = "rid=\(result.rid) \(counts) reads=\(result.totalReads)"
             return result.judgedSequenceCount == result.totalReads ? summary : summary + " sent=\(result.judgedSequenceCount)"
+        }
+
+        /// The line the leaf prints after the summary of a result that was not judged, with the record at `recordPath`.
+        static func notJudgedLine(recordPath: String) -> String {
+            "Not judged: NCBI Taxonomy did not give this row's species, so a record of another species whose name holds the "
+                + "row's name cannot be told apart. The hits are saved in \(recordPath). Install NCBI Taxonomy in the app's "
+                + "Plugin Manager (Databases tab) and pass --judged-at species only with its lineage."
+        }
+
+        /// What the verdicts are recorded as judged at: the given `--judged-at`, or else `rowTaxId` when
+        /// `--accepted-taxid` was given and `names` when not, as the app's own plans record it, so a new record is never
+        /// nil (UX-BLAST-NOTAX item 6).
+        var recordedJudgedAt: BlastTaxonomyContext.Basis {
+            judgedAt.flatMap(BlastTaxonomyContext.Basis.init(rawValue:)) ?? (acceptedTaxIds.isEmpty ? .names : .rowTaxId)
         }
 
         func run() async throws {

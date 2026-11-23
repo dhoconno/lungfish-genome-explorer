@@ -28,9 +28,11 @@ extension TaxonTree {
     /// relatives are then the tree's genus members outside that joined clade. With no directory, or a dump that does
     /// not hold `taxId`, the context is the tree's alone.
     ///
-    /// A taxon missing from the tree yields a clade of just `taxId`. The context's basis is `species` for a clade the
-    /// tree gave and `rowTaxId` for that lone tax ID (BLAST-ESVIRITU-FIRST-WORD). Reading the dump walks whole files, so
-    /// a caller with a directory calls this off the main actor.
+    /// A taxon missing from the tree yields a clade of just `taxId`. The context's basis is `species` only when the dump
+    /// gave a lineage. The tree alone cannot tell a record of another species whose name holds a clade name, so with no
+    /// lineage the basis is `rowTaxId` and the verification gives no verdict, while the tree's IDs, names and relatives
+    /// stay in the record (UX-BLAST-NOTAX item 3). Reading the dump walks whole files, so a caller with a directory calls
+    /// this off the main actor.
     public func blastTaxonomyContext(for taxId: Int, taxonomyDirectory: URL? = nil) -> BlastTaxonomyContext {
         guard let node = node(taxId: taxId) else {
             return BlastTaxonomyContext(cladeTaxIds: [taxId], basis: .rowTaxId)
@@ -52,6 +54,7 @@ extension TaxonTree {
         )
         let cladeIds = Set(clade.map(\.taxId)).union(lineage?.cladeTaxIds ?? [])
         let cladeNames = lineage?.cladeNames ?? treeNames
+        let basis: BlastTaxonomyContext.Basis = lineage == nil ? .rowTaxId : .species
 
         var genus: TaxonNode?
         var cursor: TaxonNode? = node.parent
@@ -63,7 +66,7 @@ extension TaxonTree {
             cursor = current.parent
         }
         guard node.rank != .genus, let genus else {
-            return BlastTaxonomyContext(cladeTaxIds: cladeIds, cladeNames: cladeNames, basis: .species)
+            return BlastTaxonomyContext(cladeTaxIds: cladeIds, cladeNames: cladeNames, basis: basis)
         }
 
         let relatives = genus.allDescendants().filter { !cladeIds.contains($0.taxId) }
@@ -73,7 +76,7 @@ extension TaxonTree {
             cladeNames: cladeNames,
             relatedTaxIds: Set(relatives.map(\.taxId)),
             relatedNames: relatedNames,
-            basis: .species
+            basis: basis
         )
     }
 }

@@ -99,7 +99,7 @@ extension BlastCommand.SubmitSubcommand {
             acceptedTaxonNames: acceptedNames,
             relatedTaxIds: Set(relatedTaxIds),
             relatedTaxonNames: relatedNames,
-            judgedAt: judgedAt.flatMap(BlastTaxonomyContext.Basis.init(rawValue:))
+            judgedAt: recordedJudgedAt
         )
     }
 
@@ -178,6 +178,7 @@ extension BlastCommand.SubmitSubcommand {
             events.emitComplete(outputs: [recordURL.path, query.url.path], message: summary)
             if chatty {
                 print("Saved the BLAST result to \(recordURL.path) (\(summary))")
+                if result.confidence == .notJudged { print(Self.notJudgedLine(recordPath: recordURL.path)) }
             }
         case .ended(_, let words):
             writeFailedRecord(in: output, query: query, startedAt: startedAt, message: "BLAST search failed: \(words)")
@@ -223,6 +224,7 @@ extension BlastCommand.SubmitSubcommand {
             "rid": .string(result.rid),
             "supportingCount": .integer(result.supportingCount),
             "contradictingCount": .integer(result.contradictingCount),
+            "confidence": .string(result.confidence.rawValue),
             "errorCount": .integer(result.errorCount),
             "totalReads": .integer(result.totalReads),
         ]
