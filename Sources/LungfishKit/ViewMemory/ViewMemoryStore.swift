@@ -200,7 +200,8 @@ public final class ViewMemoryStore: Sendable {
     }
 
     /// The view kept for `key` as `type` reads it, for an item whose folder identity is now `folder`. A record kept
-    /// for another folder at the path is removed (VS A3). A kept view marks the time of its restore in memory.
+    /// for another folder at the path is removed (VS A3). A kept view or a retire mark marks the time of its visit in
+    /// memory.
     public func restorable<State: ViewMemoryState>(
         _ type: State.Type, for key: ViewMemoryKey, folder: ViewMemoryFolderIdentity?
     ) -> ViewMemoryRestorable<State> {
@@ -214,11 +215,13 @@ public final class ViewMemoryStore: Sendable {
                 contents.removed.insert(key)
                 return (nil, true)
             }
-            guard !entry.record.retired, entry.record.kind == State.kind,
-                  entry.record.schemaVersion == State.schemaVersion else { return (nil, false) }
+            // A visit marks the time of a retire mark too, so a mark in use never ages out and an older bundle's own
+            // view file is never read again for the item.
             entry.record.lastRestored = now
             contents.entries[key] = entry
             contents.touched.insert(key)
+            guard !entry.record.retired, entry.record.kind == State.kind,
+                  entry.record.schemaVersion == State.schemaVersion else { return (nil, false) }
             return (entry, false)
         }
         guard let entry = found.entry else { return found.folderChanged ? .folderChanged : .nothing }
