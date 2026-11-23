@@ -603,10 +603,14 @@ DEFAULT_CLASS_TIMEOUT_SECONDS = {
 # (the budget note above). A new test target needs its measured time here before the full tier runs it.
 # LungfishRNASeqUITests is the 0.469 seconds that its outer suite printed for 6 tests in the RS-UI-KIND run of
 # 2026-11-18, so the 10 minute floor bounds it.
+# The LungfishWorkflowTests figure is the 2026-11-22 measurement, 2,072.6 seconds to the start of
+# PluginPackStatusServiceTests in gate-20261122-201050-f149c6cb7-33883 bundle-04 (2,072.0 seconds in
+# gate-20261122-223017-f149c6cb7-43791 bundle-00), plus 269.2 seconds from that class's start to the bundle's end in
+# the green full tier gate-20261119-163909-bbfe6550d-29224 (stable-patch-11-7-8b32ce worktree).
 SWIFT_TESTING_BUNDLE = "swift-testing"
 FULL_TIER_MEASURED_SECONDS = {
     "LungfishAppTests": 2647.984, "LungfishCLITests": 1285.178, "LungfishAppViewTests": 63.079,
-    "LungfishAppWorkflowTests": 8.995, "LungfishWorkflowTests": 976.420, "LungfishIOTests": 130.203,
+    "LungfishAppWorkflowTests": 8.995, "LungfishWorkflowTests": 2341.8, "LungfishIOTests": 130.203,
     "LungfishCoreTests": 92.419, "LungfishOperationsTests": 104.707, "LungfishGenotypeUITests": 288.232,
     "LungfishKitTests": 44.181, "LungfishIntegrationTests": 11.370, "LungfishTaxTriageUITests": 12.244,
     "LungfishTwelveSUITests": 16.012, "LungfishRNASeqUITests": 0.469, "LungfishExecutorTests": 51.378,

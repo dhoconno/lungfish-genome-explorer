@@ -817,7 +817,7 @@ class FullTierBundleTests(unittest.TestCase):
 
     def test_each_bundle_bound_is_twice_its_full_5_time_rounded_up_to_5_minutes_with_a_floor_of_10(self):
         expected = dict.fromkeys([*RULED_ORDER, "swift-testing"], 10 * 60)
-        expected.update(LungfishAppTests=90 * 60, LungfishCLITests=45 * 60, LungfishWorkflowTests=35 * 60)
+        expected.update(LungfishAppTests=90 * 60, LungfishCLITests=45 * 60, LungfishWorkflowTests=80 * 60)
         self.assertEqual(GATE.FULL_TIER_BUNDLE_TIMEOUT_SECONDS, expected)
         self.assertEqual([GATE.full_tier_bound(s) for s in (0.1, 300, 301, 450, 2647.984)], [600, 600, 900, 900, 5400])
 
