@@ -121,14 +121,33 @@ final class ViewMemoryStoreTests: XCTestCase {
         first.flushSynchronously()
 
         let late = fixture.store()
-        XCTAssertNil(late.key(for: ViewMemoryItem.read(at: fixture.bundle)), "not read is not no entry")
         late.keep(ViewMemoryTestView(filter: "other"), startingView: start, for: key, dataKey: nil, folder: item.folder)
         late.keep(start, startingView: start, for: key, dataKey: nil, folder: item.folder)
+        XCTAssertNil(late.key(for: ViewMemoryItem.read(at: fixture.bundle)), "not read is not no entry")
         late.flushSynchronously()
 
         _ = try fixture.loaded(late)
         guard case .view(let view, _, _) = late.restorable(ViewMemoryTestView.self, for: key, folder: item.folder) else {
             return XCTFail("the entry was lost")
+        }
+        XCTAssertEqual(view, changed)
+    }
+
+    func testAnUnreadProjectIsReadInTheBackgroundOnTheFirstKeyRequest() throws {
+        let fixture = try ViewMemoryFixture()
+        defer { fixture.cleanup() }
+        let first = fixture.store()
+        let (item, key) = try fixture.loaded(first)
+        first.keep(changed, startingView: start, for: key, dataKey: nil, folder: item.folder)
+        first.flushSynchronously()
+
+        // A project made with File > New Project, or opened by a route that reads no entries, is not read.
+        let unread = fixture.store()
+        XCTAssertNil(unread.key(for: item), "the first request finds the project not read")
+        unread.flushSynchronously()
+        XCTAssertEqual(unread.key(for: item), key, "the first request read the project in the background")
+        guard case .view(let view, _, _) = unread.restorable(ViewMemoryTestView.self, for: key, folder: item.folder) else {
+            return XCTFail("the project's kept view was not read")
         }
         XCTAssertEqual(view, changed)
     }
