@@ -106,7 +106,7 @@ final class MetadataColumnMemoryTests: XCTestCase {
         XCTAssertEqual(adopted.controller.captureViewMemory()?.visibleMetadata, ["Location", "Type"])
     }
 
-    func testAStoredLayoutWinsOverTheOldKeyAndAppliesToAFreshControllerInAnotherSuite() throws {
+    func testAStoredLayoutAppliesToAFreshControllerInAnotherSuiteAndWritesNoDefaults() throws {
         let store = try makeStore()
         let first = makeController(key: "K1", in: defaults, store: store)
         first.controller.visibleColumns = ["Type", "Location"]
@@ -126,6 +126,26 @@ final class MetadataColumnMemoryTests: XCTestCase {
         XCTAssertEqual(controller.visibleColumns, ["Type", "Location"])
         XCTAssertEqual(columnIDs(in: table), ["metadata_Location", "sample", "score", "metadata_Type"])
         XCTAssertEqual(layoutKeys(in: other.defaults), [], "nothing went to the old defaults key")
+    }
+
+    func testAStoredLayoutWinsOverAnOldKeyThatHoldsAnotherAndTheOldKeyIsLeftAlone() throws {
+        let store = try makeStore()
+        let legacy = makeController(key: "result-C", in: defaults, store: store)
+        legacy.controller.visibleColumns = ["Type"]
+        legacy.controller.update(store: store, sampleId: "S1")
+        let oldKey = Self.layoutKeyPrefix + "result-C"
+        let written = try XCTUnwrap(defaults.data(forKey: oldKey))
+
+        let adopted = makeController(key: "result-C", in: defaults, store: store)
+        XCTAssertEqual(adopted.controller.visibleColumns, ["Type"], "no store entry yet, so the old key is the start")
+        adopted.controller.applyViewMemory(
+            MetadataColumnLayoutMemory(visibleMetadata: ["Location"], columnOrder: [], metadataWidths: [:])
+        )
+        adopted.controller.update(store: store, sampleId: "S1")
+
+        XCTAssertEqual(adopted.controller.visibleColumns, ["Location"], "a store entry wins over the old key")
+        XCTAssertEqual(adopted.controller.captureViewMemory()?.visibleMetadata, ["Location"])
+        XCTAssertEqual(defaults.data(forKey: oldKey), written, "the old key is never written back")
     }
 
     func testSwitchingKeysAfterAdoptionKeepsEachLayoutInMemoryAndWritesNoDefaults() throws {
