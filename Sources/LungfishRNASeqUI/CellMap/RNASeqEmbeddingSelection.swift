@@ -283,7 +283,7 @@ extension RNASeqCellMapViewController {
     }
 
     /// Runs the membership off the main actor. A newer request cancels this one, and only the newest is shown.
-    private func runSelection(rule: @escaping @Sendable () -> RNASeqCellMapSelection.Rule, mode: RNASeqEmbeddingSelection.Mode,
+    func runSelection(rule: @escaping @Sendable () -> RNASeqCellMapSelection.Rule, mode: RNASeqEmbeddingSelection.Mode,
                               form: RNASeqCellMapSelect.Form?, rows: Set<Int>, rowsColouring: RNASeqCellMapColouring?,
                               polygon: [RNASeqCellMapSelection.Vertex]?) {
         guard let shown = snapshot else { return }

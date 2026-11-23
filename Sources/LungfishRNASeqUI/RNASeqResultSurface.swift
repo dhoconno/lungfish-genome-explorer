@@ -63,6 +63,15 @@ public final class RNASeqResultSurface: ResultViewport {
     /// Called after a result is shown, so the App can give the Inspector the result's name and record.
     public var onLoaded: (@MainActor (RNASeqResultFacts, URL) -> Void)?
 
+    /// Where the result lives and its data key (VS B1), read once off the main actor in `load`
+    /// (`RNASeqResultSurface+ViewMemory.swift`), never in a getter.
+    public internal(set) var viewMemoryItem: ViewMemoryItem?
+    public internal(set) var viewMemoryDataKey: String?
+    /// The zoom and the selection a cell map's restore still waits to apply, which a capture stands in for.
+    var cellMapRestore: RNASeqCellMapPendingRestore?
+    /// The bulk view a restore applied, which the announce after the route selects again (`announceViewMemory`).
+    var bulkRestore: RNASeqBulkViewMemory?
+
     /// Called with a cell map's fact lines (label and value) on each refresh of its view, and with none when the map
     /// closes or a reread fails, so the App can show them in the Inspector. The values are already on the main actor.
     public var onCellMapFacts: (@MainActor ([(label: String, value: String)], URL) -> Void)? {
@@ -98,8 +107,14 @@ public final class RNASeqResultSurface: ResultViewport {
     public func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
         let bundleURL = try expectInput(input, as: URL.self)
         configure(self)
-        let outcome = await Task.detached(priority: .userInitiated) { RNASeqResultSurface.read(bundleURL) }.value
+        // Where the result lives and its data key are read once here, off the main actor, never in a getter (VS A3, B1).
+        let (outcome, item, key) = await Task.detached(priority: .userInitiated) {
+            let outcome = RNASeqResultSurface.read(bundleURL)
+            return (outcome, ViewMemoryItem.read(at: bundleURL), RNASeqResultSurface.viewMemoryDataKey(of: outcome))
+        }.value
         try Task.checkCancellation()
+        viewMemoryItem = item
+        viewMemoryDataKey = key
         // A cell map's coordinates and colours are read inside this load, the host's `loadTask`, so the memory guard's
         // cancel of that task reaches the read (`Sources/LungfishApp/Services/AppMemoryGuard.swift`, cancelLoads).
         var cellMap: RNASeqCellMapLoadOutcome?

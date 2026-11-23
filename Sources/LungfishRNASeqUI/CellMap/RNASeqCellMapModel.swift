@@ -44,8 +44,8 @@ public struct RNASeqCellMapFacts: Equatable, Sendable {
     /// The embedding the view opens on, the first in file order (5.5 V6).
     public var defaultEmbedding: RNASeqCellMapDatabase.Embedding? { embeddings.first }
 
-    /// The colouring the view opens on, the first label set, or the sample when the map holds none. Nothing is kept
-    /// between opens (5.5 V6).
+    /// The colouring a first open shows, the first label set, or the sample when the map holds none. View memory keeps
+    /// a later choice outside the result (5.5 V6).
     public var defaultColouring: RNASeqCellMapColouring { labelSets.first.map { .labelSet($0.labelSet) } ?? .sample }
 
     /// Every colouring the cell map can give, in the order of the Colour by pop-up.

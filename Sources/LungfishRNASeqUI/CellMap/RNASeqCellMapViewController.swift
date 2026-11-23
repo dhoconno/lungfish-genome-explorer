@@ -5,8 +5,8 @@
 // The view draws the cells of a cell map on its embedding (5.5 O1 (a)). The surface's load reads what the view opens
 // with, so the memory guard's cancel of the surface's `loadTask` reaches it. A later read, of another embedding or
 // another colouring, and every raster run off the main actor, and the newest request wins. The controls are an
-// Embedding pop-up, a Colour by pop-up and a point size that nothing records, which is LungfishKit's shared slider in
-// a hosting view (RNASeqCellMapPointSize.swift). The view opens on the first embedding in file order (5.5 V6). The
+// Embedding pop-up, a Colour by pop-up and a point size that view memory keeps, which is LungfishKit's shared slider in
+// a hosting view (RNASeqCellMapPointSize.swift). A first open shows the first embedding in file order (5.5 V6). The
 // right column is one fixed width that sets every wrap width in it (5.6 L1). A general caveat sits in an info button
 // beside the control it explains, and a fact true of this result sits under that control (5.6 U2).
 
@@ -31,15 +31,15 @@ public final class RNASeqCellMapViewController: NSViewController {
     /// What is shown: the facts, the embedding's points, the colouring and its colours. Nil until the read ends.
     public private(set) var snapshot: RNASeqCellMapSnapshot?
     public private(set) var failureWords: String?
-    /// The point size in points, a display setting that nothing records (5.5 V6). The model holds it, so the shared
+    /// The point size in points, a display setting that only view memory keeps. The model holds it, so the shared
     /// slider and the raster read one value.
     public var pointSize: Double { pointSizeModel.value }
     /// The part of the plane shown, nil for every drawn cell.
-    public private(set) var plotWindow: RNASeqEmbeddingWindow?
+    public internal(set) var plotWindow: RNASeqEmbeddingWindow?
     /// The hover line on show, nil when the pointer is over no cell.
     public private(set) var hoverWords: String?
     /// The latest read or raster, which a test can wait on.
-    public private(set) var work: Task<Void, Never>?
+    public internal(set) var work: Task<Void, Never>?
     public private(set) var hoverWork: Task<Void, Never>?
 
     public let plot = RNASeqEmbeddingPlotView()
@@ -64,17 +64,17 @@ public final class RNASeqCellMapViewController: NSViewController {
     private let xAxis = NSTextField(labelWithString: "")
     private let yAxis = NSTextField(labelWithString: "")
     private let hoverField = NSTextField(wrappingLabelWithString: "")
-    private var readWork: Task<Void, Never>?
+    var readWork: Task<Void, Never>?
     private var rasterWork: Task<Void, Never>?
-    private var generation = 0
+    var generation = 0
     /// The cell whose hover read is on show or in flight, so a pointer moving inside one disc starts no new read.
     private var hoveredCell: Int?
     /// The embedding and colouring the newest choices want, kept until a read shows them, so a later choice keeps an
     /// earlier one still being read (5.5 V1, newest wins).
-    private var wantedEmbedding: Int?
-    private var wantedColouring: RNASeqCellMapColouring?
+    var wantedEmbedding: Int?
+    var wantedColouring: RNASeqCellMapColouring?
     /// The unit a gene is coloured in, the normalised value until a person asks for raw UMIs (5.5 G1).
-    public private(set) var geneUnit: RNASeqCellMapDatabase.GeneUnit = .normalised
+    public internal(set) var geneUnit: RNASeqCellMapDatabase.GeneUnit = .normalised
     /// The picker that the Gene… item opened, and the read of the cell map's features that fills it.
     public private(set) var genePicker: RNASeqEmbeddingGenePickerViewController?
     public private(set) var geneIndexWork: Task<Void, Never>?
@@ -418,7 +418,7 @@ public final class RNASeqCellMapViewController: NSViewController {
 
     /// Reads what the newest choices want, the points only when the embedding wanted is not the one on show and the
     /// values only when the colouring wanted is not, then colours the one by the other.
-    private func rereadWanted() {
+    func rereadWanted() {
         guard let shown = snapshot else { return }
         let embedding = wantedEmbedding ?? shown.points.embedding
         let colouring = wantedColouring ?? shown.colouring
