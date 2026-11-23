@@ -170,7 +170,7 @@ extension BatchTableView {
                 }
                 columnFilterSet = usable
                 setFilterText(memory.filterText)
-                report.filtersRestored = true
+                report.filtersRestored = !usable.activeFilters.isEmpty || !memory.filterText.isEmpty
             }
         }
 
