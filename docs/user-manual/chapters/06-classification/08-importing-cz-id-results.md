@@ -26,7 +26,7 @@ glossary_refs: [blast, bundle, checksum, clade, classifier, csv, cz-id, e-value,
 features_refs: [import.czid, viewport.taxonomy-browser]
 fixtures_refs: [czid]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
