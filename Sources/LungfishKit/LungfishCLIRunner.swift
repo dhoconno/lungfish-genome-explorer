@@ -143,7 +143,7 @@ public enum LungfishCLIRunner {
         return Output(stdout: exit.stdout, stderr: exit.stderr, status: exit.status)
     }
 
-    /// Runs `lungfish-cli build-db <tool> <resultDir>` and waits for it.
+    /// Runs `lungfish-cli build-db <tool> <resultDir>` and waits for it, with `--no-cleanup` for `taxtriage`.
     ///
     /// Intended to be called from a background task at the end of a batch
     /// pipeline so the SQLite database is present on disk before the user
@@ -180,6 +180,11 @@ public enum LungfishCLIRunner {
         var arguments = ["build-db", tool, resultURL.path]
         if force {
             arguments.append("--force")
+        }
+        // The app recounts a TaxTriage result it shows, so the build removes nothing from the folder. The command's
+        // cleanup removed `top/` of an older result, the only source of a sample whose rows came from it (TT-m1).
+        if tool == "taxtriage" {
+            arguments.append("--no-cleanup")
         }
         for sampleDirectory in sampleDirectories {
             arguments += ["--sample-dir", sampleDirectory.standardizedFileURL.path]

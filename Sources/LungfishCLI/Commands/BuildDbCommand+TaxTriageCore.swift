@@ -10,10 +10,13 @@
 // from the BAMs and writes the records. A failure puts the database of an earlier build back and writes a failure
 // record, and a cancel writes none. Its cleanup takes one of two forms (decision T5 of Phase 2.8).
 //
-// - `.legacy`, the command's, which the app's in-process TaxTriage route runs after each run. `performCleanup`
-//   removes `count/`, the fastp FASTQ files and eight intermediate folders, `top/` among them, between the
-//   unique-read pass and the record, so the record names sources that are gone. It records no step.
-//   `BuildDbTaxTriageCleanupFreezeTests` pins the rows, the record and the removed paths of that order.
+// - `.legacy`, the command's, for a folder with no record of `taxtriage run` (an older run or an import).
+//   `performCleanup` removes `count/`, the fastp FASTQ files and the seven folders of `removedFolderNames` between
+//   the unique-read pass and the record, and records no step. It keeps `top/`, the only source of a sample whose
+//   rows come from it, which it removed until TT-m1, so older folders can lack it. The app's recount on display
+//   passes `--no-cleanup` (`LungfishCLIRunner.buildClassifierDatabase`). `BuildDbTaxTriageCleanupFreezeTests` pins
+//   the rows, the record and the removed paths. A rebuild keeps the earlier database's rows of a sample no report
+//   holds any more, named as not recounted (BuildDbCommand+TaxTriageCarried.swift).
 // - `.recordedRemoval`, the executor's. `performRecordedCleanup` runs after the record, keeps `top/`, removes the
 //   other seven folders, `count/` and the fastp FASTQ files of each result folder that is no symbolic link, and
 //   returns one removal step naming each removed file that a record names, with that record's digest and size,
@@ -73,10 +76,10 @@ extension BuildDbCommand {
             }
         }
 
-        /// How a build's cleanup treats `top/` and what it records (decision T5 of Phase 2.8).
+        /// When a build's cleanup runs and what it records (decision T5 of Phase 2.8). Both keep `top/` (TT-m1).
         enum Cleanup: Sendable {
-            /// The command's cleanup, which the app's in-process route runs. It removes `top/` too, before
-            /// the record, and records nothing. The legacy route keeps it until that route goes.
+            /// The command's cleanup, for a folder with no record of `taxtriage run`. It runs before the record,
+            /// keeps `top/`, removes the rest of the list and records nothing. Until TT-m1 it removed `top/` too.
             case legacy
             /// The analysis run executor's. It runs after the record, keeps `top/`, so a `--force`
             /// rebuild still reads a sample whose only rows come from there, and names each file it
@@ -140,23 +143,15 @@ extension BuildDbCommand {
                 events.text("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
                 for line in resolvedInput.lines { events.text(line) }
 
-                // A rebuild never leaves fewer samples than the database it replaces. A sample whose rows came from `top/` has
-                // none once an earlier build's cleanup removed that folder, and its control would then read as clean (3.2 TTREADS).
-                let earlier = Set((try? TaxTriageDatabase(at: dbURL).fetchSamples().map(\.sample)) ?? [])
-                if Set(rows.map(\.sample)).count < earlier.count {
-                    let missing = earlier.subtracting(rows.map(\.sample)).sorted().joined(separator: ", ")
-                    throw ValidationError(
-                        "Lungfish did not rebuild \(dbURL.lastPathComponent) because that would lose these samples: \(missing). "
-                            + "Only the old database still holds their rows, since this folder has no report for them that Lungfish can read "
-                            + "(usually an earlier build removed their top/ folder). The old database is unchanged and its read counts are not "
-                            + "recounted. To keep them, import the original TaxTriage run folder again, if you still have it. To rebuild without "
-                            + "them, delete \(dbURL.path), then select the result again in Lungfish or run "
-                            + "lungfish-cli build-db taxtriage \"\(resultURL.path)\"."
-                    )
-                }
+                // A rebuild never leaves fewer samples than the database it replaces, or a control would read as clean (3.2
+                // TTREADS). A sample no report holds any more, since an older build's cleanup removed its `top/`, keeps the
+                // earlier database's rows, out of the count pass and named as not recounted (TT-m1).
+                let carried = try CarriedSamples.read(from: dbURL, keeping: rows)
+                if let carried { events.warning(carried.warning(databaseName: dbURL.lastPathComponent)) }
+                let rowCount = rows.count + (carried?.rows.count ?? 0)
 
                 // 3. Build database
-                let metadata: [String: String] = [
+                var metadata: [String: String] = [
                     "tool": "taxtriage",
                     "created_at": ISO8601DateFormatter().string(from: Date()),
                     "source_dir": resultURL.path,
@@ -165,16 +160,17 @@ extension BuildDbCommand {
                         .joined(separator: ","),
                     TaxTriageDatabase.tassScaleMetadataKey: TaxTriageDatabase.currentTASSScale,
                     TaxTriageDatabase.fittedBAMSamplesMetadataKey: TaxTriageDatabase.fittedBAMSamplesMetadataValue(
-                        Self.taxTriageFittedBAMSamples(in: rows)
+                        Self.taxTriageFittedBAMSamples(in: rows) + (carried?.fittedSamples ?? [])
                     ),
                 ]
+                if let carried { metadata[Self.notRecountedSamplesMetadataKey] = carried.metadataValue }
 
                 try events.checkCancellation()
                 try TaxTriageDatabase.create(
                     at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata, progress: events.progress
                 )
 
-                events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: nil).summary)
+                events.text(BuildDbRunResult(databaseURL: dbURL, rowCount: rowCount, record: nil).summary)
 
                 // 4. Count Unique Reads on the BAMs, each row on every reference of its organism, as Reads keep the report's
                 let organismAccessions = Self.organismAccessions(in: accessionMap)
@@ -202,6 +198,7 @@ extension BuildDbCommand {
                 try Self.storeOrganismReferences(
                     rows: rows, organismAccessions: organismAccessions, idxstatsByBAM: idxstatsByBAM, resultURL: resultURL, dbURL: dbURL
                 )
+                try carried?.publish(at: dbURL, accessionMap: accessionMap, metadata: metadata)
                 // The mark vouches for the counts above, so a build that ends before here leaves none (3.2 TTREADS, ARCH).
                 try TaxTriageDatabase.markReadsCounted(at: dbURL)
 
@@ -227,7 +224,7 @@ extension BuildDbCommand {
                 // The build step names the database, so it goes over only once no catch can put the earlier one
                 // back, and before the recorded cleanup starts (lane S33).
                 if let buildStep = record.steps.last { events.step(buildStep) }
-                built = BuildDbRunResult(databaseURL: dbURL, rowCount: rows.count, record: record)
+                built = BuildDbRunResult(databaseURL: dbURL, rowCount: rowCount, record: record)
             } catch {
                 do {
                     try databaseSnapshot.restore()
@@ -371,7 +368,7 @@ extension BuildDbCommand {
 
         // MARK: - Post-Build Cleanup
 
-        /// The intermediate folders a cleanup removes whole. The `.legacy` cleanup also removes `top/`.
+        /// The intermediate folders either cleanup removes whole. Neither removes `top/` (TT-m1).
         static let removedFolderNames = ["filterkraken", "get", "map", "samtools", "bedtools", "mergedsubspecies", "mergedkrakenreport"]
 
         private func performCleanup(resultURL: URL, events: BuildDbEventSink) throws {
@@ -547,8 +544,8 @@ extension BuildDbCommand {
                 }
             }
 
-            // Delete intermediate pipeline directories
-            for dirname in ["filterkraken", "get", "map", "samtools", "bedtools", "top", "mergedsubspecies", "mergedkrakenreport"] {
+            // Delete intermediate pipeline directories. `top/` stays, the only source of a sample whose rows come from it (TT-m1).
+            for dirname in Self.removedFolderNames {
                 let dir = resultURL.appendingPathComponent(dirname)
                 if let size = directorySize(dir) {
                     try? fm.removeItem(at: dir)

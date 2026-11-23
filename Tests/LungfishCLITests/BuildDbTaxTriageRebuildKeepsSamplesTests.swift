@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: MIT
 //
 // ARCH should-fix 3 of lane TTREADS. A sample whose organism report holds no row, such as a blank with Kraken-only hits,
-// takes its rows from `top/<sample>.top_report.tsv`. The command's `.legacy` cleanup removes `top/` after the build, so
+// takes its rows from `top/<sample>.top_report.tsv`. The command's `.legacy` cleanup removed `top/` after the build, so
 // a second build with `--force`, which the app now runs for every database an older Lungfish counted, finds no rows for
 // that sample and replaced the database without it. A control then read as clean, and the first database was gone.
+// TTREADS made that rebuild throw, so the result could never be recounted. Since lane TT-m1 the cleanup keeps `top/`,
+// and a folder an older build left without it keeps the earlier database's rows of the sample, named as not recounted.
 
 import XCTest
 import LungfishTestSupport
@@ -24,45 +26,46 @@ final class BuildDbTaxTriageRebuildKeepsSamplesTests: XCTestCase {
         TestTempDirectory.cleanup(root)
     }
 
-    /// Red at 10c4e49e4 if the second build drops B. The second build throws, in words that name B, the database and the
-    /// folder (TTREADS-FIX5-ARCH fix 1), and the first database is back.
+    /// Red at 10c4e49e4 if the second build drops B. Since TT-m1 the first build keeps `B/top/`, and the case removes it as
+    /// an older build's cleanup did. The second build then keeps B's rows as the first database held them, says so in
+    /// words that name B, and names B as not recounted in the database.
     func testForceRebuildAfterLegacyCleanupKeepsAKrakenOnlySample() async throws {
         let batch = try makeBatch()
         let databaseURL = batch.appendingPathComponent("taxtriage.sqlite")
-        let events = BuildDbEventSink(progress: { _, _ in }, text: { _ in }, textWarning: { _ in }, warning: { _ in })
         let globalOptions = try GlobalOptions.parse([])
 
         _ = try await BuildDbCommand.TaxTriageSubcommand.buildDatabase(
-            in: batch, options: BuildDbRunOptions(globalOptions: globalOptions), events: events
+            in: batch, options: BuildDbRunOptions(globalOptions: globalOptions), events: .silent
         )
         let firstSamples = try TaxTriageDatabase(at: databaseURL).fetchSamples().map(\.sample).sorted()
         XCTAssertEqual(firstSamples.count, 2, "the first build reads A from its report and B from top/: \(firstSamples)")
         XCTAssertTrue(firstSamples.contains("B"), "B is in the first database: \(firstSamples)")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: batch.appendingPathComponent("B/top").path), "the legacy cleanup removed top/")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: batch.appendingPathComponent("B/top").path), "the legacy cleanup keeps top/")
+        let firstRows = try TaxTriageDatabase(at: databaseURL).fetchRows(samples: ["B"]).map { "\($0.organism)|\($0.readsAligned)" }
+        try FileManager.default.removeItem(at: batch.appendingPathComponent("B/top", isDirectory: true))
 
         var again = BuildDbRunOptions(globalOptions: globalOptions)
         again.force = true
-        do {
-            _ = try await BuildDbCommand.TaxTriageSubcommand.buildDatabase(in: batch, options: again, events: events)
-            XCTFail("the rebuild would lose B, so it throws")
-        } catch {
-            let words = String(describing: error)
-            XCTAssertTrue(words.contains("these samples: B."), words)
-            XCTAssertTrue(words.contains(databaseURL.path), words)
-            XCTAssertTrue(words.contains("lungfish-cli build-db taxtriage \"\(batch.path)\""), words)
-        }
+        let warnings = WarningLines()
+        let events = BuildDbEventSink(progress: { _, _ in }, text: { _ in }, textWarning: { _ in }, warning: { warnings.append($0) })
+        _ = try await BuildDbCommand.TaxTriageSubcommand.buildDatabase(in: batch, options: again, events: events)
 
-        // The failure record states the reason in the refusal's own words, not the system's generic text for a
-        // ValidationError (TTREADS-FIX5-ARCH fix 2), and the database keeps the record of the build it came from.
-        let folderRecord = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: batch), "the refused build leaves a record in the folder")
-        let failed = try XCTUnwrap(folderRecord.steps.last)
-        XCTAssertEqual(failed.exitStatus, 1)
-        XCTAssertTrue(failed.stderr?.contains("these samples: B.") == true, "\(String(describing: failed.stderr))")
+        let words = warnings.lines.joined(separator: "\n")
+        XCTAssertTrue(words.contains("Kept the rows of B from the earlier taxtriage.sqlite without recounting them"), words)
+        let database = try TaxTriageDatabase(at: databaseURL)
+        XCTAssertEqual(try database.fetchSamples().map(\.sample).sorted(), firstSamples, "the forced rebuild kept every sample")
+        XCTAssertEqual(try database.fetchRows(samples: ["B"]).map { "\($0.organism)|\($0.readsAligned)" }, firstRows)
+        XCTAssertEqual(try database.fetchMetadata()[BuildDbCommand.TaxTriageSubcommand.notRecountedSamplesMetadataKey], "[\"B\"]")
         let sidecar = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: databaseURL)))
-        XCTAssertFalse(sidecar.steps.contains { ($0.exitStatus ?? 0) != 0 }, "the database keeps the record of the build it came from")
+        XCTAssertFalse(sidecar.steps.contains { ($0.exitStatus ?? 0) != 0 }, "the rebuild completed")
+    }
 
-        let samples = try TaxTriageDatabase(at: databaseURL).fetchSamples().map(\.sample).sorted()
-        XCTAssertEqual(samples, firstSamples, "the forced rebuild kept every sample of the database it replaced")
+    /// The warning lines a build gave, from the sink's `warning`.
+    private final class WarningLines: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: [String] = []
+        var lines: [String] { lock.withLock { stored } }
+        func append(_ line: String) { lock.withLock { stored.append(line) } }
     }
 
     /// A batch of sample A, with an organism report that holds a row, and sample B, whose organism report holds its

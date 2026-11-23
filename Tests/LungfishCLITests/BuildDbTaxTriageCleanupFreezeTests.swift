@@ -2,11 +2,13 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Phase 2.8 lane TF-W. The app runs `lungfish-cli build-db taxtriage <root> --force` after every TaxTriage run, with no
-// `--no-cleanup`, and the command then deletes `count/` (raw FASTQ copies), the fastp FASTQ files and eight folders
+// Phase 2.8 lane TF-W. The app ran `lungfish-cli build-db taxtriage <root> --force` after every TaxTriage run, with no
+// `--no-cleanup`, and the command then deleted `count/` (raw FASTQ copies), the fastp FASTQ files and eight folders
 // with no recorded step for the removal. Records written before it name those files (BIO T11 and T12). Plan decision T5 gives
 // the executor path a recorded removal step and keeps this cleanup for the legacy route, so these assertions stay
-// true for the route that exists in 2.8 and a lane that changes the cleanup flips them where its decision says.
+// true for that route and a lane that changes the cleanup flips them where its decision says. Lane TT-m1 of the S1
+// sweep before Preview 2026.11.17 flipped `top/`: the command's cleanup keeps it, as the executor's does, since it is
+// the only source of a sample whose rows come from it (TT-LEGACY-CLEANUP-REMOVES-TOP, ARCH 7 of the O75 meeting).
 //
 // The runs use a copy of `Tests/Fixtures/taxtriage-mini` without `minimap2/`, the folder of its BAMs, as
 // `BuildDbStreamCapture.taxTriageResultWithoutBAMs` does, because a row that names a BAM makes the command run
@@ -35,8 +37,8 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
     // MARK: - The result folder
 
     /// Files of a finished TaxTriage sample folder that the cleanup deletes. They are the raw FASTQ copies of `count/`,
-    /// the fastp FASTQ files (`.fastq`, `.gz`, `.fastp.fastq.gz`) and the files of seven of the eight intermediate
-    /// folders. The eighth, `top/`, comes with the fixture.
+    /// the fastp FASTQ files (`.fastq`, `.gz`, `.fastp.fastq.gz`) and the files of the seven intermediate folders it
+    /// removes. `top/`, which it keeps since TT-m1, comes with the fixture.
     private static let removedSeed = [
         "count/SRR35517702.fastq.gz", "count/SRR35517703.fastq.gz",
         "fastp/SRR35517702.fastp.fastq.gz", "fastp/SRR35517703_1.fastq", "fastp/SRR35517703.trimmed.gz",
@@ -100,8 +102,8 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
 
     // MARK: - One result folder
 
-    /// BIO T12. The cleanup deletes `count/`, the fastp FASTQ files and the eight intermediate folders (`top/` among
-    /// them) and nothing else. Everything the run wrote that is not in that list stays, and the command adds the
+    /// BIO T12. The cleanup deletes `count/`, the fastp FASTQ files and seven intermediate folders and nothing else. It
+    /// keeps `top/` since TT-m1. Everything the run wrote that is not in that list stays, and the command adds the
     /// database, the folder's record and the database's own record.
     func testTheCleanupRemovesExactlyThePathsItListsAndAddsTheDatabaseAndTwoRecords() async throws {
         let result = root.appendingPathComponent("taxtriage", isDirectory: true)
@@ -111,8 +113,9 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         try await buildDb(result)
 
         let after = try listing(of: result)
-        let folders = ["bedtools", "count", "filterkraken", "get", "map", "mergedkrakenreport", "mergedsubspecies", "samtools", "top"]
-        let removed = Set(folders + Self.removedSeed + ["top/SRR35517702.top_report.tsv"])
+        let folders = ["bedtools", "count", "filterkraken", "get", "map", "mergedkrakenreport", "mergedsubspecies", "samtools"]
+        let removed = Set(folders + Self.removedSeed)
+        XCTAssertTrue(exists("top/SRR35517702.top_report.tsv", in: result), "the cleanup keeps top/ (TT-m1)")
         XCTAssertEqual(Set(before).subtracting(after), removed)
         XCTAssertEqual(
             Set(after).subtracting(before),
@@ -196,10 +199,10 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         XCTAssertEqual(metadata[TaxTriageDatabase.tassScaleMetadataKey], "0-1")
     }
 
-    /// BIO T12. The record the command writes into a folder that has none names its sources before the cleanup runs,
-    /// so it names `top/SRR35517702.top_report.tsv`, which the same command then deletes. The other sources stay. The
-    /// database's own record beside `taxtriage.sqlite` lists the same sources.
-    func testTheRecordItWritesNamesASourceThatItsOwnCleanupDeletes() async throws {
+    /// BIO T12. The record the command writes into a folder that has none names its sources, `top/SRR35517702.top_report.tsv`
+    /// among them, which the same command deleted until TT-m1. Every source stays now. The database's own record beside
+    /// `taxtriage.sqlite` lists the same sources.
+    func testTheRecordItWritesNamesSourcesThatItsOwnCleanupKeeps() async throws {
         let result = root.appendingPathComponent("taxtriage", isDirectory: true)
         try makeSampleResult(at: result)
 
@@ -216,7 +219,7 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
             "combine/SRR35517705.combined.gcfmap.tsv", "report/multiqc_data/multiqc_confidences.txt",
             "top/SRR35517702.top_report.tsv",
         ])
-        XCTAssertEqual(inputs.filter { !exists($0, in: result) }, ["top/SRR35517702.top_report.tsv"])
+        XCTAssertEqual(inputs.filter { !exists($0, in: result) }, [], "the cleanup keeps every source, top/ among them (TT-m1)")
         XCTAssertEqual(step.outputs.map { relative($0.path, to: result) }, ["taxtriage.sqlite"])
         let sidecar = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: result.appendingPathComponent("taxtriage.sqlite.lungfish-provenance.json")))
         XCTAssertEqual(sidecar.workflowName, "lungfish build-db taxtriage")
@@ -230,9 +233,9 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
     /// every file of every sample folder except `work`, `download` and `workflow-source` (`TaxTriageOutputArtifactPolicy`,
     /// the rule a sample's own record and the batch result keep). `build-db taxtriage` leaves the root record alone,
     /// deletes the cleanup list inside each sample folder, and those names then no longer find their files. A provenance
-    /// check of such a result finds them missing. The command runs with the argv the app passes. The record beside the
-    /// database is then the only `build-db` record in that root, and it names the top report that the cleanup of the
-    /// same command deleted. Since 2.13 K1b the case lays the folders out itself and saves the root record a legacy
+    /// check of such a result finds them missing. The command runs with the argv the app passed before TT-m1. The record
+    /// beside the database is then the only `build-db` record in that root, and it names the top report, which the
+    /// cleanup of the same command deleted until TT-m1 and keeps now. Since 2.13 K1b the case lays the folders out itself and saves the root record a legacy
     /// batch holds, an empty run of the workflow `TaxTriage Serial Batch`, where the serial runner wrote both. No route
     /// wrote that record after 2.12 K1, but the batches of older projects keep it. A root record of `taxtriage run`
     /// takes the command's 2.10 X7 path instead, which keeps `top/` and that record's lineage (parity case X7).
@@ -263,9 +266,9 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
 
         XCTAssertEqual(try Data(contentsOf: recordURL), recordBefore, "build-db leaves a record of another workflow alone")
         let dangling = Set(named.filter { !exists($0, in: batch) })
-        let expected = Set(["A", "B"].flatMap { id in Self.removedSeed.map { "\(id)/\($0)" } } + ["A/top/SRR35517702.top_report.tsv"])
+        let expected = Set(["A", "B"].flatMap { id in Self.removedSeed.map { "\(id)/\($0)" } })
         XCTAssertEqual(dangling, expected, "the record names these and they are gone")
-        for kept in ["A/report/multiqc_data/multiqc_confidences.txt", "A/combine/SRR35517702.combined.gcfmap.tsv", "A/fastp/SRR35517702.fastp.html", "B/report/SRR12486983.odr.txt"] {
+        for kept in ["A/report/multiqc_data/multiqc_confidences.txt", "A/combine/SRR35517702.combined.gcfmap.tsv", "A/fastp/SRR35517702.fastp.html", "B/report/SRR12486983.odr.txt", "A/top/SRR35517702.top_report.tsv"] {
             XCTAssertTrue(named.contains(kept) && exists(kept, in: batch), kept)
         }
         let database = try TaxTriageDatabase(at: batch.appendingPathComponent("taxtriage.sqlite"))
@@ -277,9 +280,10 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         let build = try XCTUnwrap(sidecar.steps.last)
         XCTAssertEqual(Array(build.argv.dropFirst()), ["build-db", "taxtriage", batch.path, "--force"], "the app's invocation")
         let sources = build.inputs.map { relative($0.path, to: batch) }
+        XCTAssertTrue(sources.contains("A/top/SRR35517702.top_report.tsv"), "\(sources)")
         XCTAssertEqual(
-            sources.filter { !exists($0, in: batch) }, ["A/top/SRR35517702.top_report.tsv"],
-            "the database record of the app's batch names the top report its own cleanup deleted, top/ stays under T5 in 2.9"
+            sources.filter { !exists($0, in: batch) }, [],
+            "the database record of the batch names the top report, which its cleanup keeps since TT-m1"
         )
     }
 }

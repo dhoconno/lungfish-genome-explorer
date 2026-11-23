@@ -134,31 +134,28 @@ final class BuildDbTaxTriageIndexTests: XCTestCase {
 
     // MARK: - Row 258, the legacy route
 
-    /// Today's cleanup removes `top/`, so a `--force` rebuild of a result whose only rows came from there throws and
-    /// keeps its database. A batch used to lose that sample's rows. Its rebuild now throws too and keeps its database,
-    /// since a rebuild never leaves fewer samples than the database it replaces (3.2 TTREADS, ARCH should-fix 3).
-    func testAForceRebuildAfterTheLegacyCleanupRefusesToLoseRowsThatCameOnlyFromTop() async throws {
+    /// The command's cleanup keeps `top/` since TT-m1, so a `--force` rebuild of a result whose only rows came from there
+    /// reads them again. A folder that an older build's cleanup left without `top/` keeps the earlier database's rows of
+    /// that sample, named as not recounted, where its rebuild threw and could never recount the result (3.2 TTREADS,
+    /// ARCH should-fix 3, TT-OLD-RESULT-CANNOT-RECOUNT). A rebuild never leaves fewer samples than the database it replaces.
+    func testAForceRebuildAfterTheLegacyCleanupKeepsRowsThatCameOnlyFromTop() async throws {
         let single = root.appendingPathComponent("taxtriage", isDirectory: true)
         try makeMini(at: single, topOnly: true)
         try await buildDb(single, ["--force", "-q"])
-        XCTAssertFalse(exists("top", in: single))
-        let database = try Data(contentsOf: single.appendingPathComponent("taxtriage.sqlite"))
-        do {
-            try await buildDb(single, ["--force", "-q"])
-            XCTFail("a rebuild with no report left throws")
-        } catch {}
-        XCTAssertEqual(try Data(contentsOf: single.appendingPathComponent("taxtriage.sqlite")), database, "it keeps its database")
+        XCTAssertTrue(exists("top/SRR35517702.top_report.tsv", in: single), "the legacy cleanup keeps top/")
+        try await buildDb(single, ["--force", "-q"])
+        XCTAssertEqual(try rowSamples(in: single), ["SRR35517702"])
 
         let batch = root.appendingPathComponent("taxtriage-batch", isDirectory: true)
         try makeODR(at: batch.appendingPathComponent("A", isDirectory: true))
         try makeMini(at: batch.appendingPathComponent("B", isDirectory: true), topOnly: true)
         try await buildDb(batch, ["--force", "-q"])
         XCTAssertEqual(try rowSamples(in: batch), ["SRR12486983", "SRR35517702"])
-        do {
-            try await buildDb(batch, ["--force", "-q"])
-            XCTFail("a rebuild that would leave fewer samples throws")
-        } catch {}
+        try FileManager.default.removeItem(at: batch.appendingPathComponent("B/top", isDirectory: true))
+        try await buildDb(batch, ["--force", "-q"])
         XCTAssertEqual(try rowSamples(in: batch), ["SRR12486983", "SRR35517702"], "B keeps the rows that came only from top/")
+        let metadata = try TaxTriageDatabase(at: batch.appendingPathComponent("taxtriage.sqlite")).fetchMetadata()
+        XCTAssertEqual(metadata[BuildDbCommand.TaxTriageSubcommand.notRecountedSamplesMetadataKey], "[\"SRR35517702\"]")
     }
 
     // MARK: - T5, the executor path
