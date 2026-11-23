@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 import os.log
 
@@ -183,7 +184,7 @@ public enum LungfishCLIRunner {
         }
         // The app recounts a TaxTriage result it shows, so the build removes nothing from the folder. The command's
         // cleanup removed `top/` of an older result, the only source of a sample whose rows came from it (TT-m1).
-        if tool == "taxtriage" {
+        if tool == AnalysisToolID.taxtriage.rawValue {
             arguments.append("--no-cleanup")
         }
         for sampleDirectory in sampleDirectories {
