@@ -112,15 +112,16 @@ extension AffectedResults {
         return liesInNoBundle(r1.path) && liesInNoBundle(r2.path)
     }
 
-    /// Whether a record that is not a `lungfish fastq ingest` record holds the step of one that read two loose files. An
-    /// in-place ingest merges into the record that stands in the folder, such as a download, and the merge keeps the root
-    /// name of that record (`InPlaceIngestionProvenance.swift:42`). The ingest then shows as its step, `FASTQIngestionPipeline`
-    /// with `--pair` in its argv (`FastqIngestSubcommand+Run.swift:347-351`), and as the merged `input` and `pair` options.
+    /// Whether a record that is not a `lungfish fastq ingest` record holds the step of one that read two files with `--pair`.
+    /// An in-place ingest merges into the record that stands in the folder, such as a download. The merge keeps the root name
+    /// of that record and lets the options of the later ingest win (`InPlaceIngestionProvenance.swift:42`), so a later
+    /// one-file ingest in the folder records `pair` as null over the earlier pair. The earlier ingest stays as its step,
+    /// `FASTQIngestionPipeline` with `--pair` in its argv (`FastqIngestSubcommand+Run.swift:347-351`), and the step alone
+    /// decides (BIO-ROUTES-5 item 4).
     static func mergedIngestOfTwoLooseFiles(_ envelope: ProvenanceEnvelope) -> Bool {
-        let steppedIngest = envelope.steps.contains { step in
+        envelope.steps.contains { step in
             step.toolName == "FASTQIngestionPipeline" && step.argv.contains("--pair")
         }
-        return steppedIngest && ingestedTwoLooseFiles(envelope)
     }
 
     /// Whether a RiboDetector or Deacon rRNA record names exactly two input files, both outside any bundle

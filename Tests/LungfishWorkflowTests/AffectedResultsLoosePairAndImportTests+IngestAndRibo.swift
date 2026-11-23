@@ -66,7 +66,7 @@ extension AffectedResultsLoosePairAndImportTests {
     }
 
     /// BIO-ROUTES-5 item 4. A merged in-place ingest keeps the root name of the record that stood in the folder, so a record
-    /// of another name is the ingest kind only when it holds the ingest step with `--pair` and names two loose files.
+    /// of another name is the ingest kind only when it holds the ingest step with `--pair`.
     func testARecordOfAnotherNameIsTheIngestLoosePairKindOnlyWhenItHoldsThePairIngestStep() {
         let loose = ingestKeys("/data/run/S_R1.fastq", "/data/run/S_R2.fastq")
         let pairStep = ProvenanceStep(
@@ -80,5 +80,8 @@ extension AffectedResultsLoosePairAndImportTests {
         XCTAssertEqual(kind(record("SRA download", explicit: loose, steps: [pairStep])), "fastqIngestLoosePair")
         XCTAssertEqual(kind(record("SRA download", explicit: loose, steps: [oneStep])), nil, "an ingest of one file")
         XCTAssertEqual(kind(record("SRA download", explicit: loose)), nil, "no ingest step")
+        let laterOneFile = ingestKeys("/data/run/T.fastq", nil)
+        XCTAssertEqual(kind(record("SRA download", explicit: laterOneFile, steps: [pairStep, oneStep])), "fastqIngestLoosePair",
+                       "a later one-file ingest merged over an earlier pair ingest leaves pair null and the pair step in place")
     }
 }
