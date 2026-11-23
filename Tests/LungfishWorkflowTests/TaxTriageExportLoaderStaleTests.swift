@@ -49,6 +49,16 @@ final class TaxTriageExportLoaderStaleTests: XCTestCase {
         XCTAssertTrue(words.contains("or strains"), "the reason covers organisms with several strains: \(words)")
     }
 
+    /// TT-m2 BIO S-2 on the sentence TT-m1-BIO B1 added. The samples a rebuild kept without recounting read the same
+    /// counts as an old database does, so their refusal says counts and covers several strains as well as references.
+    /// Red at the sentence that says "their Reads can read 0 or too few for organisms with several references".
+    func testNotRecountedWordsNameStrainsAsWellAsReferences() {
+        let words = TaxTriageExportLoader.LoadError.notRecounted(path: "/r/taxtriage.sqlite", samples: ["S2"]).errorDescription ?? ""
+
+        XCTAssertTrue(words.contains("or strains"), "the reason covers organisms with several strains: \(words)")
+        XCTAssertFalse(words.contains("their Reads can read"), "the words say counts, as the stale-database refusal does: \(words)")
+    }
+
     /// A database that carries the current mark loads, so the refusal reaches only the old ones.
     func testExportOfADatabaseWithTheCurrentMarkLoads() throws {
         _ = try makeBatch(metadata: [
