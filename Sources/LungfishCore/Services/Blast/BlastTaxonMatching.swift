@@ -76,10 +76,19 @@ public struct BlastTaxonomyContext: Sendable, Codable, Equatable {
 ///    of the context's clade names makes it `.clade`, a genus name or a
 ///    sibling in a numbered virus series ("Human alphaherpesvirus 2" beside
 ///    "Human alphaherpesvirus 1") makes it `.relative`, anything else is
-///    `.outside`. The queried name never makes a hit `.clade` here: a builder
-///    that reads the NCBI Taxonomy leaves out a name that a taxon outside the
-///    clade holds, so a record the dump files in another species is `.outside`
-///    (BLAST-NAME-PHRASE-LEAK). The first-word "genus" rule is never used here, because
+///    `.outside`. The queried name never makes a hit `.clade` here. With NCBI
+///    Taxonomy installed, every builder reads it through
+///    `NCBITaxonomyLineage.blastTaxonomyContext`: the NAO-MGS, EsViritu,
+///    TaxTriage and NVD routes, and the Kraken 2 report builder
+///    (`TaxonTree.blastTaxonomyContext(for:taxonomyDirectory:)`), whose clade
+///    the dump's IDs join. A clade that lists every tax ID leaves out a name
+///    that a taxon outside the clade holds. A species too large to list keeps
+///    its path names but leaves out one that a taxon outside the species holds,
+///    unless that taxon sits under 28384 other sequences, as synthetic
+///    Influenza A virus does. So a record the dump files in another species is
+///    `.outside` (BLAST-NAME-PHRASE-LEAK, BIO-BLAST rulings A and B). With no
+///    NCBI Taxonomy installed, a builder hands its own names unfiltered.
+///    The first-word "genus" rule is never used here, because
 ///    host-prefixed virus names ("Human alphaherpesvirus 1", "Human
 ///    gammaherpesvirus 4") share a first word without sharing a genus.
 /// 3. Only when the hit has no tax ID, or the caller supplied no clade tax
