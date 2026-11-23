@@ -460,9 +460,7 @@ public class MainSplitViewController: NSSplitViewController {
     /// An external file read belongs to this display request and this session.
     var projectOpenTask: Task<Void, Never>?
     var projectPreparation: @Sendable (URL) async -> Result<ProjectSession.PreparedProject, Error> = { url in
-        await Task.detached(priority: .userInitiated) {
-            Result { try ProjectSession.prepareProject(at: url, deferCleanup: true) }
-        }.value
+        await Task.detached(priority: .userInitiated) { MainSplitViewController.prepareProjectAndViewMemory(at: url) }.value
     }
     var externalDocumentLoadTask: Task<Void, Never>?
     var externalDocumentLoader: @MainActor (URL) async throws -> LoadedDocument = {

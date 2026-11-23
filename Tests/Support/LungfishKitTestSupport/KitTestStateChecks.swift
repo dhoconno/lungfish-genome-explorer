@@ -22,7 +22,12 @@ public final class KitTestStateChecks: NSObject {
     /// The bundles that run the app's views and so get every check.
     public static let appHostedBundles: Set<String> = ["LungfishAppTests", "LungfishAppViewTests", "LungfishAppWorkflowTests"]
 
+    /// Also points the process default view memory store at a folder of this process before any host makes it, so a
+    /// window built with no AppDelegate never keeps a view in the account's store (VS A6, Q2).
     @objc public static func install() {
+        ViewMemoryStore.redirectDefaultRoot(to: FileManager.default.temporaryDirectory.appendingPathComponent(
+            "lungfish-test-view-memory-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)",
+            isDirectory: true))
         let bundle = Bundle(for: KitTestStateChecks.self).bundleURL.deletingPathExtension().lastPathComponent
         guard appHostedBundles.contains(bundle) else { return }
         TestStateObserver.register(operationRowsCheck())

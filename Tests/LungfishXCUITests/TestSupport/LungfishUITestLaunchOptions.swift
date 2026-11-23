@@ -11,6 +11,7 @@ struct LungfishUITestLaunchOptions {
         "LUNGFISH_UI_TEST_WELCOME_OPEN_PROJECT_PATH",
         "LUNGFISH_UI_TEST_WELCOME_CREATE_PROJECT_PATH",
         "LUNGFISH_UI_TEST_EVENT_LOG_PATH",
+        "LUNGFISH_UI_TEST_VIEW_STATE_PATH",
         "LUNGFISH_CLI_PATH",
     ]
 
@@ -23,6 +24,8 @@ struct LungfishUITestLaunchOptions {
     var welcomeCreateProjectPath: URL?
     var eventLogPath: URL?
     var cliPath: URL?
+    /// The view memory folder of a launch whose home is not isolated. Nil starts an empty temporary one (VS Q3).
+    var viewStatePath: URL?
 
     func apply(to app: XCUIApplication) {
         var arguments = ["--ui-test-mode"]
@@ -36,6 +39,9 @@ struct LungfishUITestLaunchOptions {
             environment.removeValue(forKey: key)
         }
         environment["LUNGFISH_UI_TEST_MODE"] = "1"
+        if let viewStatePath {
+            environment["LUNGFISH_UI_TEST_VIEW_STATE_PATH"] = viewStatePath.path
+        }
         if let scenario {
             environment["LUNGFISH_UI_TEST_SCENARIO"] = scenario
         }

@@ -38,6 +38,10 @@ public enum SurfaceShowOutcome: Sendable {
 /// The load starts at once on the main actor, so a surface whose load does not
 /// suspend, such as one given a result its caller has already read, is installed
 /// before ``show(kind:input:)`` returns, and ``lastOutcome`` says how it ended.
+///
+/// The host also keeps each view (`Sources/LungfishKit/ViewMemory/`). It captures a ``ViewMemoryAdopting`` surface
+/// before ``ResultViewport/willDeactivate(replacedBy:)``, hands a new one its kept view after `load` and before the
+/// install, and draws the reset line above it when part of that view was not kept.
 @MainActor
 public final class ViewportHost {
     /// The installed surface, or nil while nothing is installed or a load is in flight.
@@ -56,23 +60,43 @@ public final class ViewportHost {
     /// The factories this host makes surfaces from. A test registers a stand-in here.
     public let registry: SurfaceRegistry
 
+    /// The store this host keeps views in, the process default unless a test injects one (VS A6).
+    public let viewMemoryStore: ViewMemoryStore
+
+    /// The reset line drawn above the installed surface, nil when none shows (VS U2).
+    public internal(set) var resetLine: ViewMemoryResetLineView?
+
     /// Called after the host installs a surface, with that surface, and after a clear, with nil. The viewer puts back
     /// what it lays out above the installed surface, such as the strip of a result an earlier build made wrong. It
     /// must not call ``show(kind:input:)`` or ``clear()``, since a load that does not suspend installs inside `show`.
     public var activeViewportDidChange: (@MainActor (_ installed: (any ResultViewport)?) -> Void)?
 
+    /// The installed adopter's capture and reset, nil when the installed surface keeps no view.
+    var viewMemorySession: ViewMemorySession?
+    /// The top constraint of the installed surface and the anchor it pins to, which the reset line moves down.
+    var installedTop: (constraint: NSLayoutConstraint, anchor: NSLayoutYAxisAnchor)?
+    var windowCloseObserver: ViewMemoryWindowCloseObserver?
+
     private var gate = AsyncRequestGate<SurfaceRequest>()
-    private weak var containerView: NSView?
+    weak var containerView: NSView?
     private weak var parentController: NSViewController?
 
     /// A host that installs surfaces made by `registry` into `containerView`, as
     /// children of `parentController`. The host holds both weakly, since the viewer
     /// that owns them owns the host.
-    public init(registry: SurfaceRegistry, containerView: NSView, parentController: NSViewController) {
+    public init(
+        registry: SurfaceRegistry, containerView: NSView, parentController: NSViewController,
+        viewMemoryStore: ViewMemoryStore = .shared
+    ) {
         self.registry = registry
         self.containerView = containerView
         self.parentController = parentController
+        self.viewMemoryStore = viewMemoryStore
+        startViewMemory()
     }
+
+    /// The window that shows the container, for the window-close capture.
+    var containerWindow: NSWindow? { containerView?.window }
 
     /// Shows a new surface of `kind` loaded from `input`, in place of the installed one.
     ///
@@ -130,11 +154,13 @@ public final class ViewportHost {
             return gate.isCurrent(token) ? .failed(error) : .refused
         }
         guard gate.isCurrent(token) else { return .refused }
-        return commit(viewport) ? .committed : .refused
+        let memory = prepareViewMemory(for: viewport)
+        return commit(viewport, memory: memory) ? .committed : .refused
     }
 
-    /// Installs `viewport` as the one child. Refuses when the viewer has gone.
-    private func commit(_ viewport: any ResultViewport) -> Bool {
+    /// Installs `viewport` as the one child, with its view memory session and reset line. Refuses when the viewer
+    /// has gone.
+    private func commit(_ viewport: any ResultViewport, memory: ViewMemoryOpening?) -> Bool {
         guard let containerView, let parentController else { return false }
         removeActiveViewport(replacedBy: viewport.surfaceKind)
         let controller = viewport.viewController
@@ -143,20 +169,29 @@ public final class ViewportHost {
         view.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(view)
         let top = viewport.pinsTopToSafeArea ? containerView.safeAreaLayoutGuide.topAnchor : containerView.topAnchor
+        let topConstraint = view.topAnchor.constraint(equalTo: top)
         NSLayoutConstraint.activate([
-            view.topAnchor.constraint(equalTo: top),
+            topConstraint,
             view.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             view.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
         ])
+        installedTop = (topConstraint, top)
         activeViewport = viewport
+        viewMemorySession = memory?.session
+        if let words = memory?.words { showResetLine(words) }
         activeViewportDidChange?(viewport)
         return true
     }
 
-    /// Removes the installed surface and tells it which kind takes its place.
+    /// Keeps the installed view, then removes the installed surface and its reset line and tells it which kind
+    /// takes its place.
     private func removeActiveViewport(replacedBy next: SurfaceKind?) {
         guard let viewport = activeViewport else { return }
+        viewMemorySession?.capture()
+        viewMemorySession = nil
+        removeResetLine()
+        installedTop = nil
         activeViewport = nil
         viewport.willDeactivate(replacedBy: next)
         viewport.viewController.view.removeFromSuperview()

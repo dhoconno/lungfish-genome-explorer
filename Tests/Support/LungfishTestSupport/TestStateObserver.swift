@@ -369,10 +369,45 @@ public final class TestStateObserver: NSObject, XCTestObservation, @unchecked Se
 // MARK: - The checks every bundle runs
 
 extension TestStateObserver {
-    /// The checks that read plain process state: the xctest tool's defaults domain, the `LUNGFISH_` variables and
-    /// the current directory.
+    /// The checks that read plain process state: the xctest tool's defaults domain, the `LUNGFISH_` variables, the
+    /// current directory and the account's real view memory store.
     static func processChecks() -> [TestStateCheck] {
-        [defaultsDomainCheck(), environmentCheck(), currentDirectoryCheck()]
+        [defaultsDomainCheck(), environmentCheck(), currentDirectoryCheck(), viewMemoryStoreCheck()]
+    }
+
+    /// The files of the account's real view memory store, `~/Library/Application Support/Lungfish Debug/ViewMemory/`
+    /// under the account's own home (VS Q2). It reads that path and never the store the bootstrap redirected, so a
+    /// harness case that rightly uses the process default shows nothing, and it stays on in a parallel unit tier. It
+    /// puts nothing back, since a Debug app of the account may write there too.
+    public static func viewMemoryStoreCheck(root: URL = realViewMemoryRoot()) -> TestStateCheck {
+        TestStateCheck(
+            name: "view memory store", noun: "view memory store file", comparison: .newOrChangedValues,
+            snapshot: { viewMemoryFiles(under: root) },
+            restore: { _, _ in },
+            describe: { key, value in "\(key) (\(value))" })
+    }
+
+    /// The Debug app's view memory folder in the account's own home, read from the user database, so a redirected
+    /// `HOME` does not move it.
+    public static func realViewMemoryRoot() -> URL {
+        let home = getpwuid(getuid())?.pointee.pw_dir.map { String(cString: $0) } ?? NSHomeDirectory()
+        return URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent("Library/Application Support/Lungfish Debug/ViewMemory", isDirectory: true)
+    }
+
+    /// Each file under `root` by its path below it, with its size and modification time.
+    static func viewMemoryFiles(under root: URL) -> [String: String] {
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey]
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else {
+            return [:]
+        }
+        var files: [String: String] = [:]
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), let size = values.fileSize else { continue }
+            let stamp = values.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
+            files[String(url.path.dropFirst(root.path.count))] = "\(size) bytes, modified \(stamp)"
+        }
+        return files
     }
 
     /// Every key of the xctest tool's persistent domain, `DatabaseStorageLocation` among them, read as one

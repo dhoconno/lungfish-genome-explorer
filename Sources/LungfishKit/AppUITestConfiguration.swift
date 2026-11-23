@@ -15,6 +15,10 @@ public struct AppUITestConfiguration: Equatable, Sendable {
     public let eventLogPath: URL?
     public let fixtureRootPath: URL?
     public let backendMode: AppUITestBackendMode
+    /// Where view memory lives in UI-test mode for a launch whose home is not isolated (VS Q3): the folder that
+    /// `LUNGFISH_UI_TEST_VIEW_STATE_PATH` names, or a temporary folder of this process that starts empty. Nil outside
+    /// UI-test mode and under an isolated home, whose default path the smoke's relaunch task reads.
+    public let viewStatePath: URL?
 
     public init(arguments: [String], environment: [String: String]) {
         self.init(
@@ -68,6 +72,28 @@ public struct AppUITestConfiguration: Equatable, Sendable {
         backendMode = enabled
             ? AppUITestBackendMode(rawValue: environment["LUNGFISH_UI_TEST_BACKEND_MODE"] ?? "") ?? .deterministic
             : .liveSmoke
+        viewStatePath = enabled && !Self.homeIsIsolated(environment)
+            ? Self.resolvePath(
+                Self.nonEmptyPath(environment["LUNGFISH_UI_TEST_VIEW_STATE_PATH"]),
+                fixtureRootPath: fixtureRootPath,
+                isDirectory: true
+            ) ?? Self.temporaryViewStatePath
+            : nil
+    }
+
+    /// The temporary view memory folder of this process, which starts empty.
+    private static let temporaryViewStatePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("lungfish-ui-test-view-state-\(UUID().uuidString)", isDirectory: true)
+
+    /// Whether `HOME` or `CFFIXED_USER_HOME` names a home other than the account's own, as each smoke test's isolated
+    /// home does.
+    static func homeIsIsolated(_ environment: [String: String]) -> Bool {
+        guard let entry = getpwuid(getuid()), let directory = entry.pointee.pw_dir else { return false }
+        let accountHome = URL(fileURLWithPath: String(cString: directory)).standardizedFileURL.path
+        return ["CFFIXED_USER_HOME", "HOME"].contains { name in
+            guard let value = environment[name], !value.isEmpty else { return false }
+            return URL(fileURLWithPath: value).standardizedFileURL.path != accountHome
+        }
     }
 
     public func appendEvent(_ event: String) {

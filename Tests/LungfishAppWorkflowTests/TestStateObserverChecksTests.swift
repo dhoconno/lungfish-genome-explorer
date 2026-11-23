@@ -12,7 +12,7 @@ final class TestStateObserverChecksTests: XCTestCase {
     func testTheBootstrapRegistersTheRowAndWindowChecksInThisBundle() {
         XCTAssertNotNil(TestStateObserver.installedAt, "the bootstrap constructor did not install the observer")
         XCTAssertEqual(TestStateObserver.checkNames,
-                       ["xctest defaults", "LUNGFISH_ environment", "current directory", "operation rows",
-                        "visible key windows"])
+                       ["xctest defaults", "LUNGFISH_ environment", "current directory", "view memory store",
+                        "operation rows", "visible key windows"])
     }
 }

@@ -103,6 +103,14 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         )
     }
 
+    /// The default `projectPreparation`: prepares the project at `url` and reads its kept views, off the main actor,
+    /// so the project open awaits both before the window's first content show and a restore reads only memory
+    /// (VS S1). The store's read changes nothing in the project.
+    nonisolated static func prepareProjectAndViewMemory(at url: URL) -> Result<ProjectSession.PreparedProject, Error> {
+        ViewMemoryStore.shared.loadProject(at: url)
+        return Result { try ProjectSession.prepareProject(at: url, deferCleanup: true) }
+    }
+
     @discardableResult
     func beginDisplayRequest(
         identity: ContentSelectionIdentity

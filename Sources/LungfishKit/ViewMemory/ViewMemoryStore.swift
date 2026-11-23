@@ -122,6 +122,7 @@ public final class ViewMemoryStore: Sendable {
     /// `UserDefaults.standard`.
     static func defaultRoot(appIdentity: LungfishAppIdentity = .current, fileManager: FileManager = .default) -> URL {
         if let redirected = defaultRootOverride.withLock({ $0 }) { return redirected }
+        if let uiTestPath = AppUITestConfiguration.current.viewStatePath { return uiTestPath }
         let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support",
                                                                              isDirectory: true)
