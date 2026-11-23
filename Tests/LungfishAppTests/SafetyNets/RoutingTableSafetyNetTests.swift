@@ -195,6 +195,11 @@ final class RoutingTableSafetyNetTests: XCTestCase {
             fixture.expected.fullDescription,
             "\(label) routed differently after \(ContinuousClock.now - waitStarted) at load average \(Self.loadAverage).\n--- observed\n\(observed.fullDescription)\n--- expected\n\(fixture.expected.fullDescription)"
         )
+        // Read while the row shows, not only when the row ends (QA 6).
+        XCTAssertEqual(
+            MetadataLayoutDefaults.hostKeys(naming: root.lastPathComponent), [],
+            "\(label): a table wrote its column layout to the runner's defaults"
+        )
 
         tearDownRow(split)
     }

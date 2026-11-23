@@ -141,6 +141,21 @@ final class ViewSwitchWindowHarness {
     }
 }
 
+/// The result tables' column layouts and the runner's defaults (QA 6). No table a test window or a routing row shows
+/// writes a layout key to `UserDefaults.standard` at any point of a run, where every other xctest process on the Mac
+/// would see it.
+@MainActor
+enum MetadataLayoutDefaults {
+    static let layoutPrefix = "org.lungfish.metadata-column-layout."
+
+    /// The layout keys in the runner's defaults that name `folder`.
+    static func hostKeys(naming folder: String) -> [String] {
+        UserDefaults.standard.dictionaryRepresentation().keys
+            .filter { $0.hasPrefix(layoutPrefix) && $0.contains(folder) }
+            .sorted()
+    }
+}
+
 /// What a person sees after a switch, as lines that compare one by one.
 struct ViewSwitchReading: Equatable {
     var observation: RoutingObservation

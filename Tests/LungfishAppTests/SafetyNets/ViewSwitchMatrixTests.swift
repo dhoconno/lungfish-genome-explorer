@@ -127,6 +127,7 @@ final class ViewSwitchMatrixTests: XCTestCase {
         defer { hostDefaults.restore() }
         let fixtures = try await buildFixtures(in: root)
         var differing: [String] = []
+        var written: [String] = []
         let started = ContinuousClock.now
         for fixture in fixtures {
             let harness = try ViewSwitchWindowHarness()
@@ -136,9 +137,12 @@ final class ViewSwitchMatrixTests: XCTestCase {
             if !result.settled {
                 differing.append(Self.literal(from: DeclaredViewSwitchLeak.freshWindow, to: fixture.kind.name, faults: result.faults))
             }
+            // Read while the kind shows, not only at the end (QA 6).
+            written += MetadataLayoutDefaults.hostKeys(naming: root.lastPathComponent).map { "\(fixture.kind.name): \($0)" }
             harness.close()
         }
         print("ViewSwitchMatrixTests: \(fixtures.count) kinds alone in \(ContinuousClock.now - started)")
+        XCTAssertEqual(written, [], "a table wrote its column layout to the runner's defaults while its kind showed")
         XCTAssertTrue(
             differing.isEmpty,
             "A kind selected alone in a fresh window differs from its declared reading. Declare or fix:\n" + differing.joined(separator: "\n")
@@ -160,6 +164,7 @@ final class ViewSwitchMatrixTests: XCTestCase {
         var walked = Set<String>()
         var differing: [String] = []
         var slowest = (pair: "none", time: Duration.zero)
+        var firstWrite: String?
         let started = ContinuousClock.now
         for index in walk {
             let fixture = fixtures[index]
@@ -173,7 +178,11 @@ final class ViewSwitchMatrixTests: XCTestCase {
             if result.elapsed > slowest.time { slowest = (pair, result.elapsed) }
             if previous != DeclaredViewSwitchLeak.freshWindow { walked.insert(pair) }
             previous = fixture.kind.name
+            // Read after each switch, not only at the end (QA 6). The first switch that finds a key names it.
+            let keys = MetadataLayoutDefaults.hostKeys(naming: root.lastPathComponent)
+            if firstWrite == nil, !keys.isEmpty { firstWrite = "\(pair): \(keys)" }
         }
+        XCTAssertNil(firstWrite, "a table wrote its column layout to the runner's defaults")
         print(
             "ViewSwitchMatrixTests: \(walked.count) switches between \(fixtures.count) kinds in \(ContinuousClock.now - started), "
                 + "slowest \(slowest.pair) in \(slowest.time)"
