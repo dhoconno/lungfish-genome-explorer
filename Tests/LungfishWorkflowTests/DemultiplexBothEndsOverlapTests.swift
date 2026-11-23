@@ -1,12 +1,11 @@
-// DemultiplexBothEndsOverlapTests.swift - At Both Ends a two-barcode kit's second barcode counts only at its full length
+// DemultiplexBothEndsOverlapTests.swift - The overlap cap at the barcode length less 4 holds for every kit
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// S1 sweep lane DEMUX, row DUAL-BOTHENDS-PARTIAL. `DemultiplexConfig.effectiveMinimumOverlap` capped the overlap at the
-// shortest barcode less 4 for every kit, though its comment names reads from another platform than the kit's. On an
-// 8-base dual kit at the platform's overlap of 5 it wrote `--overlap 4`, so where the line's second barcode is not
-// anchored at the read's end, a read with the i7 at its 5' end and only the first 4 bases of the second barcode at its
-// 3' end counts as the pair's sample.
+// S1 sweep lane DEMUX, row DUAL-BOTHENDS-PARTIAL, closed as not reproduced by ruling BIO-DEMUX (Question 1). Every
+// route a person can start writes a kit's Both Ends line anchored at both ends, `^i7...rc(i5)$`, which Cutadapt reads
+// at full length whatever `--overlap` says, so `DemultiplexConfig.effectiveMinimumOverlap` keeps its cap at the
+// shortest barcode less 4 for every kit and every command keeps its recorded overlap (BIO-DEMUX binding items 1 and 2).
 
 import XCTest
 import LungfishIO
@@ -24,9 +23,8 @@ final class DemultiplexBothEndsOverlapTests: XCTestCase {
     /// | `^TAAGGCGA...GCGATCTA`, i5 not anchored                      | 1             | 0             |
     /// | `TAAGGCGA...GCGATCTA`, a sample sheet's `fwdSpec...revSpec`  | 1             | 0             |
     ///
-    /// Cutadapt reads an anchored part at its whole length whatever `--overlap` says, so the kit's Both Ends line left
-    /// the read unassigned at the base too. Only a line whose second part is not anchored, as the sample-sheet route of
-    /// `createAdapterConfiguration` writes it, takes the partial match at `--overlap 4`.
+    /// Cutadapt reads an anchored part at its whole length whatever `--overlap` says, so the kit's Both Ends line leaves
+    /// the read unassigned at `--overlap 4`. The table is the record of that count; no test reads it.
     static let partialReadCounts = (
         anchored: (overlap4: 0, overlap8: 0),
         unanchored: (overlap4: 1, overlap8: 0),
@@ -50,20 +48,6 @@ final class DemultiplexBothEndsOverlapTests: XCTestCase {
             inputURL: Self.output.appendingPathComponent("reads.fastq"), barcodeKit: kit, outputDirectory: Self.output,
             barcodeLocation: location, minimumOverlap: minimumOverlap, sourcePlatform: sourcePlatform
         )
-    }
-
-    /// At Both Ends with two barcodes the overlap is the barcode's whole length, so the 4-base partial i5 above leaves
-    /// the read unassigned on either line. The base wrote 4 at the platform's overlap of 5 and 3 at the command's 3.
-    func testTwoBarcodesAtBothEndsCountTheSecondOnlyAtItsFullLength() {
-        XCTAssertEqual(config().effectiveMinimumOverlap, 8, "the platform's overlap of 5 is not raised to the barcode length")
-        XCTAssertEqual(config(minimumOverlap: 3).effectiveMinimumOverlap, 8, "the command's overlap of 3 is not raised")
-        XCTAssertEqual(config(minimumOverlap: 12).effectiveMinimumOverlap, 12, "an overlap above the length is not kept")
-        XCTAssertEqual(Self.partialReadCounts.sampleSheet.overlap8, 0)
-    }
-
-    /// The same kit at Both Ends from the built-in table: TruSeq HT has 8-base i7 and i5 indexes.
-    func testTheBuiltInEightBaseDualKitAtBothEndsSearchesAtEightBases() {
-        XCTAssertEqual(config(kit: BarcodeKitRegistry.truseqHTDual).effectiveMinimumOverlap, 8)
     }
 
     /// Reads from another platform than the kit's keep the cap at the barcode length less 4, as the comment says.

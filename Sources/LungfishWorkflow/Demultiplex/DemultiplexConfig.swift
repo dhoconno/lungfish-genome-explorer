@@ -141,12 +141,6 @@ public struct DemultiplexConfig: Sendable {
     /// For long-read platforms with short barcodes (e.g., 16bp PacBio barcodes on ONT),
     /// a high overlap threshold relative to barcode length is overly strict.
     /// Caps overlap at barcode_length - 4 to allow partial boundary matches.
-    ///
-    /// At Both Ends with two barcodes (a fixed dual kit) on reads of the kit's own platform, the second barcode counts
-    /// only at its full length, so the overlap is at least the shortest barcode and the cap does not apply. A read with
-    /// the i7 at its 5' end and only the first bases of the i5 at its 3' end then stays unassigned on a line whose second
-    /// part is not anchored, as a sample sheet's line is; a kit's own Both Ends line is anchored, and Cutadapt reads an
-    /// anchored part at its whole length (DUAL-BOTHENDS-PARTIAL, `DemultiplexBothEndsOverlapTests`).
     public var effectiveMinimumOverlap: Int {
         let minBarcodeLen = barcodeKit.barcodes.reduce(Int.max) { currentMin, barcode in
             let i7Len = barcode.i7Sequence.count
@@ -154,11 +148,6 @@ public struct DemultiplexConfig: Sendable {
             return min(currentMin, min(i7Len, i5Len))
         }
         let barcodeLen = minBarcodeLen == Int.max ? 16 : minBarcodeLen
-        let readsOfAnotherPlatform = sourcePlatform.map { $0 != barcodeKit.platform } ?? false
-        if !readsOfAnotherPlatform, barcodeLocation == .bothEnds, barcodeKit.pairingMode == .fixedDual,
-           barcodeKit.barcodes.contains(where: { $0.i5Sequence != nil }) {
-            return max(minimumOverlap, barcodeLen)
-        }
         // Don't require more than barcode_length - 4 overlap
         return min(minimumOverlap, max(3, barcodeLen - 4))
     }
