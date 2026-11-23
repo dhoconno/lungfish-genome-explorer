@@ -244,6 +244,30 @@ final class ViewMemoryStoreTests: XCTestCase {
         XCTAssertTrue(fixture.itemFiles().isEmpty, "an item unused for 180 days goes at launch")
     }
 
+    func testAVisitKeepsARetireMarkFromAgingOut() throws {
+        let fixture = try ViewMemoryFixture()
+        defer { fixture.cleanup() }
+        let clock = ViewMemoryTestClock()
+        let first = fixture.store(clock: clock)
+        let (item, key) = try fixture.loaded(first)
+        first.keep(changed, startingView: start, for: key, dataKey: nil, folder: item.folder)
+        first.reset(key, kind: ViewMemoryTestView.kind, folder: item.folder)
+        first.flushSynchronously()
+
+        clock.advance(days: 100)
+        let visited = fixture.store(clock: clock)
+        _ = try fixture.loaded(visited)
+        guard case .nothing = visited.restorable(ViewMemoryTestView.self, for: key, folder: item.folder) else {
+            return XCTFail("a retire mark holds no view")
+        }
+        visited.flushSynchronously()
+
+        clock.advance(days: 100)
+        let later = fixture.store(clock: clock)
+        later.loadProject(at: fixture.project)
+        XCTAssertEqual(fixture.itemFiles().count, 1, "a retire mark visited at day 100 is still in use at day 200")
+    }
+
     func testASelectionPastItsCapIsDroppedWholeAndSaysSo() throws {
         let fixture = try ViewMemoryFixture()
         defer { fixture.cleanup() }
