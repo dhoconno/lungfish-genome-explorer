@@ -58,13 +58,9 @@ extension ViewMemoryStore {
         encoder.outputFormatting = [.sortedKeys]
         var record = entry.record
         if let view = entry.view {
-            guard var data = try? encoder.encode(view) else { return removeFile(for: key) }
-            if view.selectionCount > 0, let bare = try? encoder.encode(view.withoutSelection()),
-               data.count - bare.count > caps.maxSelectionBytes || data.count > caps.maxRecordBytes {
-                data = bare
-                record.selectionDropped = true
-            }
-            record.state = data
+            guard let encoded = encodedState(view, encoder: encoder) else { return removeFile(for: key) }
+            record.state = encoded.data
+            if encoded.selectionDropped { record.selectionDropped = true }
         }
         guard let file = try? encoder.encode(record), file.count <= caps.maxRecordBytes else {
             return removeFile(for: key)
@@ -77,6 +73,17 @@ extension ViewMemoryStore {
             viewMemoryLogger.error(
                 "View memory did not keep \(key.description, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// The view's bytes, with its selection dropped whole when the selection passes its byte cap or the view passes
+    /// the record cap. Nil when the view does not encode.
+    func encodedState<State: ViewMemoryState>(_ view: State, encoder: JSONEncoder) -> (data: Data, selectionDropped: Bool)? {
+        guard let data = try? encoder.encode(view) else { return nil }
+        guard view.selectionCount > 0, let bare = try? encoder.encode(view.withoutSelection()),
+              data.count - bare.count > caps.maxSelectionBytes || data.count > caps.maxRecordBytes else {
+            return (data, false)
+        }
+        return (bare, true)
     }
 
     func fileURL(for key: ViewMemoryKey) -> URL {
