@@ -213,4 +213,30 @@ final class RNASeqCellMapViewMemoryTests: XCTestCase {
         XCTAssertNil(pickedMap.plotWindow, "the kept zoom never lands over the person's selection")
         XCTAssertEqual(pickedMap.selection?.rows, [0])
     }
+
+    // MARK: - The data key's size (VS-RNA review BIO SF-2, SWIFT SF3)
+
+    /// The map's key is short, so a record stays far under the store's 64 KB cap, past which the store drops it whole.
+    func testTheDataKeyOfASmallMapStaysUnder200Bytes() throws {
+        let key = try XCTUnwrap(RNASeqResultSurface.viewMemoryDataKey(of: RNASeqResultSurface.read(map)))
+        XCTAssertLessThan(key.utf8.count, 200, "a long key would push the record toward the store's 64 KB cap")
+    }
+
+    /// A result that lists 700 files keeps a key under 1,000 bytes that differs from the short one, and one changed
+    /// checksum gives a third key, so a rerun still reads as changed.
+    func testTheDataKeyStaysShortWithManyListedFilesAndChangesWithOneChecksum() throws {
+        guard case .loaded(var result) = RNASeqResultSurface.read(map) else { return XCTFail("the cell map does not read") }
+        let one = try XCTUnwrap(RNASeqResultSurface.viewMemoryDataKey(of: .loaded(result)))
+        result.manifest.sourceFiles += (0..<700).map {
+            RNASeqResultManifest.SourceFileEntry(path: "source/S\($0)/quant.sf", sha256: String(repeating: "a", count: 64),
+                                                 size: 1, sample: "S\($0)", tool: "salmon")
+        }
+        let many = try XCTUnwrap(RNASeqResultSurface.viewMemoryDataKey(of: .loaded(result)))
+        XCTAssertLessThan(many.utf8.count, 1_000)
+        XCTAssertNotEqual(many, one)
+        result.manifest.sourceFiles[350].sha256 = String(repeating: "b", count: 64)
+        let changed = try XCTUnwrap(RNASeqResultSurface.viewMemoryDataKey(of: .loaded(result)))
+        XCTAssertNotEqual(changed, many, "one changed checksum gives another key")
+        XCTAssertNotEqual(changed, one)
+    }
 }
