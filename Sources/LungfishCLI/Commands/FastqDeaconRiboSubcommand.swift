@@ -460,7 +460,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
     }
 
     /// The files the tool reads, once the resolved inputs plan valid outputs.
-    private func validateInputs(_ resolvedInputs: [FASTQSubcommandInput]) throws -> [URL] {
+    func validateInputs(_ resolvedInputs: [FASTQSubcommandInput]) throws -> [URL] {
         guard !resolvedInputs.isEmpty, resolvedInputs.count <= 2 else {
             throw ValidationError("Deacon rRNA filtering requires one input file or one paired-end R1/R2 input pair.")
         }

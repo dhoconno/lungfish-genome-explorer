@@ -134,7 +134,7 @@ struct FastqIngestRun {
         return attributes?[.systemNumber] as? Int
     }
 
-    private func checkInputs() throws {
+    func checkInputs() throws {
         for url in inputs {
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
