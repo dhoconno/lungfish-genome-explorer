@@ -137,7 +137,10 @@ final class NCBITaxonomyLineagePhraseLeakTests: XCTestCase {
             (114727, 11320, "serotype", "H1N1 subtype"),
             (641809, 114727, "no rank", "Influenza A virus (A/California/07/2009(H1N1))"),
             (400_002, 11320, "no rank", "Influenza A virus (A/Texas/50/2012(H3N2))"),
-            (1522430, 1, "species", "synthetic Influenza A virus"),
+            (28384, 1, "no rank", "other sequences"),
+            (81077, 28384, "no rank", "artificial sequences"),
+            (512285, 81077, "no rank", "synthetic viruses"),
+            (1522430, 512285, "species", "synthetic Influenza A virus"),
         ])
         let name = "Influenza A virus (A/California/07/2009(H1N1))"
 
@@ -145,7 +148,37 @@ final class NCBITaxonomyLineagePhraseLeakTests: XCTestCase {
             NCBITaxonomyLineage.blastTaxonomyContext(of: 641809, names: [name], taxonomyDirectory: directory, limit: 2)
         )
         XCTAssertEqual(context.cladeTaxIds, [641809, 114727, 11320, 2955291])
-        XCTAssertTrue(context.cladeNames.contains("Influenza A virus"))
+        XCTAssertTrue(
+            context.cladeNames.contains("Influenza A virus"),
+            "its one outside holder is a lab construct under 28384 other sequences, so the name stays (BIO-BLAST ruling A)"
+        )
         XCTAssertEqual(relation("Influenza A virus (A/Texas/50/2012(H3N2))", 400_002, claim: name, context), .clade)
+        XCTAssertEqual(
+            relation("synthetic Influenza A virus", 1522430, claim: name, context), .clade,
+            "a synthetic Influenza A record is Influenza A sequence (BIO-BLAST ruling A, backlog BLAST-SYNTHETIC-SUPPORT)"
+        )
+    }
+
+    /// Ruling BIO-BLAST items 4 and 5, red at `db59f0dc7`: in a species too large to list, a name that a taxon of another
+    /// species holds judges nothing. "Bat norovirus" (600001) is held by Jingmen bat norovirus 1 (3083427), a Norovirus
+    /// species of its own, so that record is outside a Bat norovirus row, and a strain the dump lacks still supports by
+    /// a path name only the species holds.
+    func testInASpeciesTooLargeToListANameAnotherSpeciesHoldsJudgesNothing() throws {
+        try writeTaxonomy(Self.root + [
+            (142786, 1, "genus", "Norovirus"),
+            (3431196, 142786, "species", "Norovirus norwalkense"),
+            (11983, 3431196, "no rank", "Norwalk virus"),
+            (600_001, 11983, "no rank", "Bat norovirus"),
+            (329861, 142786, "no rank", "unclassified Norovirus"),
+            (3083427, 329861, "species", "Jingmen bat norovirus 1"),
+        ])
+
+        let context = try XCTUnwrap(
+            NCBITaxonomyLineage.blastTaxonomyContext(of: 600_001, names: ["Bat norovirus"], taxonomyDirectory: directory, limit: 1)
+        )
+        XCTAssertEqual(context.cladeTaxIds, [600_001, 11983, 3431196], "the clade is too large to list, so it keeps its path")
+        XCTAssertEqual(relation("Jingmen bat norovirus 1", 3083427, claim: "Bat norovirus", context), .outside)
+        XCTAssertEqual(context.cladeNames, ["Norwalk virus", "Norovirus norwalkense"])
+        XCTAssertEqual(relation("Norwalk virus Hu/X", 600_003, claim: "Bat norovirus", context), .clade)
     }
 }
