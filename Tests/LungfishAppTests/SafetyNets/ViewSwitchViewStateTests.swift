@@ -14,6 +14,8 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishEsVirituUI
+@testable import LungfishGenotypeUI
+import LungfishIO
 @testable import LungfishKit
 import LungfishRNASeqUI
 import LungfishTestSupport
@@ -61,6 +63,7 @@ enum ViewStateDrivers {
         TwelveSViewStateDriver(), ReferenceViewStateDriver(route: .reference), ReferenceViewStateDriver(route: .mapping),
         RNASeqViewStateDriver(), CellMapViewStateDriver(),
         Kraken2ViewStateDriver(), EsVirituViewStateDriver(), CzIdViewStateDriver(),
+        GenotypeViewStateDriver(),
     ]
 }
 
@@ -789,6 +792,47 @@ final class ViewSwitchViewStateTests: XCTestCase {
             $0.hasPrefix("org.lungfish.metadata-column-layout.") && $0.contains(root.lastPathComponent)
         }
         XCTAssertEqual(written.sorted(), [], "a table wrote its column layout to the account's defaults")
+    }
+
+    // MARK: - Genotype result (VS-GENO)
+
+    func testGenotypeKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(GenotypeViewStateDriver())
+    }
+
+    func testGenotypeKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(GenotypeViewStateDriver())
+    }
+
+    func testGenotypeOpensAChangedBundleWithItsPercentBasesDroppedAndOneLine() async throws {
+        try await assertChangedBundle(GenotypeViewStateDriver())
+    }
+
+    /// The percent bases show only in the Inspector, so a restore of them says so at the foot of the viewport (word
+    /// 5c), the line is gone once the person changes a basis, and a changed bundle shows no such line (VS B6).
+    func testGenotypeSaysThatRestoredPercentBasesChangeValuesUntilThePersonChangesOne() async throws {
+        let driver = GenotypeViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try await driver.change(in: harness)
+        XCTAssertNil(driver.settingsLineWords(in: harness), "a person's own change shows no line")
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(driver.settingsLineWords(in: harness), ViewMemoryFilterLineForm.changesValues.text)
+        let viewer = try XCTUnwrap(harness.split.viewerController.genotypeResultViewController)
+        var state = viewer.testingDisplayState
+        state.matrixPercentDenominator = .viewedLocus
+        viewer.applyDisplayState(state)
+        XCTAssertNil(driver.settingsLineWords(in: harness), "the person changed a basis, so the line is gone")
+
+        try await leave(for: other, in: harness, driver: driver)
+        try driver.changeBundle(of: fixture)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertNil(driver.settingsLineWords(in: harness), "a changed bundle restores no basis, so no settings line")
     }
 
     // MARK: - The three cases

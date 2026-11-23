@@ -23,7 +23,6 @@ enum ViewStateDeclaredGaps {
         gap("NVD", "VS-CLASS", "grouping, sample filter, search, expansion, selection and split are not kept yet"),
         gap("Assembly", "VS-DATA", "contig selection, sort, filter and split are not kept yet"),
         gap("FASTQ", "VS-DATA", "middle tab and splits are not kept yet"),
-        gap("Genotype", "VS-GENO", "view mode, layout, density, pickers, filters and selection are not kept yet"),
         gap("MHC reference", "VS-MAP", "the Mode picker and the reference view inside are not kept yet"),
         gap("MSA", "VS-ALN", "zoom, selection, colour scheme, search and bottom pane are not kept yet"),
         gap("Tree", "VS-ALN", "layout, zoom, pan, node, collapse, colour mode and columns are not kept yet"),

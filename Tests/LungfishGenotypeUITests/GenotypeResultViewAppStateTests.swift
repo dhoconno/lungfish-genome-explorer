@@ -237,6 +237,119 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         XCTAssertNil(GenotypeResultViewState.load(fromBundleAt: scenario.bundleURL), "the switch writes no app state file")
     }
 
+    // MARK: - Pickers and percent bases (item 2, VS B6)
+
+    /// The cell colour is presentation and the percent bases change values. On the same data both come back, and the
+    /// viewport says once that settings from the last visit change the values (word 5c).
+    func testTheKeptColorAndPercentBasesComeBackOnTheSameDataWithTheSettingsLine() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let first = try await openRemembered(fixture)
+        changePickersAndBases(first)
+        XCTAssertNil(settingsLine(in: first), "a person's own change shows no line")
+        first.detachHostPresentationCallbacks()
+
+        let reopened = try await openRemembered(fixture)
+        XCTAssertEqual(reopened.testingDisplayState.cellColorMode, .none)
+        XCTAssertFalse(reopened.testingDisplayState.hideFilteredHighlights)
+        XCTAssertEqual(reopened.testingDisplayState.supportDenominator, .sampleRetained)
+        XCTAssertEqual(reopened.testingDisplayState.matrixPercentDenominator, .sampleRetained)
+        XCTAssertEqual(settingsLine(in: reopened), ViewMemoryFilterLineForm.changesValues.text)
+        XCTAssertNil(resetLine(in: reopened), "nothing was lost")
+
+        var state = reopened.testingDisplayState
+        state.supportDenominator = .viewedLocus
+        reopened.applyDisplayState(state)
+        XCTAssertNil(settingsLine(in: reopened), "the person changed a basis, so the line is gone")
+    }
+
+    /// A changed bundle keeps the colour, starts the percent bases at the open's and names the filters in one line.
+    func testAChangedBundleDropsThePercentBasesKeepsTheColorAndSaysSo() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let first = try await openRemembered(fixture)
+        changePickersAndBases(first)
+        first.detachHostPresentationCallbacks()
+        try Data("sample,genotype\n".utf8).write(to: fixture.bundleURL.appendingPathComponent("rerun-calls.csv"))
+
+        let reopened = try await openRemembered(fixture)
+        XCTAssertEqual(reopened.testingDisplayState.cellColorMode, .none, "the colour needs no data key")
+        XCTAssertEqual(reopened.testingDisplayState.supportDenominator, .viewedLocus)
+        XCTAssertEqual(reopened.testingDisplayState.matrixPercentDenominator, .viewedLocus)
+        XCTAssertEqual(resetLine(in: reopened), ViewMemoryWords.dataChanged(.filters))
+        XCTAssertNil(settingsLine(in: reopened), "no basis came back")
+    }
+
+    /// Reset View ends the settings line and shows the open's percent bases, and the next open keeps them.
+    func testResetViewEndsTheSettingsLineAndTheRestoredPercentBases() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let first = try await openRemembered(fixture)
+        changePickersAndBases(first)
+        first.detachHostPresentationCallbacks()
+
+        let reopened = try await openRemembered(fixture)
+        XCTAssertNotNil(settingsLine(in: reopened))
+        reopened.resetViewMemory()
+        XCTAssertNil(settingsLine(in: reopened))
+        XCTAssertEqual(reopened.testingDisplayState.matrixPercentDenominator, .viewedLocus)
+        XCTAssertEqual(reopened.testingDisplayState.cellColorMode, .support)
+        reopened.detachHostPresentationCallbacks()
+
+        let third = try await openRemembered(fixture)
+        XCTAssertEqual(third.testingDisplayState.matrixPercentDenominator, .viewedLocus, "the next open undid Reset View")
+        XCTAssertNil(settingsLine(in: third))
+    }
+
+    /// BIO: after a restore the viewport export writes the percent basis the view shows.
+    func testTheExportAfterARestoreWritesThePercentBasisTheViewShows() async throws {
+        let scenario = try makeThresholdedMiSeqScenario()
+        defer { scenario.cleanup() }
+        let storeRoot = try TestTempDirectory.make(prefix: "GenotypeViewMemoryExport")
+        defer { TestTempDirectory.cleanup(storeRoot) }
+        let store = ViewMemoryStore(root: storeRoot.appendingPathComponent("view-memory", isDirectory: true))
+        let first = try await open(scenario.result, store: store)
+        var state = first.testingDisplayState
+        state.matrixPercentDenominator = .sampleRetained
+        first.applyDisplayState(state)
+        first.detachHostPresentationCallbacks()
+
+        let reopened = try await open(scenario.result, store: store)
+        XCTAssertEqual(reopened.testingDisplayState.matrixPercentDenominator, .sampleRetained)
+        let snapshot = try scenario.withAquaDrawingAppearance { try reopened.captureExcelExportSnapshot() }
+        XCTAssertEqual(
+            snapshot.filters["matrixPercentDenominator"], ONTGenotypeSupportDenominator.sampleRetained.displayName,
+            "the export writes the basis the view shows")
+    }
+
+    private func changePickersAndBases(_ controller: GenotypeResultViewController) {
+        var state = controller.testingDisplayState
+        state.cellColorMode = .none
+        state.hideFilteredHighlights = false
+        state.supportDenominator = .sampleRetained
+        state.matrixPercentDenominator = .sampleRetained
+        controller.applyDisplayState(state)
+    }
+
+    private func open(_ result: ONTGenotypeResultBundleData, store: ViewMemoryStore) async throws -> GenotypeResultViewController {
+        let controller = makeMatrixAnnotationGuardedController()
+        controller.viewMemoryStore = store
+        _ = controller.view
+        controller.configure(result: result)
+        let settled = await waitUntil(budget: .standard) { controller.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "the open's restore did not run")
+        return controller
+    }
+
+    private func settingsLine(in controller: GenotypeResultViewController) -> String? {
+        let line = controller.view.subviews.compactMap { $0 as? ViewMemoryFilterLineView }.first
+        return line.flatMap { $0.isHidden ? nil : $0.displayedText }
+    }
+
+    private func resetLine(in controller: GenotypeResultViewController) -> String? {
+        controller.view.subviews.compactMap { $0 as? ViewMemoryResetLineView }.first?.words
+    }
+
     // MARK: - Fixture
 
     private struct Fixture {
