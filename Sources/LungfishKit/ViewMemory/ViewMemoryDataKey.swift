@@ -181,10 +181,13 @@ extension ViewMemoryDataKey {
     ///
     /// The provenance record's envelope id wins, since a rerun writes a new record. Without one
     /// the manifest's modification date is used, and without that the file list with sizes.
+    ///
+    /// Pass the folder's ``ViewMemoryFileEntry/entries(inFolder:)`` as it is. A nil list gives an
+    /// unread key, and the list is read only when no envelope id and no manifest date exist.
     public static func analysis(
         provenanceEnvelopeID: UUID?,
         manifestModifiedDate: Date?,
-        files: [ViewMemoryFileEntry]
+        files: @autoclosure () -> [ViewMemoryFileEntry]?
     ) -> ViewMemoryDataKey {
         if let provenanceEnvelopeID {
             return ViewMemoryDataKey(
@@ -198,7 +201,10 @@ extension ViewMemoryDataKey {
                 parts: [Part(name: "manifest-date", value: String(milliseconds(of: manifestModifiedDate)))]
             )
         }
-        return ViewMemoryDataKey(family: "analysis", parts: [Part(name: "files", value: filesValue(files))])
+        guard let list = files() else {
+            return unread(family: "analysis", partNames: ["files"])
+        }
+        return ViewMemoryDataKey(family: "analysis", parts: [Part(name: "files", value: filesValue(list))])
     }
 
     /// The key of any other bundle, from its manifest identifier with the record id or the
