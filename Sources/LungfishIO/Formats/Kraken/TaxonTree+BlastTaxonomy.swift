@@ -22,7 +22,7 @@ extension TaxonTree {
     ///
     /// A taxon missing from the tree yields a clade of just `taxId`. The context's basis is `species` for a clade the
     /// tree gave and `rowTaxId` for that lone tax ID (BLAST-ESVIRITU-FIRST-WORD).
-    public func blastTaxonomyContext(for taxId: Int) -> BlastTaxonomyContext {
+    public func blastTaxonomyContext(for taxId: Int, taxonomyDirectory: URL? = nil) -> BlastTaxonomyContext {
         guard let node = node(taxId: taxId) else {
             return BlastTaxonomyContext(cladeTaxIds: [taxId], basis: .rowTaxId)
         }
