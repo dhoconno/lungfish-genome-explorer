@@ -2308,14 +2308,14 @@ final class GenotypeResultViewportStylingAndMiSeqE2ETests: GenotypeResultViewpor
         var state = controller.testingDisplayState
         state.summaryViewMode = .matrix
         controller.applyDisplayState(state)
-        // The choice is app state since plan decision S11, never the sidecar.
-        XCTAssertEqual(
+        // The choice is view memory since the revisit of plan decision S11, never the sidecar or a file in the bundle.
+        XCTAssertNil(GenotypeResultViewState.load(fromBundleAt: secondURL))
+        XCTAssertNil(
             try GenotypeAnnotationStore(
                 bundleURL: secondURL,
                 author: "test",
                 seedBuiltInSmartCohorts: true
-            ).startingViewState.preferredSummaryViewMode,
-            GenotypeSummaryViewMode.matrix.rawValue
+            ).startingViewState.preferredSummaryViewMode
         )
 
         controller.configure(result: first)

@@ -2,36 +2,34 @@ import Foundation
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishKit
 import LungfishTestSupport
 import LungfishWorkflow
 @testable import LungfishGenotypeUI
 
-/// The Haplotype Calls and Genotype Matrix choice is app state (plan decision
-/// S11). A switch writes only the bundle's declared app state file, after a
-/// user event. Opening, reopening and a programmatic restore write nothing,
-/// and an older sidecar's view field is the starting view and stays as it is.
-/// Each case compares every file under the test root, hidden files and the
-/// publication lock beside the bundle included, by bytes and modification
-/// date before and after.
+/// The Haplotype Calls and Genotype Matrix choice and the panel layout are view memory in the store, outside every
+/// bundle and project (the revisit of plan decision S11, VS-GENO). A switch, a reopen, a programmatic restore and
+/// Reset View write nothing into the bundle. An older bundle's own `.genotype-viewstate.json` is a starting view only
+/// while the item has no store entry and no retire mark, and nothing writes or deletes it. Each case compares every
+/// file under the test root, hidden files and the publication lock beside the bundle included, by bytes and
+/// modification date before and after. Each store lives in its own test folder (QA 6).
 @MainActor
 final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
-    func testAViewSwitchWritesOnlyTheDeclaredAppStateFile() throws {
+    /// The base wrote the choice into the bundle. It now writes no byte there and the store keeps it.
+    func testAViewSwitchWritesNothingIntoTheBundle() async throws {
         let fixture = try makeFixture()
-        defer { TestTempDirectory.cleanup(fixture.root) }
-        let controller = configuredController(fixture)
+        defer { cleanup(fixture) }
+        let controller = try await openRemembered(fixture)
         let before = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
 
         switchView(controller, to: .matrix)
+        controller.detachHostPresentationCallbacks()
 
-        let after = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
-        XCTAssertEqual(
-            after.filter { $0.key != fixture.appStatePath }, before,
-            "a view switch changes no file outside the declared app state"
-        )
-        XCTAssertEqual(GenotypeResultViewState.load(fromBundleAt: fixture.bundleURL)?.preferredSummaryViewMode, "matrix")
+        XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root), before, "a view switch writes nothing")
+        XCTAssertNil(GenotypeResultViewState.load(fromBundleAt: fixture.bundleURL))
         XCTAssertEqual(
             BundleKindRegistry.descriptor(forLowercasedExtensionOf: fixture.bundleURL)?.appStateFileNames,
-            [GenotypeResultViewState.filename]
+            [GenotypeResultViewState.filename], "older bundles keep the file, which the record still leaves out"
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.annotationURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: ProvenanceRecorder.fileSidecarURL(for: fixture.annotationURL).path))
@@ -40,37 +38,39 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         ))
     }
 
-    func testSwitchingBackAndForthLeavesTheSidecarAndItsRecordUntouched() throws {
+    func testSwitchingBackAndForthLeavesTheSidecarAndItsRecordUntouched() async throws {
         let fixture = try makeFixture()
-        defer { TestTempDirectory.cleanup(fixture.root) }
+        defer { cleanup(fixture) }
         try writeAnnotatedSidecar(fixture, preferredSummaryViewMode: nil)
-        let controller = configuredController(fixture)
+        let controller = try await openRemembered(fixture)
         let before = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
 
         switchView(controller, to: .matrix)
         switchView(controller, to: .outline)
+        controller.detachHostPresentationCallbacks()
 
-        XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root).filter { $0.key != fixture.appStatePath }, before)
-        XCTAssertEqual(GenotypeResultViewState.load(fromBundleAt: fixture.bundleURL)?.preferredSummaryViewMode, "outline")
+        XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root), before)
+        XCTAssertNil(GenotypeResultViewState.load(fromBundleAt: fixture.bundleURL))
         XCTAssertEqual(controller.annotationStore?.sidecar.auditLog.map(\.action), ["setSampleStatus"])
     }
 
-    func testReopeningRestoresTheChosenViewAndWritesNothing() throws {
+    func testReopeningRestoresTheChosenViewFromTheStoreAndWritesNothing() async throws {
         let fixture = try makeFixture()
-        defer { TestTempDirectory.cleanup(fixture.root) }
-        switchView(configuredController(fixture), to: .matrix)
+        defer { cleanup(fixture) }
+        let first = try await openRemembered(fixture)
+        switchView(first, to: .matrix)
+        first.detachHostPresentationCallbacks()
         let before = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
 
-        let reopened = configuredController(fixture)
-        reopened.configure(result: fixture.result)
+        let reopened = try await openRemembered(fixture)
 
-        XCTAssertEqual(reopened.testingDisplayState.summaryViewMode, .matrix)
+        XCTAssertEqual(reopened.testingDisplayState.summaryViewMode, .matrix, "the store brought the choice back")
         XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root), before, "opening writes nothing")
     }
 
     func testAnOlderSidecarsViewFieldIsTheStartingViewAndIsNeverRewritten() throws {
         let fixture = try makeFixture()
-        defer { TestTempDirectory.cleanup(fixture.root) }
+        defer { cleanup(fixture) }
         try writeAnnotatedSidecar(fixture, preferredSummaryViewMode: "matrix")
         let before = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
 
@@ -81,19 +81,102 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         XCTAssertNil(GenotypeResultViewState.load(fromBundleAt: fixture.bundleURL))
     }
 
-    func testTheAppStateFileWinsOverAnOlderSidecarsViewField() throws {
+    /// BIO's condition for the revisit: an older bundle's own file is the starting view while the item has no entry,
+    /// and showing it and leaving makes no entry (VS S3), so the file stays the starting view.
+    func testAnOlderBundleFileIsTheStartingViewWhileTheItemHasNoEntry() async throws {
         let fixture = try makeFixture()
-        defer { TestTempDirectory.cleanup(fixture.root) }
+        defer { cleanup(fixture) }
         try writeAnnotatedSidecar(fixture, preferredSummaryViewMode: "matrix")
-        var chosen = GenotypeResultViewState(startingFrom: .default)
-        chosen.preferredSummaryViewMode = "outline"
-        try chosen.save(toBundleAt: fixture.bundleURL)
+        try writeOlderViewStateFile(fixture, preferredSummaryViewMode: "outline")
         let before = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
 
-        let controller = configuredController(fixture)
+        let first = try await openRemembered(fixture)
+        XCTAssertEqual(first.testingDisplayState.summaryViewMode, .outline, "the older file wins over the sidecar")
+        first.detachHostPresentationCallbacks()
+        let key = try XCTUnwrap(fixture.store.key(for: ViewMemoryItem.read(at: fixture.bundleURL)))
+        XCTAssertFalse(fixture.store.hasRecord(for: key), "showing an older bundle's look and leaving made an entry")
 
-        XCTAssertEqual(controller.testingDisplayState.summaryViewMode, .outline)
-        XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root), before)
+        let second = try await openRemembered(fixture)
+        XCTAssertEqual(second.testingDisplayState.summaryViewMode, .outline)
+        XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root), before, "nothing writes the older file")
+    }
+
+    /// BIO's condition for the revisit: an item's first entry in the store ends the reading of the older file.
+    func testTheFirstStoreEntryEndsTheReadingOfTheOlderFile() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        try writeOlderViewStateFile(fixture, preferredSummaryViewMode: "matrix")
+        XCTAssertNotNil(
+            GenotypeViewMemoryRead.read(bundleURL: fixture.bundleURL, store: fixture.store).olderFile,
+            "with no entry the older file is the starting view")
+
+        let controller = try await openRemembered(fixture)
+        XCTAssertEqual(controller.testingDisplayState.summaryViewMode, .matrix)
+        switchView(controller, to: .outline) // a person's change
+        controller.detachHostPresentationCallbacks()
+
+        XCTAssertNil(
+            GenotypeViewMemoryRead.read(bundleURL: fixture.bundleURL, store: fixture.store).olderFile,
+            "an item with an entry read the older file again")
+    }
+
+    /// Reset View leaves a retire mark, so the older file is not read again and the reset stands at the next open. It
+    /// writes and deletes nothing in the bundle.
+    func testResetViewLeavesARetireMarkSoTheOlderFileIsNotReadAgain() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        try writeOlderViewStateFile(fixture, preferredSummaryViewMode: "matrix")
+        let before = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
+        let controller = try await openRemembered(fixture)
+        XCTAssertEqual(controller.testingDisplayState.summaryViewMode, .matrix)
+
+        controller.resetViewMemory()
+        XCTAssertEqual(controller.testingDisplayState.summaryViewMode, .outline, "Reset View shows the result's own view")
+        controller.detachHostPresentationCallbacks()
+
+        let reopened = try await openRemembered(fixture)
+        XCTAssertEqual(reopened.testingDisplayState.summaryViewMode, .outline, "the next open read the older file again")
+        XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root), before, "Reset View writes nothing")
+    }
+
+    /// SWIFT SF-2 of VS-REF, copied: a change made before the restore lands stands and is kept.
+    func testAChangeMadeBeforeTheRestoreLandsIsStillKept() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let first = try await openRemembered(fixture)
+        switchView(first, to: .matrix)
+        first.detachHostPresentationCallbacks()
+
+        let second = configuredController(fixture, store: fixture.store)
+        var state = second.testingDisplayState
+        state.layout = .listLeading
+        second.applyDisplayState(state) // before the main actor's next turn, so before the read lands
+        await waitUntil(budget: .standard) { second.viewMemoryIsSettled }
+        XCTAssertEqual(second.testingDisplayState.summaryViewMode, .outline, "the late restore undid a change")
+        XCTAssertEqual(second.testingDisplayState.layout, .listLeading)
+        second.detachHostPresentationCallbacks()
+
+        let third = try await openRemembered(fixture)
+        XCTAssertEqual(third.testingDisplayState.layout, .listLeading, "a change made before the restore landed was not kept")
+        XCTAssertEqual(third.testingDisplayState.summaryViewMode, .outline)
+    }
+
+    /// SWIFT SF-2 of VS-REF, copied: Reset View made before the restore lands is not undone by it.
+    func testResetViewBeforeTheRestoreLandsIsNotUndone() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let first = try await openRemembered(fixture)
+        switchView(first, to: .matrix)
+        first.detachHostPresentationCallbacks()
+
+        let second = configuredController(fixture, store: fixture.store)
+        second.resetViewMemory()
+        await waitUntil(budget: .standard) { second.viewMemoryIsSettled }
+        XCTAssertEqual(second.testingDisplayState.summaryViewMode, .outline, "the late restore undid Reset View")
+        second.detachHostPresentationCallbacks()
+
+        let third = try await openRemembered(fixture)
+        XCTAssertEqual(third.testingDisplayState.summaryViewMode, .outline, "the next open undid Reset View")
     }
 
     /// Every programmatic restore applies its state directly, as the restore
@@ -101,7 +184,7 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
     /// changed presentation in it writes nothing.
     func testAProgrammaticRestoreOfAnotherViewWritesNothing() throws {
         let fixture = try makeFixture()
-        defer { TestTempDirectory.cleanup(fixture.root) }
+        defer { cleanup(fixture) }
         let controller = configuredController(fixture)
         let before = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
         var state = controller.testingDisplayState
@@ -113,21 +196,25 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root), before)
     }
 
-    func testAReadOnlyBundleKeepsTheSwitchForTheSessionOnly() throws {
+    /// A read-only bundle writes nothing, as before, and the store outside it keeps the choice (VS U9).
+    func testAReadOnlyBundleKeepsTheSwitchForTheSessionOnly() async throws {
         try XCTSkipIf(getuid() == 0, "a read-only folder is writable to root")
         let fixture = try makeFixture()
         defer {
             try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o755)], ofItemAtPath: fixture.bundleURL.path)
-            TestTempDirectory.cleanup(fixture.root)
+            cleanup(fixture)
         }
         try FileManager.default.setAttributes([.posixPermissions: NSNumber(value: 0o555)], ofItemAtPath: fixture.bundleURL.path)
-        let controller = configuredController(fixture)
+        let controller = try await openRemembered(fixture)
         let before = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
 
         switchView(controller, to: .matrix)
+        controller.detachHostPresentationCallbacks()
 
         XCTAssertEqual(controller.testingDisplayState.summaryViewMode, .matrix)
         XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root), before)
+        let reopened = try await openRemembered(fixture)
+        XCTAssertEqual(reopened.testingDisplayState.summaryViewMode, .matrix, "the store keeps a read-only bundle's view")
     }
 
     /// The export keeps the viewed sidecar, so after a switch it still records
@@ -147,7 +234,7 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         let block = try GenotypeExportSettingsBlockPinTests.settingsBlock(of: XCTUnwrap(snapshot.annotationSidecarData))
         XCTAssertEqual(block, try GenotypeExportSettingsBlockPinTests.settingsBlock(of: fileBytes))
         XCTAssertEqual(block.values["preferredSummaryViewMode"], #"["matrix"]"#)
-        XCTAssertEqual(GenotypeResultViewState.load(fromBundleAt: scenario.bundleURL)?.preferredSummaryViewMode, "outline")
+        XCTAssertNil(GenotypeResultViewState.load(fromBundleAt: scenario.bundleURL), "the switch writes no app state file")
     }
 
     // MARK: - Fixture
@@ -156,19 +243,17 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         let root: URL
         let bundleURL: URL
         let result: ONTGenotypeResultBundleData
+        let storeRoot: URL
+        let store: ViewMemoryStore
 
         var annotationURL: URL {
             bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
-        }
-
-        /// The app state file's key in `GenotypeBundleTreeSnapshot.entries(of: root)`.
-        var appStatePath: String {
-            "/" + bundleURL.lastPathComponent + "/" + GenotypeResultViewState.filename
         }
     }
 
     private func makeFixture() throws -> Fixture {
         let root = try TestTempDirectory.make(prefix: "GenotypeViewAppState")
+        let storeRoot = try TestTempDirectory.make(prefix: "GenotypeViewMemoryStore")
         let bundleURL = root.appendingPathComponent("result.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         try installCallOverrideManifest(in: bundleURL)
@@ -178,7 +263,14 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
             calls: [],
             haplotypeAnalysis: makeUsableHaplotypedMiSeqAnalysis()
         )
-        return Fixture(root: root, bundleURL: bundleURL, result: result)
+        return Fixture(
+            root: root, bundleURL: bundleURL, result: result, storeRoot: storeRoot,
+            store: ViewMemoryStore(root: storeRoot.appendingPathComponent("view-memory", isDirectory: true)))
+    }
+
+    private func cleanup(_ fixture: Fixture) {
+        TestTempDirectory.cleanup(fixture.root)
+        TestTempDirectory.cleanup(fixture.storeRoot)
     }
 
     /// A sidecar the command line annotated, with its record beside it.
@@ -199,10 +291,26 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         )
     }
 
-    private func configuredController(_ fixture: Fixture) -> GenotypeResultViewController {
+    /// The app state file an older build wrote into the bundle.
+    private func writeOlderViewStateFile(_ fixture: Fixture, preferredSummaryViewMode: String) throws {
+        var older = GenotypeResultViewState(startingFrom: .default)
+        older.preferredSummaryViewMode = preferredSummaryViewMode
+        try older.save(toBundleAt: fixture.bundleURL)
+    }
+
+    private func configuredController(_ fixture: Fixture, store: ViewMemoryStore? = nil) -> GenotypeResultViewController {
         let controller = makeMatrixAnnotationGuardedController()
+        controller.viewMemoryStore = store
         _ = controller.view
         controller.configure(result: fixture.result)
+        return controller
+    }
+
+    /// Opens the result as the route does, with the fixture's store, and waits for the open's restore.
+    private func openRemembered(_ fixture: Fixture) async throws -> GenotypeResultViewController {
+        let controller = configuredController(fixture, store: fixture.store)
+        let settled = await waitUntil(budget: .standard) { controller.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "the open's restore did not run")
         return controller
     }
 

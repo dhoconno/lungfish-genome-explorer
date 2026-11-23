@@ -68,30 +68,26 @@ final class GenotypeAnnotationStoreSelectionWritesNothingTests: GenotypeResultVi
         )
     }
 
-    /// The Haplotype Calls and Genotype Matrix switch saves its choice as app
-    /// state (plan decision S11, walk finding F10). It writes no sidecar, no
-    /// record and no lock, so the built-ins of a fresh bundle stay in memory
-    /// until the first edit.
-    func testTheViewSwitchWritesOnlyTheAppStateAndKeepsTheBuiltInsInMemory() throws {
+    /// The Haplotype Calls and Genotype Matrix switch is view memory, which the
+    /// store outside the bundle keeps (the revisit of plan decision S11, walk
+    /// finding F10). It writes no byte into the bundle, so the built-ins of a
+    /// fresh bundle stay in memory until the first edit.
+    func testTheViewSwitchWritesNoByteAndKeepsTheBuiltInsInMemory() throws {
         let fixture = try makeFixture()
         defer { TestTempDirectory.cleanup(fixture.root) }
         let controller = makeMatrixAnnotationGuardedController()
         _ = controller.view
         controller.configure(result: fixture.result)
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.annotationURL.path))
+        let before = try GenotypeBundleTreeSnapshot.entries(of: fixture.root)
 
         var state = controller.testingDisplayState
         state.summaryViewMode = .matrix
         controller.applyDisplayState(state)
+        controller.detachHostPresentationCallbacks()
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.annotationURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: ONTGenotypeBundlePublicationLock.lockURL(for: fixture.bundleURL).path
-        ))
-        XCTAssertEqual(
-            GenotypeResultViewState.load(fromBundleAt: fixture.bundleURL)?.preferredSummaryViewMode,
-            GenotypeSummaryViewMode.matrix.rawValue
-        )
+        XCTAssertEqual(try GenotypeBundleTreeSnapshot.entries(of: fixture.root), before)
+        XCTAssertNil(GenotypeResultViewState.load(fromBundleAt: fixture.bundleURL))
         XCTAssertEqual(controller.annotationStore?.sidecar.smartCohorts.map(\.name), Self.builtInNames)
     }
 
