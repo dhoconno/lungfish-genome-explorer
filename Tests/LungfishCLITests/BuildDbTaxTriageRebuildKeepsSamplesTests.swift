@@ -58,6 +58,11 @@ final class BuildDbTaxTriageRebuildKeepsSamplesTests: XCTestCase {
         XCTAssertEqual(try database.fetchMetadata()[BuildDbCommand.TaxTriageSubcommand.notRecountedSamplesMetadataKey], "[\"B\"]")
         let sidecar = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: databaseURL)))
         XCTAssertFalse(sidecar.steps.contains { ($0.exitStatus ?? 0) != 0 }, "the rebuild completed")
+        // Red at TT-m1: the build step's stderr is nil, so the record does not say that rows were kept (TT-m1-BIO S-1).
+        XCTAssertTrue(
+            sidecar.steps.last?.stderr?.contains("Kept the rows of B from the earlier taxtriage.sqlite without recounting them") == true,
+            "the record names the samples it kept"
+        )
     }
 
     /// The warning lines a build gave, from the sink's `warning`.
