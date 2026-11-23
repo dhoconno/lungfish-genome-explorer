@@ -110,7 +110,12 @@ public final class RNASeqBulkViewController: NSViewController, NSTableViewDataSo
         if isViewLoaded { reloadFromModel() }
     }
 
-    /// Builds the tabs again when the model holds other tables, and reloads every table from the model.
+    /// The show and the search the count tables last loaded. A change that leaves both, such as the quality read's
+    /// arrival, reloads no count table, since a table no window shows drops its selection at a reload (VS-RNA BIO SF-3).
+    private var loadedFor: (show: Int, search: String)?
+
+    /// Builds the tabs again when the model holds other tables, and reloads the count tables when the show or the search
+    /// changed, then the captions, the match line and the quality tabs.
     public func reloadFromModel() {
         guard isViewLoaded else { return }
         if builtForShow != model.showCount {
@@ -118,10 +123,13 @@ public final class RNASeqBulkViewController: NSViewController, NSTableViewDataSo
             builtForShow = model.showCount
         }
         if searchField.stringValue != model.searchText { searchField.stringValue = model.searchText }
+        let now = (show: model.showCount, search: model.searchText)
+        let countsChanged = loadedFor?.show != now.show || loadedFor?.search != now.search
         for (index, table) in countTables.enumerated() where index < model.tables.count {
             countCaptions[index].stringValue = model.tables[index].caption
-            table.reloadData()
+            if countsChanged { table.reloadData() }
         }
+        loadedFor = now
         matchLabel.stringValue = matchWords()
         showQuality()
     }
