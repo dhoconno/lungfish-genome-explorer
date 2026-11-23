@@ -62,7 +62,7 @@ struct RNASeqCellMapViewMemory: Codable, Sendable, Equatable {
 /// applies only while no choice, zoom or selection was made since the restore, which the two counters tell.
 @MainActor
 final class RNASeqCellMapPendingRestore {
-    let window: RNASeqCellMapViewMemory.Window?
+    var window: RNASeqCellMapViewMemory.Window?
     let selection: RNASeqCellMapViewMemory.Selection?
     var generation: Int
     var selectionGeneration: Int
@@ -94,7 +94,7 @@ extension RNASeqCellMapViewController {
             embedding: facts.embeddings.first { $0.embedding == embedding }?.name,
             colouring: Self.memory(of: wantedColouring ?? shown.colouring, in: facts),
             pointSize: pointSize,
-            window: plotWindow.flatMap(Self.memory(of:)),
+            window: embedding == shown.points.embedding ? plotWindow.flatMap(Self.memory(of:)) : nil,
             selection: selection.flatMap { $0.embedding == embedding ? $0.form.flatMap(Self.memory(of:)) : nil })
         if let pending, pending.applies(to: self) {
             if memory.window == nil { memory.window = pending.window }
@@ -164,8 +164,14 @@ extension RNASeqCellMapViewController {
         if let window = pending.window {
             plotWindow = RNASeqEmbeddingWindow(minX: window.minX, minY: window.minY, maxX: window.maxX, maxY: window.maxY)
             requestRaster()
+            // The zoom is on show now, so a later double click that shows every cell is the person's. A capture reads
+            // `plotWindow` and the kept zoom stops standing in for it.
+            pending.window = nil
         }
-        guard let kept = pending.selection else { return }
+        guard let kept = pending.selection else {
+            pending.cancelled = true
+            return
+        }
         runKeptSelection(kept, in: shown)
         // The run bumped the counter, and the pending selection stands for the view until the run shows it.
         pending.selectionGeneration = selectionGeneration
