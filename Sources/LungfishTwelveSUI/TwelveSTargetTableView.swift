@@ -97,6 +97,18 @@ final class TwelveSAdaptiveColumnWidthState {
 /// sample/species evidence pair.
 @MainActor
 final class TwelveSTargetTableView: BatchTableView<TwelveSTargetSampleRow> {
+    /// Its owner keeps the view in view memory, so the table declares it before any key is set and writes no column
+    /// layout to the account's defaults (VS A10, QA 6).
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        metadataColumns.adoptViewMemory()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        metadataColumns.adoptViewMemory()
+    }
+
     /// Supplies each row's accessibility actions. The controller owns the
     /// copy commands and the selection, so it builds them.
     var rowAccessibilityActionsProvider: ((Int, NSView) -> [NSAccessibilityCustomAction])?

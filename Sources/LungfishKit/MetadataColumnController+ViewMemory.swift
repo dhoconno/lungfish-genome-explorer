@@ -40,8 +40,35 @@ extension MetadataColumnController.PersistedLayout {
 }
 
 extension MetadataColumnController {
+    /// A controller for a table whose owner keeps its view in view memory (VS A10, QA 6). It makes the declaration of
+    /// `adoptViewMemory()` before any key is set, so the table writes no layout to `userDefaults` from its first key on.
+    /// A table that holds one in a stored property makes the declaration there, with no other change.
+    public static func adoptingViewMemory(
+        contentTypographyOwnership: ContentTypographyOwnership = .standalone,
+        userDefaults: UserDefaults = .standard
+    ) -> MetadataColumnController {
+        let controller = MetadataColumnController(
+            contentTypographyOwnership: contentTypographyOwnership, userDefaults: userDefaults
+        )
+        controller.adoptViewMemory()
+        return controller
+    }
+
     /// True once view memory owns this controller's layouts, so nothing is written to `userDefaults`.
     public var isViewMemoryAdopted: Bool { viewMemoryLayouts != nil }
+
+    /// Declares that this controller's owner keeps its view in view memory. Make it before the first `persistenceKey`:
+    /// setting a key restores and refreshes the columns, and a refresh before the declaration writes the layout to
+    /// `userDefaults` as a table that does not adopt always has. From this call on a layout stays in memory, by key,
+    /// until the owner's capture takes it, and the old `UserDefaults` value of a key is read only as its starting value
+    /// and never written back. A second call changes nothing.
+    public func adoptViewMemory() {
+        guard viewMemoryLayouts == nil else { return }
+        viewMemoryLayouts = [:]
+        if let key = persistenceKey, let current = persistedLayout {
+            viewMemoryLayouts?[key] = current
+        }
+    }
 
     /// The layout of the current key as view memory should hold it, or nil while the controller
     /// holds none (no key, or nothing laid out yet). The capture is cheap and reads no store.
@@ -49,21 +76,17 @@ extension MetadataColumnController {
         persistedLayout?.memory
     }
 
-    /// Hands this controller's layouts to view memory.
+    /// Applies the item's stored layout to the current key.
     ///
-    /// From the first call on, no layout is written to `userDefaults`. A key that view memory
-    /// holds no layout for still starts from the old `UserDefaults` value when the key is set, and
-    /// that value is never written back. A non-nil `memory` is the item's stored layout. It wins
-    /// over the old value and is applied to the table now as the layout of the current key. Set
-    /// `persistenceKey` first, so the layout is remembered for that key while the table is on
-    /// another result.
+    /// The order is: `adoptViewMemory()` (or `adoptingViewMemory(...)`) when the controller is made, then
+    /// `persistenceKey`, then this call in the owner's restore. The declaration comes first so that no layout reaches
+    /// `userDefaults`, and the key comes before this call so the layout is remembered for that key while the table is
+    /// on another result. A call on a controller that has not declared makes the declaration then. A key that view
+    /// memory holds no layout for starts from the old `UserDefaults` value when the key is set, and that value is never
+    /// written back. A non-nil `memory` wins over the old value and is applied to the table now. A nil `memory` changes
+    /// no column.
     public func applyViewMemory(_ memory: MetadataColumnLayoutMemory?) {
-        if viewMemoryLayouts == nil {
-            viewMemoryLayouts = [:]
-            if let key = persistenceKey, let current = persistedLayout {
-                viewMemoryLayouts?[key] = current
-            }
-        }
+        adoptViewMemory()
         guard let memory else { return }
         let layout = PersistedLayout(memory)
         persistedLayout = layout
@@ -71,6 +94,13 @@ extension MetadataColumnController {
             viewMemoryLayouts?[key] = layout
         }
         applyPersistedLayout()
+    }
+
+    /// Applies a kept layout only when it differs from the table's, so a restore of an equal layout refreshes no
+    /// column and starts no re-filter in the owner. A nil layout changes nothing.
+    public func applyKeptLayout(_ layout: MetadataColumnLayoutMemory?) {
+        guard let layout, layout != captureViewMemory() else { return }
+        applyViewMemory(layout)
     }
 
     /// The layout a key starts from. View memory's own layout for the key wins. Otherwise the old
@@ -88,8 +118,8 @@ extension MetadataColumnController {
         return decoded
     }
 
-    /// Keeps a layout. After `applyViewMemory(_:)` it stays in memory, and before it the layout is
-    /// written to `userDefaults` as it always was.
+    /// Keeps a layout. After `adoptViewMemory()` it stays in memory, and on a controller that has not
+    /// declared it is written to `userDefaults` as it always was.
     func storeLayout(_ layout: PersistedLayout, forKey key: String) {
         if viewMemoryLayouts != nil {
             viewMemoryLayouts?[key] = layout

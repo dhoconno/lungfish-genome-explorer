@@ -38,6 +38,8 @@ enum TaxonomyRowIdentity {
 ///   that no longer exists is dropped, and none left means no selection, never row 0.
 /// - `zoomIdentity`, the sunburst's zoom centre by the same identity. A node that no longer exists drops the zoom.
 /// - `drawerOpen`, the Collections drawer, is presentation.
+/// - `columns` and `batchColumns`, the metadata column layouts of the outline and the batch table, are presentation and
+///   always come back. They live here and never in the account's defaults (VS A10).
 /// The split position is not kept yet (see the lane report).
 struct TaxonomyViewMemory: Codable, Sendable, Equatable {
     var filterText = ""
@@ -47,6 +49,8 @@ struct TaxonomyViewMemory: Codable, Sendable, Equatable {
     var drawerOpen = false
     var samples: SamplePickerMemory?
     var samplesRun: String?
+    var columns: MetadataColumnLayoutMemory?
+    var batchColumns: MetadataColumnLayoutMemory?
 }
 
 /// What the sidebar route did to this visit (VS B9). The route's pick wins for the visit and is not kept.
@@ -107,6 +111,8 @@ extension TaxonomyViewController {
             memory.zoomIdentity = TaxonomyRowIdentity.portable(identity)
         }
         memory.drawerOpen = isTaxaCollectionsDrawerOpen
+        memory.columns = taxonomyTableView.metadataColumns.captureViewMemory()
+        memory.batchColumns = batchTableView.metadataColumns.captureViewMemory()
         if isBatchMode, let picker = samplePickerState {
             var picked = picker.captureViewMemory(allSampleIDs: Set(sampleEntries.map(\.id)))
             // The route's pick is the app's, not a choice, unless the person changed it afterwards (VS B9, S3).
@@ -135,6 +141,10 @@ extension TaxonomyViewController {
             if restore.selected != before { applyBatchSampleFilter() }
             if restore.droppedCount > 0 || restore.fellBackToAll { lost.insert(.sampleChoice) }
         }
+
+        // The column layouts before the rows, since a layout change refreshes the table's columns.
+        table.metadataColumns.applyKeptLayout(memory.columns)
+        batchTableView.metadataColumns.applyKeptLayout(memory.batchColumns)
 
         let filter = dataChanged ? "" : memory.filterText
         if dataChanged, !memory.filterText.isEmpty { lost.insert(.filters) }

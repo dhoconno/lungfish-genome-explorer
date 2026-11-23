@@ -85,9 +85,10 @@ final class ViewSwitchViewStateTests: XCTestCase {
     private var root: URL!
     private var project: URL!
     private var storeRoot: URL!
-    /// The App's Kraken2 and EsViritu tables key their column layouts by the result's path in the runner's defaults
-    /// when the route sets their result, before the surface loads, so no seam takes a suite. The restorer owns the
-    /// keys that name this test's folder (Phase 3.1 ruling QA-RELEASE-LOOP, section 5).
+    /// The adopting tables write no column layout to the runner's defaults (VS A10, QA 6), which
+    /// `testKraken2AndEsVirituKeepAMovedColumnInViewMemoryAndWriteNoLayoutToTheAccountDefaults` pins before this
+    /// restores anything. The restorer stays for any other key that names this test's folder (Phase 3.1 ruling
+    /// QA-RELEASE-LOOP, section 5).
     private var hostDefaults: HostDefaultsRestorer?
 
     override func setUp() async throws {

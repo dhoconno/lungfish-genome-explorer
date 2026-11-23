@@ -37,6 +37,8 @@ enum EsVirituRowIdentity {
 /// - `selectedIdentities` are row identities with the sample and the assembly (VS B4), without the result's path. An
 ///   identity that no longer exists is dropped, and none left means no selection, never row 0.
 /// - `collapsedIdentities`, the assemblies a person collapsed, by the same identity. The rest stay expanded.
+/// - `columns` and `batchColumns`, the metadata column layouts of the detection and batch tables, are presentation and
+///   always come back. They live here and never in the account's defaults (VS A10).
 /// The split position is not kept yet (see the lane report).
 struct EsVirituViewMemory: Codable, Sendable, Equatable {
     var filterText = ""
@@ -45,6 +47,8 @@ struct EsVirituViewMemory: Codable, Sendable, Equatable {
     var collapsedIdentities: [String] = []
     var samples: SamplePickerMemory?
     var samplesRun: String?
+    var columns: MetadataColumnLayoutMemory?
+    var batchColumns: MetadataColumnLayoutMemory?
 }
 
 /// What the sidebar route did to this visit (VS B9). The route's pick wins for the visit and is not kept.
@@ -95,6 +99,8 @@ extension EsVirituResultViewController {
         memory.sort = BatchTableMemory.Sort(key: table.exportSortKey, ascending: table.exportSortAscending)
         memory.selectedIdentities = table.selectionIdentities.selectedIDs.map(EsVirituRowIdentity.portable).sorted()
         memory.collapsedIdentities = collapsedAssemblyIdentities()
+        memory.columns = table.metadataColumns.captureViewMemory()
+        memory.batchColumns = batchTableView.metadataColumns.captureViewMemory()
         if isBatchMode, let picker = samplePickerState {
             var picked = picker.captureViewMemory(allSampleIDs: Set(sampleEntries.map(\.id)))
             // The route's pick is the app's, not a choice, unless the person changed it afterwards (VS B9, S3).
@@ -124,6 +130,10 @@ extension EsVirituResultViewController {
             if restore.selected != before { applyBatchSampleFilter() }
             if restore.droppedCount > 0 || restore.fellBackToAll { lost.insert(.sampleChoice) }
         }
+
+        // The column layouts before the rows, since a layout change refreshes the columns and re-filters the table.
+        table.metadataColumns.applyKeptLayout(memory.columns)
+        batchTableView.metadataColumns.applyKeptLayout(memory.batchColumns)
 
         let filter = dataChanged ? "" : memory.filterText
         if dataChanged, !memory.filterText.isEmpty { lost.insert(.filters) }

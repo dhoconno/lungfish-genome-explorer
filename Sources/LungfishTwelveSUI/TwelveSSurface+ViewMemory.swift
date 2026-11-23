@@ -37,6 +37,10 @@ public struct TwelveSViewState: ViewMemoryState {
     var samples: SamplePickerMemory?
     var targetTable: BatchTableMemory
     var columnWidths: [String: Double]
+    /// The metadata column layouts of the two tables, presentation that always comes back, held here and never in the
+    /// account's defaults (VS A10). An older record without them decodes them as nil.
+    var targetColumns: MetadataColumnLayoutMemory?
+    var unresolvedColumns: MetadataColumnLayoutMemory?
 
     /// A selection the table part already found past its cap counts as past the store's cap, so the store drops it
     /// whole and the viewer says so (VS A9, word 4).
@@ -83,7 +87,9 @@ extension TwelveSSurface: ViewMemoryAdopting {
             filterText: controller.displayState.filterText,
             samples: controller.samplePickerState?.captureViewMemory(allSampleIDs: controller.allSampleIDs),
             targetTable: table,
-            columnWidths: Dictionary(columns.map { ($0.identifier.rawValue, Double($0.width)) }) { first, _ in first }
+            columnWidths: Dictionary(columns.map { ($0.identifier.rawValue, Double($0.width)) }) { first, _ in first },
+            targetColumns: controller.targetTable.metadataColumns.captureViewMemory(),
+            unresolvedColumns: controller.unresolvedTable.metadataColumns.captureViewMemory()
         )
     }
 
@@ -111,6 +117,9 @@ extension TwelveSSurface: ViewMemoryAdopting {
         if dataChanged, !state.filterText.isEmpty { lost.insert(.filters) }
         controller.applyDisplayState(display)
         controller.rebuildSampleColumns()
+        // The layouts before the widths, which then size each column the table holds.
+        table.metadataColumns.applyKeptLayout(state.targetColumns)
+        controller.unresolvedTable.metadataColumns.applyKeptLayout(state.unresolvedColumns)
 
         for column in table.tableView.tableColumns {
             if let width = state.columnWidths[column.identifier.rawValue] { column.width = CGFloat(width) }

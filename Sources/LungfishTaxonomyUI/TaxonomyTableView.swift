@@ -66,7 +66,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     // MARK: - Metadata Columns
 
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
-    let metadataColumns = MetadataColumnController()
+    let metadataColumns = MetadataColumnController.adoptingViewMemory()
 
     // MARK: - Data Properties
 

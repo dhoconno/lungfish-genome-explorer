@@ -329,7 +329,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     // MARK: - Metadata Columns
 
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
-    let metadataColumns = MetadataColumnController(contentTypographyOwnership: .embedded)
+    let metadataColumns = MetadataColumnController.adoptingViewMemory(contentTypographyOwnership: .embedded)
 
     private let scrollView = NSScrollView()
     let outlineView = NSOutlineView()
