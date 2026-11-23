@@ -186,10 +186,10 @@ final class BuildDbCommandMarkdupTests: XCTestCase {
             fi
             if [ "$count" -eq 1 ]; then
               # A count of a row passes the ruled flags, 2308 for Reads and 3332 for Unique Reads. The count of a whole
-              # BAM that markdup takes has no accession and passes 4 and 1028. Any other pair is refused.
+              # BAM that markdup takes has no accession and passes 2308 and 3332. Any other pair is refused.
               case "${accession:+row}:$flag" in
-                row:3332|:1028) kind=unique ;;
-                row:2308|:4) kind=total ;;
+                row:3332|:3332) kind=unique ;;
+                row:2308|:2308) kind=total ;;
                 *) exit 1 ;;
               esac
               if [ "$kind" = "unique" ]; then

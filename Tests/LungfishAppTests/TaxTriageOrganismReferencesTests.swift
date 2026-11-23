@@ -258,7 +258,7 @@ final class TaxTriageOrganismReferencesTests: XCTestCase {
         fi
         case "$flag" in
           3332) ;;
-          4|1028) echo 0; exit 0 ;;
+          2308) echo 0; exit 0 ;;
           *) exit 1 ;;
         esac
         sample=$(/usr/bin/basename "$bam")

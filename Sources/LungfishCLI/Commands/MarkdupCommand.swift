@@ -374,13 +374,13 @@ struct MarkdupCommand: AsyncParsableCommand {
             let total = (try? MarkdupService.countReads(
                 bamURL: markedURL,
                 accession: nil,
-                flagFilter: 0x004,
+                flagFilter: 0x904, // read count: not unmapped, secondary or supplementary, as MarkdupService
                 samtoolsPath: samtoolsPath
             )) ?? 0
             let nonDup = (try? MarkdupService.countReads(
                 bamURL: markedURL,
                 accession: nil,
-                flagFilter: 0x404,
+                flagFilter: 0xD04, // read count without duplicates, as MarkdupService
                 samtoolsPath: samtoolsPath
             )) ?? 0
             return (
@@ -459,13 +459,13 @@ struct MarkdupCommand: AsyncParsableCommand {
             let total = try MarkdupService.countReads(
                 bamURL: outputURL,
                 accession: nil,
-                flagFilter: 0x004,
+                flagFilter: 0x904, // read count: not unmapped, secondary or supplementary, as MarkdupService
                 samtoolsPath: samtoolsPath
             )
             let nonDup = try MarkdupService.countReads(
                 bamURL: outputURL,
                 accession: nil,
-                flagFilter: 0x404,
+                flagFilter: 0xD04, // read count without duplicates, as MarkdupService
                 samtoolsPath: samtoolsPath
             )
 
