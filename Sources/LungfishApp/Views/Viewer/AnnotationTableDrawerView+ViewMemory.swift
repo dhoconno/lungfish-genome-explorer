@@ -8,6 +8,7 @@
 // (`ReferenceViewerMemory.drawer`), so the item keeps one record with one writer (VS-REF Finding 5).
 
 import AppKit
+import LungfishKit
 import LungfishWorkflow
 
 /// A drawer row by its identity (VS B4, `AnnotationSearchResult.swift:9-45`).
