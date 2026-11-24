@@ -52,10 +52,12 @@ struct ReferenceViewerMemory: ViewMemoryState {
     }
 
     /// Whether a person changed nothing between the two views. The mapping list's own row refresh gives its rows new
-    /// identities and moves its scroll, so the list compares by what a person picks there (VS A2).
+    /// identities and moves its scroll, so the list compares by what a person picks there (VS A2). The drawer is not
+    /// compared: the viewer keeps one drawer for its life, so the open's drawer is the last bundle's and its own reload
+    /// changes it with no person acting. The restore keeps a person's drawer row by itself: it waits until the drawer
+    /// shows rows and selects the kept row only while none is selected (`restorePendingDrawerMemory`).
     func sameChoices(as other: ReferenceViewerMemory) -> Bool {
         display == other.display && locus == other.locus && viewport?.choices == other.viewport?.choices
-            && drawer == other.drawer
     }
 }
 
