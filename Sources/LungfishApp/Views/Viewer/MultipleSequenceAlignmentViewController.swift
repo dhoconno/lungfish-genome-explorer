@@ -364,23 +364,23 @@ final class MultipleSequenceAlignmentViewController: NSViewController, Sendable 
     private(set) var alignmentRows: [MSAAlignmentSequence] = []
     var rowIDsByIndex: [String] = []
     private var columnSummaries: [MSAColumnSummary] = []
-    private var displayedColumns: [Int] = []
+    var displayedColumns: [Int] = []
     private var coordinateMapsByRowID: [String: MultipleSequenceAlignmentBundle.RowCoordinateMap] = [:]
     private(set) var annotationStore = MultipleSequenceAlignmentBundle.AnnotationStore()
     private var annotationTracks: [MSAAlignmentAnnotationTrack] = []
     var drawerAnnotationByResultID: [UUID: MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord] = [:]
-    private var selectedRowIndex: Int?
-    private var selectedAlignmentColumn: Int?
+    var selectedRowIndex: Int?
+    var selectedAlignmentColumn: Int?
     var selectedRowIndices = IndexSet()
-    private var rowSelectionAnchor: Int?
-    private var isWholeRowSelection = false
+    var rowSelectionAnchor: Int?
+    var isWholeRowSelection = false
     private var contextReferenceRowIndex: Int?
-    private var fitsViewport = true
+    var fitsViewport = true
     private var updatingViewportSize = false
-    private var selectedAlignmentColumnRange: ClosedRange<Int>?
-    private var selectionAnchor: (row: Int, alignmentColumn: Int)?
-    private var alignmentColumnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
-    private var colorScheme: MultipleSequenceAlignmentColorScheme = .nucleotide
+    var selectedAlignmentColumnRange: ClosedRange<Int>?
+    var selectionAnchor: (row: Int, alignmentColumn: Int)?
+    var alignmentColumnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
+    var colorScheme: MultipleSequenceAlignmentColorScheme = .nucleotide
     private var numberingMode: MSAAlignmentNumberingMode = .both
     private var consensusDisplayOptions = MSAConsensusDisplayOptions()
     private var referenceRowID: String?
@@ -388,7 +388,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController, Sendable 
     /// Columns and row roles from the Inspector's Discriminating Sites section; nil draws nothing extra.
     private var discriminatingSitesHighlight: MSADiscriminatingSitesHighlight?
 
-    private let searchField = NSSearchField()
+    let searchField = NSSearchField()
     private let discriminatingLegendLabel = NSTextField(labelWithString: "")
     private let zoomOutButton = NSButton(title: "", target: nil, action: nil)
     private let zoomInButton = NSButton(title: "", target: nil, action: nil)
@@ -414,7 +414,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController, Sendable 
     private let columnHeaderView = MSAAlignmentColumnHeaderView()
     private let overviewSignalView = MSAAlignmentOverviewSignalView()
     private let alignmentMatrixView = MSAAlignmentMatrixView()
-    private let colorSchemeControl = NSSegmentedControl(
+    let colorSchemeControl = NSSegmentedControl(
         labels: MultipleSequenceAlignmentColorScheme.allCases.map(\.title),
         trackingMode: .selectOne,
         target: nil,
@@ -1141,7 +1141,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController, Sendable 
         columnHeaderView.needsDisplay = true
     }
 
-    private func configureCanvasViews() {
+    func configureCanvasViews() {
         primerHeaderHeight?.constant = inspectionPrimerTrack == nil ? 0 : MSAAlignmentCanvasMetrics.consensusRowHeight
         primerLabelHeight?.constant = primerHeaderHeight?.constant ?? 0
         primerLabelView.title = inspectionPrimerTrack?.label ?? ""
@@ -1324,7 +1324,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController, Sendable 
         }
     }
 
-    private func select(rowRange: ClosedRange<Int>, alignmentColumnRange: ClosedRange<Int>) {
+    func select(rowRange: ClosedRange<Int>, alignmentColumnRange: ClosedRange<Int>) {
         guard alignmentRows.indices.contains(rowRange.lowerBound),
               alignmentRows.indices.contains(rowRange.upperBound) else { return }
         let normalizedColumnRange = min(alignmentColumnRange.lowerBound, alignmentColumnRange.upperBound)...max(alignmentColumnRange.lowerBound, alignmentColumnRange.upperBound)
@@ -1505,7 +1505,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController, Sendable 
         )
     }
 
-    private func applySelectionToCanvasViews() {
+    func applySelectionToCanvasViews() {
         rowGutterView.selectedRowIndex = selectedRowIndex
         rowGutterView.selectedRowIndices = selectedRowIndices
         rowGutterView.referenceRowIndex = inspectionPrimerTrack == nil && residueIdentityDisplayMode == .dotsToReference ? referenceRowIndex() : nil
@@ -1533,7 +1533,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController, Sendable 
         alignmentMatrixView.scrollToVisible(rect.insetBy(dx: -40, dy: -16))
     }
 
-    private func setAlignmentColumnWidth(
+    func setAlignmentColumnWidth(
         _ requestedWidth: CGFloat,
         centeredOnDisplayColumn displayColumn: Int?,
         preservingFit: Bool = false

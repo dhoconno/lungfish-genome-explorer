@@ -74,12 +74,12 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
 
     let summaryLabel = NSTextField(labelWithString: "")
     let supportLegendLabel = NSTextField(labelWithString: "")
-    private let searchField = NSSearchField()
+    let searchField = NSSearchField()
     private let fitButton = NSButton(title: "", target: nil, action: nil)
     private let resetButton = NSButton(title: "", target: nil, action: nil)
     private let zoomOutButton = NSButton(title: "", target: nil, action: nil)
     private let zoomInButton = NSButton(title: "", target: nil, action: nil)
-    private let layoutModeControl = NSSegmentedControl(
+    let layoutModeControl = NSSegmentedControl(
         labels: ["Phylogram", "Cladogram"],
         trackingMode: .selectOne,
         target: nil,
@@ -91,10 +91,10 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         target: nil,
         action: nil
     )
-    private let tipLabelColumnPopup = NSPopUpButton()
+    let tipLabelColumnPopup = NSPopUpButton()
     let nodeTableView = NSTableView()
-    private let treeCanvasView = PhylogeneticTreeCanvasView()
-    private let treeScrollView = NSScrollView()
+    let treeCanvasView = PhylogeneticTreeCanvasView()
+    let treeScrollView = NSScrollView()
     private let detailLabel = NSTextField(labelWithString: "")
     private let nodeDrawerTitle = NSTextField(labelWithString: "Nodes")
     let toolbarContainer = NSView()
@@ -113,12 +113,12 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
     private var centerSelectedNodeCount = 0
     #endif
 
-    private var nodes: [PhylogeneticTreeNormalizedNode] = []
+    var nodes: [PhylogeneticTreeNormalizedNode] = []
     private var originalNodes: [PhylogeneticTreeNormalizedNode] = []
-    private var nodesByID: [String: PhylogeneticTreeNormalizedNode] = [:]
-    private var selectedNodeID: String?
-    private var selectedNodeIDs: Set<String> = []
-    private var collapsedNodeIDs: Set<String> = []
+    var nodesByID: [String: PhylogeneticTreeNormalizedNode] = [:]
+    var selectedNodeID: String?
+    var selectedNodeIDs: Set<String> = []
+    var collapsedNodeIDs: Set<String> = []
     private var metadataRowsByTipID: [String: [String: String]] = [:]
     private var metadataColumnTitles: [String] = []
     private var isUpdatingTableSelection = false
@@ -644,7 +644,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         tipLabelColumnPopup.isEnabled = !metadataColumnTitles.isEmpty
     }
 
-    private func applyTipLabelColumn(_ column: String) {
+    func applyTipLabelColumn(_ column: String) {
         let selectedLabel = selectedNodeID.flatMap { nodesByID[$0]?.displayLabel }
         if column == "Original" {
             nodes = originalNodes
@@ -670,7 +670,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         }
     }
 
-    private func selectInitialNode() {
+    func selectInitialNode() {
         if let firstTip = nodes.first(where: \.isTip) {
             selectNode(id: firstTip.id, center: false)
         } else if let first = nodes.first {
@@ -678,7 +678,7 @@ public final class PhylogeneticTreeViewController: NSViewController, NSTableView
         }
     }
 
-    private func selectNode(id: String, center: Bool, extendingSelection: Bool = false) {
+    func selectNode(id: String, center: Bool, extendingSelection: Bool = false) {
         guard let node = nodesByID[id] else { return }
         selectedNodeID = id
         if extendingSelection, node.isTip {

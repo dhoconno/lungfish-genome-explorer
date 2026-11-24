@@ -52,7 +52,7 @@ final class PhylogeneticTreeCanvasView: NSView {
     private var nodes: [PhylogeneticTreeNormalizedNode] = []
     private var nodesByID: [String: PhylogeneticTreeNormalizedNode] = [:]
     private var layoutByID: [String: PhylogeneticTreeCanvasNodeLayout] = [:]
-    private var zoomScale: CGFloat = 1
+    private(set) var zoomScale: CGFloat = 1
     private var baseSize = NSSize(width: PhylogeneticTreeCanvasMetrics.minimumWidth, height: PhylogeneticTreeCanvasMetrics.minimumHeight)
     private var labelWidth: CGFloat = 180
     private var pointsPerBranchLengthUnit: CGFloat?
