@@ -755,6 +755,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         view.addSubview(breadcrumbBar)
     }
 
+    /// Where this viewer reads its panel layout. The app's is `.standard`. A test window's is the window's own suite,
+    /// and a test that builds the viewer itself sets one before the view loads (VS-LEAK).
+    var layoutDefaults = MetadataColumnController.defaultUserDefaults
+
     // MARK: - Setup: Split View
 
     /// Configures the NSSplitView with sunburst (left) and table (right).
@@ -769,7 +773,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// the container as its frame changes.
     private func setupSplitView() {
         splitView.translatesAutoresizingMaskIntoConstraints = false
-        splitView.isVertical = MetagenomicsPanelLayout.current() != .stacked
+        splitView.isVertical = currentPanelLayout() != .stacked
         splitView.dividerStyle = .thin
         splitView.delegate = self
 
@@ -794,7 +798,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         tableContainer.addSubview(taxonomyTableView)
         tableContainer.fillSubview = taxonomyTableView
 
-        if MetagenomicsPanelLayout.current() == .detailLeading {
+        if currentPanelLayout() == .detailLeading {
             splitView.addArrangedSubview(sunburstContainer)
             splitView.addArrangedSubview(tableContainer)
         } else {
@@ -1000,28 +1004,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         applyLayoutPreference()
     }
 
-    func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
-        switch layout {
-        case .detailLeading:
-            return 0.6
-        case .listLeading, .stacked:
-            return 0.4
-        }
-    }
-
-    private func minimumExtents(for layout: MetagenomicsPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
-        switch layout {
-        case .detailLeading:
-            return (300, 260)
-        case .listLeading, .stacked:
-            return (260, 300)
-        }
-    }
-
     private func resetInitialSplitPositionIfNeeded() {
         guard didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
 
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = currentPanelLayout()
         let minimumExtents = minimumExtents(for: layout)
         let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
@@ -1058,7 +1044,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         guard totalExtent > 0 else { return }
 
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = currentPanelLayout()
         let minimumExtents = minimumExtents(for: layout)
         let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
         guard totalExtent >= minimumRequiredExtent else { return }
@@ -1075,7 +1061,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     /// Swaps the split view pane order based on the persisted layout preference.
     private func applyLayoutPreference() {
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = currentPanelLayout()
         guard splitView.arrangedSubviews.count == 2 else { return }
 
         let desiredIsVertical = layout != .stacked

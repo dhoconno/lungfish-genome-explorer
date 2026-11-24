@@ -410,6 +410,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var detailContainer: ScrollViewSplitPaneContainerView?
     private var outlineContainer: NSView?
     let splitCoordinator = TwoPaneTrackedSplitCoordinator()
+    /// Where this viewer reads its panel layout. The app's is `.standard`. A test window's is the window's own suite,
+    /// and a test that builds the viewer itself sets one before the view loads (VS-LEAK).
+    var layoutDefaults = MetadataColumnController.defaultUserDefaults
     private var splitViewBottomConstraint: NSLayoutConstraint?
 
     // MARK: - Selection Sync
@@ -1164,7 +1167,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         splitView.translatesAutoresizingMaskIntoConstraints = false
         splitView.setAccessibilityIdentifier("nvd-result-split-view")
         splitView.setAccessibilityLabel("NVD Result Split View")
-        splitView.isVertical = MetagenomicsPanelLayout.current() != .stacked
+        splitView.isVertical = currentPanelLayout() != .stacked
         splitView.dividerStyle = .thin
         splitView.delegate = self
 
@@ -1192,7 +1195,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         outlineCont.setAccessibilityLabel("NVD Outline Shell")
         self.outlineContainer = outlineCont
 
-        if MetagenomicsPanelLayout.current() == .detailLeading {
+        if currentPanelLayout() == .detailLeading {
             splitView.addArrangedSubview(detail)
             splitView.addArrangedSubview(outlineCont)
         } else {
@@ -1644,33 +1647,15 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         applyLayoutPreference()
     }
 
-    func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
-        switch layout {
-        case .detailLeading, .stacked:
-            return 0.4
-        case .listLeading:
-            return 0.6
-        }
-    }
-
-    private func minimumExtents(for layout: MetagenomicsPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
-        switch layout {
-        case .detailLeading:
-            return (250, 300)
-        case .listLeading, .stacked:
-            return (300, 250)
-        }
-    }
-
     private func scheduleInitialSplitValidationIfNeeded() {
         splitCoordinator.scheduleInitialSplitValidationIfNeeded(
             ownerView: view,
             splitView: splitView,
             minimumExtents: { [weak self] in
-                self?.minimumExtents(for: MetagenomicsPanelLayout.current()) ?? (250, 300)
+                self?.currentMinimumExtents() ?? (250, 300)
             },
             defaultLeadingFraction: { [weak self] in
-                self?.keptSplitFraction ?? self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
+                self?.keptSplitFraction ?? self?.currentDefaultLeadingFraction() ?? 0.4
             },
             afterApply: { [weak self] in
                 self?.resizeDetailContentToFit()
@@ -1695,7 +1680,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     private func applyLayoutPreference() {
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = currentPanelLayout()
         guard splitView.arrangedSubviews.count == 2 else { return }
 
         let desiredIsVertical = layout != .stacked
@@ -1812,7 +1797,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         guard notification.object as? NSSplitView === splitView else { return }
         splitCoordinator.splitViewDidResizeSubviews(
             splitView,
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current()),
+            minimumExtents: minimumExtents(for: currentPanelLayout()),
             afterResize: { [weak self] in
                 self?.resizeDetailContentToFit()
             }

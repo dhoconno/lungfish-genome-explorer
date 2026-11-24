@@ -237,6 +237,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Shared raw split-view coordinator for pane ordering and divider state.
     let splitCoordinator = TwoPaneTrackedSplitCoordinator()
+    /// Where this viewer reads its panel layout. The app's is `.standard`. A test window's is the window's own suite,
+    /// and a test that builds the viewer itself sets one before the view loads (VS-LEAK).
+    var layoutDefaults = MetadataColumnController.defaultUserDefaults
 
     /// Active bottom constraint for the split view. Re-pinned when BLAST drawer opens.
     private var splitViewBottomConstraint: NSLayoutConstraint?
@@ -1572,7 +1575,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         splitView.translatesAutoresizingMaskIntoConstraints = false
         splitView.setAccessibilityIdentifier("naomgs-result-split-view")
         splitView.setAccessibilityLabel("NAO-MGS Result Split View")
-        splitView.isVertical = MetagenomicsPanelLayout.current() != .stacked
+        splitView.isVertical = currentPanelLayout() != .stacked
         splitView.dividerStyle = .thin
         splitView.delegate = self
 
@@ -1595,7 +1598,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         setupTaxonomyTable()
         setupTaxonomyFilterBar(in: tableCont)
 
-        if MetagenomicsPanelLayout.current() == .detailLeading {
+        if currentPanelLayout() == .detailLeading {
             splitView.addArrangedSubview(detail)
             splitView.addArrangedSubview(tableCont)
         } else {
@@ -1922,33 +1925,15 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         applyLayoutPreference()
     }
 
-    func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
-        switch layout {
-        case .detailLeading, .stacked:
-            return 0.4
-        case .listLeading:
-            return 0.6
-        }
-    }
-
-    private func minimumExtents(for layout: MetagenomicsPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
-        switch layout {
-        case .detailLeading:
-            return (250, 300)
-        case .listLeading, .stacked:
-            return (300, 250)
-        }
-    }
-
     private func scheduleInitialSplitValidationIfNeeded() {
         splitCoordinator.scheduleInitialSplitValidationIfNeeded(
             ownerView: view,
             splitView: splitView,
             minimumExtents: { [weak self] in
-                self?.minimumExtents(for: MetagenomicsPanelLayout.current()) ?? (250, 300)
+                self?.currentMinimumExtents() ?? (250, 300)
             },
             defaultLeadingFraction: { [weak self] in
-                self?.keptSplitFraction ?? self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
+                self?.keptSplitFraction ?? self?.currentDefaultLeadingFraction() ?? 0.4
             },
             afterApply: { [weak self] in
                 self?.resizeDetailContentToFit()
@@ -1959,8 +1944,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private func applyInitialSplitPositionIfNeeded() {
         splitCoordinator.applyInitialSplitPositionIfNeeded(
             to: splitView,
-            defaultLeadingFraction: keptSplitFraction ?? defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current()),
+            defaultLeadingFraction: keptSplitFraction ?? defaultLeadingFraction(for: currentPanelLayout()),
+            minimumExtents: minimumExtents(for: currentPanelLayout()),
             afterApply: { [weak self] in
                 self?.resizeDetailContentToFit()
             }
@@ -1985,7 +1970,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Swaps the split view pane order based on the persisted layout preference.
     private func applyLayoutPreference() {
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = currentPanelLayout()
         guard splitView.arrangedSubviews.count == 2 else { return }
 
         let desiredIsVertical = layout != .stacked
@@ -2505,7 +2490,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         guard notification.object as? NSSplitView === splitView else { return }
         splitCoordinator.splitViewDidResizeSubviews(
             splitView,
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current()),
+            minimumExtents: minimumExtents(for: currentPanelLayout()),
             afterResize: { [weak self] in
                 self?.resizeDetailContentToFit()
             }
