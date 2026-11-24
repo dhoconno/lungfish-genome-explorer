@@ -110,9 +110,10 @@ struct TreeViewStateDriver: ViewStateDriver {
         // At a zoom of 1.25 the canvas is no taller than the test window's clip view, so a pan down has no room. At 2
         // it is about 720 points tall.
         viewer.treeCanvasView.zoom(by: 2)
-        viewer.testingSetCanvasScrollOrigin(Self.pan)
         // The clip view takes any origin, and the window's next layout puts one outside the canvas back inside, so the
-        // pan must lie inside the canvas's scroll range for the reading to be a place the view can hold.
+        // pan must lie inside the scroll range of the laid-out window for the reading to be a place the view can hold.
+        harness.window.layoutIfNeeded()
+        viewer.testingSetCanvasScrollOrigin(Self.pan)
         let clip = viewer.treeScrollView.contentView
         XCTAssertEqual(
             clip.constrainBoundsRect(clip.bounds).origin, Self.pan, "Tree: the pan lies inside the canvas's scroll range")
