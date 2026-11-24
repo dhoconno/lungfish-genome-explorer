@@ -46,6 +46,8 @@ final class GenBankWriterINSDCKeyTests: XCTestCase {
             (.transit_peptide, "transit_peptide"), (.misc_binding, "misc_binding"),
             (.protein_bind, "protein_bind"), (.regulatory, "regulatory"), (.variation, "variation"),
             (.gap, "gap"), (.source, "source"), (.primer, "primer_bind"),
+            // INSDC names no key ORF or SNP, so those two print their raw value (backlog GENBANK-NON-INSDC-KEYS).
+            (.orf, "ORF"), (.snp, "SNP"), (.polyASignal, "polyA_signal"),
         ]
         for (type, key) in expected {
             XCTAssertEqual(GenBankWriter.featureKey(of: Self.annotation(of: type)), key, "\(type)")
