@@ -233,8 +233,14 @@ public enum FlyeProfileSelector {
         return await select(forInputURL: inputURL)
     }
 
+    /// The read-quality rule alone. Reads built from sequence counts carry a written Q40 that no instrument measured,
+    /// so no quality is read from them and the basis is `.unavailable` (`FASTQQualityScoreOrigin`, BIO-QUALITY F4).
     public static func select(forInputURL inputURL: URL) async -> FlyeProfileSelection {
         guard let fastqURL = AssemblyReadType.resolveFASTQURL(forInputURL: inputURL) else {
+            return selection(readQuality: nil, basis: .unavailable)
+        }
+
+        if FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: fastqURL) {
             return selection(readQuality: nil, basis: .unavailable)
         }
 

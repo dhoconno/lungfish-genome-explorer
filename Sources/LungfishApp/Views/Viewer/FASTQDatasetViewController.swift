@@ -21,7 +21,13 @@ struct FASTQReadPreviewRecord {
 
 /// Turns the first records of a FASTQ file into preview rows, numbered from 1 in file order.
 /// Free function to avoid @MainActor isolation from the enclosing class.
-private func makeFASTQReadPreviewRecords(from fastqRecords: [FASTQRecord]) -> [FASTQReadPreviewRecord] {
+///
+/// `scoresArePlaceholders` is true for reads built from sequence counts, which carry a written Q40 that no instrument
+/// measured, so no row shows a Mean Q (`FASTQQualityScoreOrigin`, BIO-QUALITY F3).
+private func makeFASTQReadPreviewRecords(
+    from fastqRecords: [FASTQRecord],
+    scoresArePlaceholders: Bool
+) -> [FASTQReadPreviewRecord] {
     fastqRecords.enumerated().map { offset, record in
         FASTQReadPreviewRecord(
             index: offset + 1,
@@ -30,7 +36,8 @@ private func makeFASTQReadPreviewRecords(from fastqRecords: [FASTQRecord]) -> [F
             length: record.length,
             // Per-read Mean Q uses the same error-probability definition as the
             // dataset Mean Q card and seqkit, not an arithmetic Phred average.
-            meanQuality: record.quality.isEmpty ? nil : record.quality.errorProbabilityMeanQuality
+            meanQuality: scoresArePlaceholders || record.quality.isEmpty
+                ? nil : record.quality.errorProbabilityMeanQuality
         )
     }
 }
@@ -1369,7 +1376,10 @@ public final class FASTQDatasetViewController: NSViewController {
                     return
                 }
 
-                let records = makeFASTQReadPreviewRecords(from: fastqRecords)
+                let records = makeFASTQReadPreviewRecords(
+                    from: fastqRecords,
+                    scoresArePlaceholders: FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: sourceURL)
+                )
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
