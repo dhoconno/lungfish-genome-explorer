@@ -20,6 +20,9 @@ import LungfishTestSupport
 @MainActor
 struct NaoMgsViewStateDriver: ViewStateDriver {
     let kind = "NAO-MGS"
+    /// Whether the change clicks a row. A click starts the row's detail load, which can write the sample's BAM into the
+    /// result (`NaoMgsDetailLoadWriteConformanceTests`), so the read-time case makes the change with no click.
+    var clicksARow = true
 
     /// The reading's lines, by index.
     static let samplesLine = 0, filterLine = 1, sortLine = 2, selectedLine = 3
@@ -51,8 +54,22 @@ struct NaoMgsViewStateDriver: ViewStateDriver {
         let probe = viewer.displayedRows.last { !$0.name.isEmpty }.map { String($0.name.prefix(6)) }
         viewer.testSetTaxonomySearchText(probe ?? String(last.sample.prefix(6)))
         XCTAssertGreaterThan(table.numberOfRows, 0, "the filter matches the last row")
-        viewer.testSelectTaxonomyRow(0)
+        if clicksARow {
+            viewer.testSelectTaxonomyRow(0)
+        } else {
+            try selectRowWithNoDetailLoad(in: harness)
+        }
         TaxonomyViewStateControls.moveDivider(of: viewer.testSplitView)
+    }
+
+    /// Selects the first row as the table's selection only, with no delegate to hear it, so no detail load starts and
+    /// the kept view still holds a selected row. It uses no seam of the viewer, so it builds at the base too.
+    func selectRowWithNoDetailLoad(in harness: ViewSwitchWindowHarness) throws {
+        let table = try XCTUnwrap(viewer(in: harness)).testTaxonomyTableView
+        let delegate = table.delegate
+        table.delegate = nil
+        table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        table.delegate = delegate
     }
 
     func read(in harness: ViewSwitchWindowHarness) throws -> [String] {
