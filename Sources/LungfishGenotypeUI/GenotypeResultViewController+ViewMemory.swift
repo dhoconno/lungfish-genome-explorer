@@ -123,6 +123,9 @@ final class GenotypeViewMemorySession {
     /// The line of word 5c while restored percent bases show, and the bases it stands for.
     var settingsLine: ViewMemoryFilterLineView?
     var restoredBases: [String]?
+    /// The summary mode the store or an older bundle's file brought, which a malformed analysis's fallback matrix
+    /// never replaces (BIO SF-1).
+    var storedMode: String?
     var task: Task<Void, Never>?
 
     init(store: ViewMemoryStore, bundleURL: URL, opening: GenotypeViewMemory) {
@@ -172,8 +175,8 @@ extension GenotypeResultViewController {
     /// person's choice, as at the base.
     func captureViewMemory() -> GenotypeViewMemory {
         var mode = displayState.summaryViewMode.rawValue
-        if presentationPolicy?.persistencePolicy == .preserveStoredPreference, let start = viewMemory?.start {
-            mode = start.summaryViewMode
+        if presentationPolicy?.persistencePolicy == .preserveStoredPreference, let session = viewMemory {
+            mode = session.storedMode ?? session.start.summaryViewMode
         }
         return GenotypeViewMemory(
             summaryViewMode: mode, layout: displayState.layout.rawValue, cellColorMode: displayState.cellColorMode.rawValue,
@@ -220,6 +223,7 @@ extension GenotypeResultViewController {
         guard captureViewMemory() == session.opening else { return }
         switch read.kept {
         case .view(let kept, let keptDataKey, _):
+            session.storedMode = kept.summaryViewMode
             // The percent bases change values, so they come back only on the data they were set on (VS B6).
             guard keptDataKey != nil, keptDataKey == read.dataKey else {
                 restoreViewMemory(kept.withBases(of: session.opening))
@@ -235,6 +239,7 @@ extension GenotypeResultViewController {
             fallthrough
         case .nothing:
             guard let older = read.olderFile?.preferredSummaryViewMode else { return }
+            session.storedMode = older
             // An older bundle's look is a starting view, never a person's choice (VS S3).
             var view = session.opening
             view.summaryViewMode = older
