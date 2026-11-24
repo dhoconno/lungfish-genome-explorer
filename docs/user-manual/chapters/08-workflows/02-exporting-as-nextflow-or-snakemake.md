@@ -9,8 +9,8 @@ tags: [workflows, export, nextflow, snakemake, methods, provenance]
 tools: [nextflow, snakemake]
 parameters_refs: [provenance.export]
 entry_points:
-  - "File > Export > Provenance > Nextflow Pipeline..."
-  - "File > Export > Provenance > Snakemake Workflow..."
+  - "File > Export > Provenance > Nextflow Pipeline…"
+  - "File > Export > Provenance > Snakemake Workflow…"
   - "Inspector > Provenance section > Export"
   - "CLI: lungfish-cli provenance export <input> --format <format> --output <dir>"
 shots:
@@ -25,8 +25,8 @@ shots:
   - id: nextflow-export-main-nf
     caption: "The top of the generated main.nf of the minimap2 mapping result open in TextEdit, showing the header comment with its note that Step 12, the in-app Lungfish.app prepare-mapping-viewer-bundle step, is not replayed, then the params lines and the first process blocks for the reference import and bgzip."
 illustrations: []
-glossary_refs: [bam, checksum, container, methods-export, nextflow, provenance, provenance-sidecar, reproducibility, samtools, snakemake, workflow-engine, demo-project]
-features_refs: []
+glossary_refs: [bam, checksum, container, methods-export, nextflow, provenance, provenance-sidecar, reproducibility, samtools, snakemake, workflow-engine, demo-project, operations-panel]
+features_refs: [provenance.export]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
 lead_approved: false
@@ -40,18 +40,18 @@ The **File > Export > Provenance** submenu offers six targets, four that transcr
 
 | Target | Main file written | Best for |
 |---|---|---|
-| Shell Script... | `run.sh` | Reading what LGE ran, one command at a time |
-| Python Script... | `reproduce.py` | A group that prefers Python to shell |
-| Nextflow Pipeline... | `main.nf`, `nextflow.config`, `containers/manifest.json` | A collaborator who already uses Nextflow |
-| Snakemake Workflow... | `Snakefile`, `config.yaml` | A group that already uses Snakemake |
-| Methods Section... | `methods.md` | Drafting the methods paragraph of a paper |
-| Full Provenance (JSON)... | `provenance.json` | Feeding the record to your own tools |
+| Shell Script… | `run.sh` | Reading what LGE ran, one command at a time |
+| Python Script… | `reproduce.py` | A group that prefers Python to shell |
+| Nextflow Pipeline… | `main.nf`, `nextflow.config`, `containers/manifest.json` | A collaborator who already uses Nextflow |
+| Snakemake Workflow… | `Snakefile`, `config.yaml` | A group that already uses Snakemake |
+| Methods Section… | `methods.md` | Drafting the methods paragraph of a paper |
+| Full Provenance (JSON)… | `provenance.json` | Feeding the record to your own tools |
 
 A shell script is a plain text file of terminal commands run top to bottom. [Nextflow](../../GLOSSARY.md#nextflow) and [Snakemake](../../GLOSSARY.md#snakemake) are [workflow engines](../../GLOSSARY.md#workflow-engine), programs that run a pipeline of tools in order on one computer or on a cluster, a shared set of computers a lab or university submits large jobs to.
 
 The export covers one artifact, meaning one file or bundle a tool made, not the whole project. LGE collects every earlier step that fed into the artifact you select, back through the imports that brought the first files into the project. It follows each input to the record that produced it, by path and by checksum, so a variant track's export starts at the reads that were imported, then the mapping, then the calling.
 
-Every target is a faithful record of what ran, written so it can run again elsewhere. Files inside the project are named relative to the project, scratch files the run made land under `results/`, and each managed tool carries the package it ran from, so a recipient points the export at a copy of the project and the tools install themselves. Only the files that were outside the project when the run was recorded, such as the FASTQ files an import read, keep the recording machine's paths, and the header lists them. The Nextflow and Snakemake exports are valid pipelines for their engines, so each engine can check one and walk through its steps before anything runs, as [What good looks like](#what-good-looks-like) shows.
+Every target is a faithful record of what ran, written so it can run again elsewhere. Files inside the project are named relative to the project, which the record writes as `@/` followed by the file's path from the project folder. Scratch files the run made land under `results/`, and each managed tool carries the package it ran from, so a recipient points the export at a copy of the project and the tools install themselves. A file that was outside the project when the run was recorded, such as a FASTQ file an import read, is the exception. The record names it as `<external>/` followed by its file name, which keeps your account name and folders out of the record, or by the recording machine's full path. Either way the header lists each such file, so the recipient can point it at their own copy before running. The Nextflow and Snakemake exports are valid pipelines for their engines, so each engine can check one and walk through its steps before anything runs, as [What good looks like](#what-good-looks-like) shows.
 
 ## Why you would do this
 
@@ -79,7 +79,7 @@ Click `minimap2-2026-09-25T00-00-00` under `Analyses` in the sidebar, so it show
 
 ### Choose the target from the menu
 
-Choose **File > Export > Provenance > Nextflow Pipeline...**. The six targets appear in the order of the table above, with a separator after the fourth.
+Choose **File > Export > Provenance > Nextflow Pipeline…**. The six targets appear in the order of the table above, with a separator after the fourth.
 
 <!-- SHOT: export-provenance-submenu -->
 
@@ -93,11 +93,13 @@ When a step is unpinned, a sheet titled **Export a Nextflow pipeline with unpinn
 
 ### Name the folder and save it
 
-A save panel titled **Export Provenance** appears, reading "Choose a folder name for the exported reproducibility package." Its Save As name arrives as `<artifact>-provenance-<format>`, here `minimap2-2026-09-25T00-00-00-provenance-nextflow`, and the format in the name keeps two exports of one artifact from colliding. Choose a location outside the project in the panel's Where menu, such as the Desktop, and click **Save**.
+A save panel titled **Export Provenance** appears, reading "Choose a folder name for the exported reproducibility package." It opens in the project folder that holds the artifact, rather than in the last folder you used, which could belong to another project. Its Save As name arrives as `<artifact>-provenance-<format>`, here `minimap2-2026-09-25T00-00-00-provenance-nextflow`, and the format in the name keeps two exports of one artifact from colliding. Choose a location outside the project in the panel's Where menu, such as the Desktop, and click **Save**.
 
 <!-- SHOT: export-provenance-save-panel -->
 
 If a folder of the same name already exists where you save, LGE writes into it and replaces the records it copies, so choose a new name to keep an earlier export intact. If a file of that name exists, LGE refuses the export and names the path.
+
+The export then runs as an **Export Provenance** row in the [Operations Panel](../../GLOSSARY.md#operations-panel), the list of running and finished jobs, and the row runs the same `lungfish-cli provenance export` command that [On the command line](#on-the-command-line) shows. LGE builds the folder out of sight and puts it in place only when it is complete, so **Cancel** on the row leaves the folder you chose as it was.
 
 ### Open the folder
 
@@ -113,13 +115,13 @@ Send the whole folder, compressed into a zip archive. A script pulled out on its
 
 ## Settings
 
-**Provenance.** Chooses what the export renders from the selected artifact's history, offering Shell Script..., Python Script..., Nextflow Pipeline..., Snakemake Workflow..., Methods Section..., and Full Provenance (JSON).... There is no default, because you pick a target from the submenu. Pick what the reader needs, a transcription to run for a collaborator, a methods draft for a manuscript, or the raw JSON for a reviewer. On the command line this is `--format`, with the values `shell`, `python`, `nextflow`, `snakemake`, `methods`, and `json`.
+**Provenance.** Chooses what the export renders from the selected artifact's history, offering Shell Script…, Python Script…, Nextflow Pipeline…, Snakemake Workflow…, Methods Section…, and Full Provenance (JSON)…. There is no default, because you pick a target from the submenu. Pick what the reader needs, a transcription to run for a collaborator, a methods draft for a manuscript, or the raw JSON for a reviewer. On the command line this is `--format`, with the values `shell`, `python`, `nextflow`, `snakemake`, `methods`, and `json`.
 
 **Save As.** Names the export folder in the save panel. The default is the artifact name, `-provenance-`, and the format, so successive exports of one artifact do not collide. Change it to tell apart two exports of one artifact and format, such as before and after a reanalysis. On the command line this is the last part of the `--output` path.
 
 **Unpinned tools.** Decides whether a script or pipeline is written when LGE cannot pin a step's tool version. The default is to refuse, and **Export Anyway…** on the sheet writes it with each such step named. Override only when the recipient can accept other versions of those tools. On the command line this is `--allow-unpinned`, which the `methods` and `json` formats ignore.
 
-**Where.** Chooses the folder the export is saved into, opening at the save panel's last location. Keep the export outside the project, apart from the data it describes. Choose a shared place, such as a repository checkout, when the export goes to a collaborator. On the command line this is the folder part of the `--output` path.
+**Where.** Chooses the folder the export is saved into. The default is the project folder that holds the artifact, so the panel never starts inside another project. Move out of the project to keep the export apart from the data it describes, and choose a shared place, such as a repository checkout, when the export goes to a collaborator. On the command line this is the folder part of the `--output` path.
 
 ## Reading the results
 
@@ -155,8 +157,8 @@ Three terms appear in the table. A conda environment is the private folder a too
 | `Snakefile` | The same header, a usage comment `snakemake --cores 8 --software-deployment-method conda`, a `rule all` naming every final output, and one rule per step with its log under `logs/` and a `conda:` line naming its environment file. Inputs inside the project are read through a `project()` helper, and the files the run started from are read through `config`, so one `--config` override redirects an input. A file two steps both recorded, such as a bundle an import wrapper and the tool it ran both wrote, belongs to the earlier rule only, so no two rules claim one output. A step LGE ran inside the app, such as loading variants into the table's database, gets no rule, and the header names it. |
 | `config.yaml` | A `project` key, `.` by default, naming the `.lungfish` project the inputs live in, `outdir: results`, and the same file-name keys as the Nextflow parameters, each once, mapped to project-relative paths or to the recorded path of a file that was outside the project. A comment carries the same note on `=<build>` as `nextflow.config`. |
 | `envs/` | One conda environment file per managed tool, holding the exact package the tool ran from, such as `bioconda::samtools=1.24=h36b3a25_1`. |
-| `run.sh` | `set -euo pipefail`, a `PROJECT` variable read from `LUNGFISH_PROJECT`, an `OUTDIR` variable, one `INPUT_n` variable per input with its SHA-256 checksum, a comment listing the `micromamba create` line for each tool with the same note on `=<build>`, and each command in order with its tool version and the `lge-` environment to activate for it. Two commands the run joined by a pipe stay on one line. |
-| `reproduce.py` | The same in Python, with inputs in an `INPUTS` dictionary keyed by file name. |
+| `run.sh` | `set -euo pipefail`, a `PROJECT` variable read from `LUNGFISH_PROJECT`, and an `OUTDIR` variable you must set to a folder that does not exist yet. The script makes that folder and stops if it already exists. Before any tool runs, it checks each input against the SHA-256 checksum the record holds and stops if one is missing or differs. Then come one `INPUT_n` variable per input with its checksum, a comment listing the `micromamba create` line for each tool with the same note on `=<build>`, and each command in order with its tool version and the `lge-` environment to activate for it. Every output goes under `OUTDIR`, so a replay never writes into the result folder it came from. Two commands the run joined by a pipe stay on one line. |
+| `reproduce.py` | The same in Python, with the same `OUTDIR` rule and input check, and inputs in an `INPUTS` dictionary keyed by file name. |
 | `methods.md` | A draft marked "This is an automatically-generated draft. Read it before submitting.", a Computational Analysis paragraph with one sentence per tool naming what it did, its version and package, the subcommands that ran, and the parameters worth reporting, a Tool Versions table with one row per tool, an Input Files list of the files no step produced, with checksums, and a Reproducibility paragraph. |
 | `provenance.json` | The expanded record as JSON. |
 
@@ -200,7 +202,7 @@ lungfish-cli provenance export "$PROJECT/Analyses/minimap2-2026-09-25T00-00-00" 
   --output "$HOME/Desktop/minimap2-2026-09-25T00-00-00-provenance-nextflow"
 ```
 
-The input can be a sidecar file, a bundle, or a result folder. The command prints each record it copied, which shows the chain of earlier steps the export captured. `run.sh` and `reproduce.py` arrive already marked as programs, so `./run.sh` starts one without a `chmod` first.
+The input can be a sidecar file, a bundle, or a result folder. The command prints each record it copied, which shows the chain of earlier steps the export captured. `run.sh` and `reproduce.py` arrive already marked as programs, so `LUNGFISH_PROJECT="$PROJECT" OUTDIR="$HOME/Desktop/replay-1" ./run.sh`, typed in the export folder, starts a replay without a `chmod` first.
 
 ## Next
 

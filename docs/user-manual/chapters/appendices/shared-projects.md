@@ -3,11 +3,12 @@ title: Shared Projects and Bundle Migration
 chapter_id: appendices/shared-projects
 audience: power-user
 prereqs: [01-foundations/06-the-lungfish-project, 01-foundations/08-provenance-and-reproducibility]
-estimated_reading_min: 20
-task: Coordinate one project between two people or two machines with project locks, read the read-only state the window shows, and inspect or migrate older bundles from the command line.
+estimated_reading_min: 22
+task: Coordinate one project between two people or two machines with project locks, read the read-only state the window shows, reopen a project whose folder moved, and inspect or migrate older bundles from the command line.
 tags: [appendix, reference, power-user, project, multi-user, locking, migration, provenance, cli]
 tools: []
 entry_points:
+  - Sidebar > Locate…
   - "CLI: lungfish-cli project lock"
   - "CLI: lungfish-cli project unlock"
   - "CLI: lungfish-cli project migrate"
@@ -15,8 +16,8 @@ shots:
   - id: shared-projects-read-only-banner
     caption: "A copy of a demo project opened with Open Read-Only after the lock alert, with (Read Only) after the project name in the window title and no banner."
 illustrations: []
-glossary_refs: [advisory-lock, bundle, bundle-migration, checksum, exit-status, host-name, json, manifest, process, process-id, project, project-lock, project-store, provenance, schema-version, stale-lock, transformer, viewport]
-features_refs: []
+glossary_refs: [advisory-lock, bundle, bundle-migration, checksum, exit-status, host-name, json, manifest, process, process-id, project, project-lock, project-store, provenance, schema-version, stale-lock, transformer, viewport, sidebar]
+features_refs: [project.manage, project.copy-item]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
 lead_approved: false
@@ -42,11 +43,11 @@ The fix needs no Terminal, including for a lock left by a session on another Mac
 
 ## Why you would do this
 
-Three situations bring a reader here. Two people work on one project on lab storage in the same week. One person keeps a project on an external drive and opens it from two Macs. Or a project made a year ago is opened by a current LGE and its bundles need checking.
+Four situations bring a reader here. Two people work on one project on lab storage in the same week. One person keeps a project on an external drive and opens it from two Macs. A project's folder is renamed or moved in Finder while LGE has it open, which [When an open project's folder moves](#when-an-open-projects-folder-moves) covers. Or a project made a year ago is opened by a current LGE and its bundles need checking.
 
 The first two are the same problem. Without the lock, whichever write lands second can find a result folder half written or the project's own index of its contents out of step, and nothing says so at the time. The lock turns silent damage into a visible refusal.
 
-The third is a different worry. Older bundles still open, because LGE reads old manifests as well as new ones. What an old reference manifest can lack is a stored list of its chromosomes, so the window works the list out from the sequence data each time and takes longer to show it. `project migrate` finds those bundles and fills the list in without touching the sequence data.
+The last is a different worry. Older bundles still open, because LGE reads old manifests as well as new ones. What an old reference manifest can lack is a stored list of its chromosomes, so the window works the list out from the sequence data each time and takes longer to show it. `project migrate` finds those bundles and fills the list in without touching the sequence data.
 
 ## Before you start
 
@@ -54,7 +55,7 @@ You need a project open, as [The Lungfish Genome Explorer Project](../01-foundat
 
 The first half of this appendix is done in the window. The second half is typed in Terminal, because the window has no controls for taking a lock, releasing one, or migrating bundles on demand.
 
-Every command here acts on a real project at once, so practise on a copy. Select the `.lungfish` folder in Finder and press Cmd-D to duplicate it, point the commands at the duplicate, and delete it when you are done. A duplicate made while LGE has the original open carries that session's lock with it, which the section below explains.
+Every command here acts on a real project at once, so practice on a copy. Select the `.lungfish` folder in Finder and press Cmd-D to duplicate it, point the commands at the duplicate, and delete it when you are done. A duplicate made while LGE has the original open carries that session's lock with it, which the section below explains.
 
 ## Reading the window's read-only state
 
@@ -89,6 +90,12 @@ Try to run something that writes and a sheet titled **Project Is Open Read Only*
 A project copied while another copy of LGE had the original open carries that session's lock inside it. Open the copy and its alert names the session from the original. Once that session has ended, the copy opens normally on the same Mac. On another Mac, use **Recover and Open**.
 
 A folder built only with `lungfish-cli` and never opened in the app has no [project store](../../GLOSSARY.md#project-store), the app's own hidden index of the project's contents, and the app opens it read only for that reason. It does the same when the project store or the project folder cannot be written to, for example because the folder belongs to another user or sits on a read-only volume. The title reads `(Read Only)` either way. When the project store is missing, an alert titled **Opened Read Only** says so. A project folder copied without its hidden files loses its store the same way, so copy the whole folder again. If `(Read Only)` appears without a lock alert first, one of these is the cause.
+
+## When an open project's folder moves
+
+LGE watches the folder of each open project. Rename or move that folder in Finder while LGE has it open, or disconnect the drive it lives on, and LGE stops reading the project rather than guess where it went. The [sidebar](../../GLOSSARY.md#sidebar) then reads "Project unavailable." followed by the reason, such as "Project folder moved or its volume disconnected.", above **Retry** and **Locate…** buttons, and the Inspector clears.
+
+Click **Retry** once the drive is connected again or the folder is back where it was. Click **Locate…** when the folder has a new name or place, choose it in the panel that opens, and click **Locate**. LGE checks that the folder you chose is the same folder it had open, not a different folder that happens to share its name, and reopens the project there with the same item selected and the same folders open. A folder that fails the check is refused with "Folder is missing, inaccessible, or is a replacement. Locate the original folder, or close all old project windows before opening a replacement." The check keeps a copy of the folder, or another folder of the same name, from taking the original's place in a window that was showing the original.
 
 ## Before you type anything
 
@@ -128,7 +135,7 @@ On success it prints the project path, the lock file path, and the mode, and ret
 | `toolName`, `appVersion` | The program and version that took the lock. |
 | `createdAt`, `cwd`, `projectPath`, `schemaVersion` | When, from which folder, on which project, and in which record layout. |
 
-LGE compares `machineIdentifier` first and falls back to the hostname only for records too old to have it, because a Mac's hostname can change with the network. So an alert can name a host you do not recognise as your own Mac.
+LGE compares `machineIdentifier` first and falls back to the hostname only for records too old to have it, because a Mac's hostname can change with the network. So an alert can name a host you do not recognize as your own Mac.
 
 `--mode` records any label you type. The default is `exclusive`, and `maintenance` is the usual alternative. The mode is a label for other readers, not a permission level, and both block writes the same way.
 
@@ -202,6 +209,10 @@ For a script, add `--format json`, which gives one entry per bundle with its rel
 ## Provenance expectations
 
 LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+
+A record travels with its item. Drag an item from one project window into another and LGE copies it with its provenance record inside, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md) describes. The copy's own record names the item by its path in the source project and the SHA-256 checksum of every file the copy read. For a result whose record lists its files, such as a TaxTriage, Kraken 2, EsViritu, NVD, or NAO-MGS result, LGE first checks each file against that record. If a file is missing or differs from what the record describes, the item is not copied. The alert names the file, says the original is unchanged and can still be opened where it is, and suggests restoring the file from a backup or running the analysis again in the project you want it in. A result whose files no longer match its record cannot vouch for itself, so LGE does not carry it into a project where it would look trustworthy.
+
+A copy, move, or rename rewrites the paths inside each record it carries, which breaks any signature on that record. With a signing key set, LGE signs each such record again, and with none it removes the signature, so the record reads as unsigned rather than as changed. [Signing a record](../01-foundations/08-provenance-and-reproducibility.md#signing-a-record) explains how a key is set.
 
 Taking and releasing a lock writes no provenance record, because a lock is bookkeeping rather than a result. A migration does write one, because it changes a file inside a bundle. The record is written before the new manifest is put in place, so it describes the final file. Beside the usual fields it names the transformer and the schema versions it read and wrote, and lists the backup among the outputs. The bundle's original record stays where it was, so how the bundle was made and how it was migrated sit side by side.
 
