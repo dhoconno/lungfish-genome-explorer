@@ -67,6 +67,25 @@ final class VariantImpactAliasFilterTests: XCTestCase {
     /// `bcftools view -H -i 'INFO/Impact="HIGH"' mixed-case-key.vcf | wc -l` prints 1.
     private static let bcftoolsMixedCaseKey = 1
 
+    /// rs1 `Impact=HIGH` (key in mixed case), rs2 `CSQ_IMPACT=HIGH`, rs3 `CSQ_IMPACT=LOW`.
+    private static let mixedAndExactKeysVCF = """
+        ##fileformat=VCFv4.2
+        ##contig=<ID=chr1,length=1000>
+        ##INFO=<ID=Impact,Number=1,Type=String,Description="Impact">
+        ##INFO=<ID=CSQ_IMPACT,Number=1,Type=String,Description="Impact">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t150\trs1\tA\tG\t30\tPASS\tImpact=HIGH
+        chr1\t250\trs2\tC\tT\t40\tPASS\tCSQ_IMPACT=HIGH
+        chr1\t350\trs3\tG\tA\t40\tPASS\tCSQ_IMPACT=LOW
+
+        """
+
+    /// `bcftools view -H -i 'INFO/CSQ_IMPACT="HIGH"' mixed-and-exact.vcf | wc -l` prints 1, and so does the one on `Impact`.
+    private static let bcftoolsOneKeyOfMixedAndExact = 1
+
+    /// `bcftools view -H -i 'INFO/Impact="HIGH" || INFO/CSQ_IMPACT="HIGH"' mixed-and-exact.vcf | wc -l` prints 2.
+    private static let bcftoolsEitherKeyOfMixedAndExact = 2
+
     // MARK: - Tests
 
     func testATypedImpactFilterCountsTheVariantsOfEveryImpactKeyTheFileHolds() throws {
@@ -111,6 +130,18 @@ final class VariantImpactAliasFilterTests: XCTestCase {
         let database = try VariantDatabase(url: dbURL, readWrite: true)
         XCTAssertTrue(database.warmHighImpactCache())
         XCTAssertEqual(typedCount("impact=HIGH", in: database), Self.bcftoolsMixedCaseKey)
+    }
+
+    /// The tables hold the variants of `Impact` and `CSQ_IMPACT` alike, so a filter on `CSQ_IMPACT` alone is not theirs
+    /// to serve. The first two assertions also pin the import-time and `_tok_bio_hi` builds that match keys without case.
+    func testAFullKeyFilterIsNotServedByATableThatAlsoHoldsAKeyInMixedCase() throws {
+        let database = try VariantDatabase(url: try importDatabase(Self.mixedAndExactKeysVCF, name: "mixed-and-exact"))
+        XCTAssertEqual(database.tokenCacheState["highImpact"]?.count, 2, "_high_impact holds rs1 and rs2")
+        XCTAssertEqual(database.tokenCacheState["highImpactBiological"]?.count, 2, "_tok_bio_hi holds rs1 and rs2")
+        XCTAssertEqual(
+            typedCount("CSQ_IMPACT=HIGH", in: database), Self.bcftoolsOneKeyOfMixedAndExact, "full key, bcftools CSQ_IMPACT")
+        XCTAssertEqual(
+            typedCount("impact=HIGH", in: database), Self.bcftoolsEitherKeyOfMixedAndExact, "logical key, bcftools either key")
     }
 
     // MARK: - Helpers
