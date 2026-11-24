@@ -307,7 +307,7 @@ public enum FASTQSplitByNameRunner {
 
     /// Writes `parts` one after another into `target` and returns how many
     /// records they hold together.
-    private static func join(_ parts: [URL], into target: URL) throws -> Int {
+    static func join(_ parts: [URL], into target: URL) throws -> Int {
         let fm = FileManager.default
         if fm.fileExists(atPath: target.path) {
             try fm.removeItem(at: target)

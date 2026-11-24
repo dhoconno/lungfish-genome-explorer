@@ -273,7 +273,7 @@ public final class GTFReader: Sendable {
         return annotations
     }
 
-    private func forEachLineSync(_ body: (String) throws -> Void) throws {
+    func forEachLineSync(_ body: (String) throws -> Void) throws {
         if url.isGzipCompressed {
             let stream = try GzipInputStream(url: url)
             try stream.forEachLine(body)

@@ -77,7 +77,113 @@ final class ChunkLoopMemoryTests: XCTestCase {
         assertKeepsNoChunk("TaxonomyNameResolver.resolveFromFile (TaxonomyNameResolver.swift:93)", input: written.bytes, rise: rise)
     }
 
+    // MARK: - The loops POOL-LOOPS left unmeasured (lane POOL-LOOPS-2)
+
+    /// Opening a reference FASTA with no .fai builds the index from the whole file.
+    func testTheFASTAIndexBuildKeepsNoChunkOfTheFASTA() throws {
+        let root = try makeRoot()
+        let fasta = root.appendingPathComponent("genome.fasta")
+        let bytes = try Self.writeFASTA(to: fasta)
+
+        let rise = try peakRise { _ = try FASTAIndexBuilder.build(for: fasta) }
+
+        assertKeepsNoChunk("FASTAIndexBuilder.build (FASTAIndex.swift:469)", input: bytes, rise: rise)
+    }
+
+    /// The Kraken2 read index records the hash of the per-read output it indexed.
+    func testTheKrakenIndexHashKeepsNoChunkOfTheOutput() throws {
+        let root = try makeRoot()
+        let output = root.appendingPathComponent("classification.kraken")
+        let written = try Self.writeBlocks(of: "C\tA00123:45:H7KLMDSX5:1:1101:10000:0001\t9606\t150\t9606:116\n", to: output)
+
+        var digest = ""
+        let rise = try peakRise { digest = try KrakenIndexDatabase.sha256(of: output) }
+
+        XCTAssertEqual(digest.count, 64, "the digest is a SHA-256")
+        assertKeepsNoChunk("KrakenIndexDatabase.sha256 (KrakenIndexDatabase.swift:792)", input: written.bytes, rise: rise)
+    }
+
+    /// Opening a Kraken2 result builds the read index from the per-read output, one row a read.
+    func testTheKrakenIndexBuildKeepsNoChunkOfTheOutput() throws {
+        let root = try makeRoot()
+        let output = root.appendingPathComponent("classification.kraken")
+        FileManager.default.createFile(atPath: output.path, contents: nil)
+        let writer = try FileHandle(forWritingTo: output)
+        var bytes = 0
+        for block in 0..<Self.blocks {
+            var text = ""
+            var read = 0
+            while text.utf8.count < (1 << 20) - 64 {
+                text += "C\tread_\(block)_\(read)\t9606\t150\t9606:116\n"
+                read += 1
+            }
+            let data = Data(text.utf8)
+            try writer.write(contentsOf: data)
+            bytes += data.count
+        }
+        try writer.close()
+        let index = root.appendingPathComponent("classification.kraken.sqlite")
+
+        let rise = try peakRise { try KrakenIndexDatabase.build(from: output, to: index) }
+
+        assertKeepsNoChunk("KrakenIndexDatabase.build (KrakenIndexDatabase.swift:396)", input: bytes, rise: rise)
+    }
+
+    /// Import of a GTF annotation reads it line by line, about 1.5 GB for a human annotation.
+    func testTheGTFLineScanKeepsNoChunkOfTheFile() throws {
+        let root = try makeRoot()
+        let gtf = root.appendingPathComponent("genes.gtf")
+        let written = try Self.writeBlocks(
+            of: "chr1\tHAVANA\texon\t11869\t12227\t.\t+\t.\tgene_id \"ENSG00000223972\"; transcript_id \"ENST00000456328\";\n", to: gtf
+        )
+
+        var lines = 0
+        let rise = try peakRise { try GTFReader(url: gtf).forEachLineSync { _ in lines += 1 } }
+
+        XCTAssertGreaterThanOrEqual(lines, written.lines, "every line came through")
+        assertKeepsNoChunk("GTFReader.forEachLineSync (GTFReader.swift:290)", input: written.bytes, rise: rise)
+    }
+
+    /// FASTAReader reads a plain FASTA line by line for the import and the sequence routes.
+    func testTheFASTALineScanKeepsNoChunkOfTheFile() throws {
+        let root = try makeRoot()
+        let fasta = root.appendingPathComponent("genome.fasta")
+        let bytes = try Self.writeFASTA(to: fasta)
+
+        var lines = 0
+        let rise = try peakRise { try FASTAReader(url: fasta).forEachLineSync { _ in lines += 1 } }
+
+        XCTAssertGreaterThan(lines, 1, "the lines came through")
+        assertKeepsNoChunk("FASTAReader.forEachLineSync (FASTAReader.swift:174)", input: bytes, rise: rise)
+    }
+
+    /// An oriented derived bundle reads its per-read orientation map line by line.
+    func testTheOrientMapScanKeepsNoChunkOfTheMap() throws {
+        let root = try makeRoot()
+        let map = root.appendingPathComponent("orient-map.tsv")
+        let written = try Self.writeBlocks(of: "A00123:45:H7KLMDSX5:1:1101:10000:0001\t-\n", to: map)
+
+        var lines = 0
+        let rise = try peakRise { try FASTQOrientMapFile.forEachLine(in: map) { _ in lines += 1 } }
+
+        XCTAssertEqual(lines, written.lines, "every line came through")
+        assertKeepsNoChunk("FASTQOrientMapFile.forEachLine (FASTQDerivativeFileIO.swift:105)", input: written.bytes, rise: rise)
+    }
+
     // MARK: - Helpers
+
+    /// Writes one header and `blocks` blocks of 80-base lines, and returns the file's size.
+    private static func writeFASTA(to url: URL) throws -> Int {
+        let line = String(repeating: "ACGTTGCA", count: 10) + "\n"
+        let block = Data(String(repeating: line, count: (1 << 20) / line.utf8.count).utf8)
+        let header = Data(">contig_1 synthetic\n".utf8)
+        FileManager.default.createFile(atPath: url.path, contents: header)
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        for _ in 0..<blocks { try handle.write(contentsOf: block) }
+        return header.count + block.count * blocks
+    }
 
     private func makeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("chunk-loop-\(UUID().uuidString)", isDirectory: true)

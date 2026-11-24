@@ -424,7 +424,7 @@ public final class OrientPipeline: @unchecked Sendable {
         }
     }
 
-    private func streamLines(
+    func streamLines(
         in url: URL,
         _ body: (String) throws -> Void
     ) throws {

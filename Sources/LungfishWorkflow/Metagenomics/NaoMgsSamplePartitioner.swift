@@ -195,7 +195,7 @@ private func deterministicSampleHash(_ sample: String) -> String {
     return String(format: "%016llx", hash)
 }
 
-private func streamNaoMgsLines(
+func streamNaoMgsLines(
     from url: URL,
     process: (_ lineNumber: Int, _ line: String) throws -> Void
 ) throws {

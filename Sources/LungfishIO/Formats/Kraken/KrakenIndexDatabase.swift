@@ -783,7 +783,7 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         return String(cString: cStr)
     }
 
-    private static func sha256(of url: URL) throws -> String {
+    static func sha256(of url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 

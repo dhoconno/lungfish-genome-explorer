@@ -57,6 +57,42 @@ final class ChunkLoopMemoryTests: XCTestCase {
                 + "that a chunk in hand allows, so it kept its chunks"
         )
     }
+
+    /// Import of a FASTA reads it in chunks to tell DNA from RNA and protein, a whole genome or read set (lane POOL-LOOPS-2).
+    func testTheAlphabetScanKeepsNoChunkOfTheFASTA() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chunk-loop-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("genome.fasta")
+        let line = String(repeating: "ACGTTGCA", count: 10) + "\n"
+        let block = Data(String(repeating: line, count: (1 << 20) / line.utf8.count).utf8)
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        let writer = try FileHandle(forWritingTo: file)
+        for _ in 0..<Self.blocks { try writer.write(contentsOf: block) }
+        try writer.close()
+
+        _ = malloc_zone_pressure_relief(nil, 0)
+        let baseline = chunkLoopFootprint()
+        let sampler = ChunkLoopFootprintSampler()
+        sampler.start()
+        var seen = 0
+        do { try ThymineAlphabet.stream(file, chunkSize: 1 << 20) { seen += $0.count } } catch {
+            _ = sampler.stop()
+            throw error
+        }
+        let peak = sampler.stop()
+        let rise = peak > baseline ? peak - baseline : 0
+
+        let bytes = block.count * Self.blocks
+        XCTAssertEqual(seen, bytes, "every byte came through")
+        let loop = "ThymineAlphabet.stream (ThymineAlphabet.swift:111)"
+        print("ChunkLoopMemoryTests \(loop): footprint rise \(rise) B over an input of \(bytes) B")
+        XCTAssertLessThanOrEqual(
+            rise, Self.allowedRise,
+            "\(loop) raised the footprint by \(rise) B over an input of \(bytes) B, over the \(Self.allowedRise) B "
+                + "that a chunk in hand allows, so it kept its chunks"
+        )
+    }
 }
 
 /// The process's physical footprint, as Activity Monitor's Memory column reads it.

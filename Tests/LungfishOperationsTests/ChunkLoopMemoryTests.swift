@@ -61,6 +61,74 @@ final class ChunkLoopMemoryTests: XCTestCase {
                 + "that a chunk in hand allows, so it kept its chunks"
         )
     }
+
+    // MARK: - The loops POOL-LOOPS left unmeasured (lane POOL-LOOPS-2)
+
+    /// The BBTools derivatives count the reads of the FASTQ they wrote.
+    func testTheReadCountKeepsNoChunkOfTheFASTQ() async throws {
+        let input = try makeFASTQ()
+        let service = FASTQDerivativeService()
+
+        var reads = 0
+        let rise = try await peakRise { reads = try await service.countFASTQReads(at: input.url) }
+
+        XCTAssertEqual(reads, input.records, "every read was counted")
+        assertKeepsNoChunk("FASTQDerivativeService.countFASTQReads (FASTQDerivativeService+BBTools.swift:148)", input: input.bytes, rise: rise)
+    }
+
+    /// A recipe's parts are joined into one FASTQ before its next step.
+    func testTheRecipePartJoinKeepsNoChunkOfAPart() async throws {
+        let input = try makeFASTQ()
+        let service = FASTQDerivativeService()
+        let output = input.url.deletingLastPathComponent().appendingPathComponent("joined.fastq")
+
+        let rise = try await peakRise { try await service.concatenateFASTQParts([input.url], to: output) }
+
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: output.path)[.size] as? Int) ?? 0, input.bytes)
+        assertKeepsNoChunk("FASTQDerivativeService.concatenateFASTQParts (FASTQDerivativeService+RecipePipeline.swift:262)", input: input.bytes, rise: rise)
+    }
+
+    // MARK: - Helpers
+
+    /// Writes a FASTQ of `blocks` blocks of 150-base reads in a folder the teardown removes.
+    private func makeFASTQ() throws -> (url: URL, bytes: Int, records: Int) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chunk-loop-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("reads.fastq")
+        let record = "@A00123:45:H7KLMDSX5:1:1101:10000:0001 1:N:0:ATCACG\n"
+            + String(repeating: "ACGT", count: 37) + "AC\n+\n" + String(repeating: "I", count: 150) + "\n"
+        let perBlock = (1 << 20) / record.utf8.count
+        let block = Data(String(repeating: record, count: perBlock).utf8)
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let writer = try FileHandle(forWritingTo: url)
+        for _ in 0..<Self.blocks { try writer.write(contentsOf: block) }
+        try writer.close()
+        return (url, block.count * Self.blocks, perBlock * Self.blocks)
+    }
+
+    private func peakRise(_ pass: () async throws -> Void) async throws -> UInt64 {
+        _ = malloc_zone_pressure_relief(nil, 0)
+        let baseline = chunkLoopFootprint()
+        let sampler = ChunkLoopFootprintSampler()
+        sampler.start()
+        do { try await pass() } catch {
+            _ = sampler.stop()
+            throw error
+        }
+        let peak = sampler.stop()
+        return peak > baseline ? peak - baseline : 0
+    }
+
+    private func assertKeepsNoChunk(_ loop: String, input: Int, rise: UInt64, file: StaticString = #filePath, line: UInt = #line) {
+        print("ChunkLoopMemoryTests \(loop): footprint rise \(rise) B over an input of \(input) B")
+        XCTAssertLessThanOrEqual(
+            rise, Self.allowedRise,
+            "\(loop) raised the footprint by \(rise) B over an input of \(input) B, over the \(Self.allowedRise) B "
+                + "that a chunk in hand allows, so it kept its chunks",
+            file: file, line: line
+        )
+    }
 }
 
 /// The process's physical footprint, as Activity Monitor's Memory column reads it.

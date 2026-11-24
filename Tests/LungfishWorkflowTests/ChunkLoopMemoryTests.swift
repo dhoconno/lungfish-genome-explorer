@@ -193,7 +193,129 @@ final class ChunkLoopMemoryTests: XCTestCase {
         assertKeepsNoChunk("MetagenomicsDatabaseRegistry.fileChecksum (MetagenomicsDatabaseRegistry.swift:1335)", input: written.bytes, rise: rise)
     }
 
+    // MARK: - The loops POOL-LOOPS left unmeasured (lane POOL-LOOPS-2)
+
+    /// Split by Name joins the parts it wrote into one file of reads.
+    func testTheSplitByNameJoinKeepsNoChunkOfAPart() throws {
+        let root = try makeRoot()
+        let part = root.appendingPathComponent("part.fastq")
+        let written = try Self.writeFASTQ(to: part)
+        let target = root.appendingPathComponent("joined.fastq")
+
+        var records = 0
+        let rise = try peakRise { records = try FASTQSplitByNameRunner.join([part], into: target) }
+
+        XCTAssertEqual(records, written.records, "the join counted every record")
+        assertKeepsNoChunk("FASTQSplitByNameRunner.join (FASTQSplitByNameRunner.swift:323)", input: written.bytes, rise: rise)
+    }
+
+    /// Import FASTQ with fastp interleaves the pairs and appends the reads that lost their mate.
+    func testTheFastpInterleaveKeepsNoChunkOfTheUnpairedReads() throws {
+        let root = try makeRoot()
+        let mate = "@A00123:45:H7KLMDSX5:1:1101:10000:0001\nACGT\n+\nIIII\n"
+        let r1 = root.appendingPathComponent("r1.fastq")
+        let r2 = root.appendingPathComponent("r2.fastq")
+        try Data(mate.utf8).write(to: r1)
+        try Data(mate.utf8).write(to: r2)
+        let unpaired = root.appendingPathComponent("unpaired.fastq")
+        let written = try Self.writeFASTQ(to: unpaired)
+        let target = root.appendingPathComponent("interleaved.fastq")
+
+        var expected = 0
+        let rise = try peakRise {
+            expected = try FastpPairedRunner.writeInterleaved(r1: r1, r2: r2, appending: unpaired, to: target)
+        }
+
+        XCTAssertEqual(expected, written.records + 2, "the pair and every unpaired read are counted")
+        assertKeepsNoChunk("FastpPairedRunner.writeInterleaved (FastpPairedRunner.swift:536)", input: written.bytes, rise: rise)
+    }
+
+    /// The full-length ONT MHC genotyping copies and hashes its FASTA input before it runs.
+    func testTheMHCInputSnapshotKeepsNoChunkOfTheFASTA() throws {
+        let root = try makeRoot()
+        let fasta = root.appendingPathComponent("reads.fasta")
+        let written = try Self.writeBlocks(of: ">read_1\n" + String(repeating: "ACGT", count: 50) + "\n", to: fasta)
+        let snapshot = root.appendingPathComponent("snapshot.fasta")
+
+        let rise = try peakRise { _ = try FullLengthONTMHCFASTAInputSnapshotter().snapshot(sourceURL: fasta, to: snapshot) }
+
+        XCTAssertEqual(try Self.size(of: snapshot), written.bytes, "the snapshot holds every byte")
+        assertKeepsNoChunk("FullLengthONTMHCFASTAInputSnapshotter.snapshot (FullLengthONTMHCFASTAInputSnapshotter.swift:51)", input: written.bytes, rise: rise)
+    }
+
+    /// The Illumina amplicon genotyping joins the merged and unmerged reads.
+    func testTheAmpliconPairJoinKeepsNoChunkOfASource() throws {
+        let root = try makeRoot()
+        let source = root.appendingPathComponent("merged.fastq")
+        let written = try Self.writeFASTQ(to: source)
+        let destination = root.appendingPathComponent("joined.fastq")
+
+        var records = 0
+        let rise = try peakRise { records = try IlluminaAmpliconPairMerger.concatenate(sources: [source], into: destination) }
+
+        XCTAssertEqual(records, written.records, "the join counted every record")
+        assertKeepsNoChunk("IlluminaAmpliconPairMerger.concatenate (IlluminaAmpliconPairMerger.swift:624)", input: written.bytes, rise: rise)
+    }
+
+    /// Orient Reads reads vsearch's per-read table line by line.
+    func testTheOrientTableScanKeepsNoChunkOfTheTable() throws {
+        let root = try makeRoot()
+        let table = root.appendingPathComponent("orient.tsv")
+        let written = try Self.writeBlocks(of: "A00123:45:H7KLMDSX5:1:1101:10000:0001\t+\tref_1\t98.5\n", to: table)
+
+        var lines = 0
+        let rise = try peakRise { try OrientPipeline(runner: nil).streamLines(in: table) { _ in lines += 1 } }
+
+        XCTAssertEqual(lines, written.records, "every line came through")
+        assertKeepsNoChunk("OrientPipeline.streamLines (OrientPipeline.swift:435)", input: written.bytes, rise: rise)
+    }
+
+    /// Opening an assembly result counts each contig's G and C bases from the contig FASTA.
+    func testTheContigGCCountKeepsNoChunkOfTheContig() throws {
+        let root = try makeRoot()
+        let fasta = root.appendingPathComponent("contigs.fasta")
+        let header = Data(">contig_1\n".utf8)
+        FileManager.default.createFile(atPath: fasta.path, contents: header)
+        let line = String(repeating: "ACGTTGCA", count: 10) + "\n"
+        let perBlock = (1 << 20) / line.utf8.count
+        let written = try Self.appendBlocks(of: line, to: fasta)
+        let entry = FASTAIndex.Entry(
+            name: "contig_1", length: 80 * perBlock * Self.blocks, offset: header.count, lineBases: 80, lineWidth: 81
+        )
+        let handle = try FileHandle(forReadingFrom: fasta)
+        defer { try? handle.close() }
+
+        var gc: Int64 = 0
+        let rise = try peakRise { gc = try AssemblyContigCatalog.gcBaseCount(for: entry, fileHandle: handle) }
+
+        XCTAssertEqual(gc, Int64(40 * perBlock * Self.blocks), "half of every line is G or C")
+        assertKeepsNoChunk("AssemblyContigCatalog.gcBaseCount (AssemblyContigCatalog.swift:341)", input: written, rise: rise)
+    }
+
+    /// The NAO-MGS import partitions its virus hits by sample, line by line.
+    func testTheNaoMgsSampleScanKeepsNoChunkOfTheHits() throws {
+        let root = try makeRoot()
+        let hits = root.appendingPathComponent("virus_hits.tsv")
+        let written = try Self.writeBlocks(of: "sample_1\tA00123:45:H7KLMDSX5:1:1101:10000:0001\t11676\tNC_001802.1\t150\n", to: hits)
+
+        var lines = 0
+        let rise = try peakRise { try streamNaoMgsLines(from: hits) { _, _ in lines += 1 } }
+
+        XCTAssertGreaterThanOrEqual(lines, written.records, "every line came through")
+        assertKeepsNoChunk("streamNaoMgsLines (NaoMgsSamplePartitioner.swift:244)", input: written.bytes, rise: rise)
+    }
+
     // MARK: - Helpers
+
+    /// Appends `blocks` blocks of `line` to the file at `url` and returns the bytes appended.
+    private static func appendBlocks(of line: String, to url: URL) throws -> Int {
+        let block = Data(String(repeating: line, count: (1 << 20) / line.utf8.count).utf8)
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        for _ in 0..<blocks { try handle.write(contentsOf: block) }
+        return block.count * blocks
+    }
 
     private func makeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("chunk-loop-\(UUID().uuidString)", isDirectory: true)

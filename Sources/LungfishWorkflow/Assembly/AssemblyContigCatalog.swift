@@ -324,7 +324,7 @@ public struct AssemblyContigCatalog: Sendable {
     /// range and streaming the sequence bytes in bounded chunks, skipping the line-wrap
     /// newline bytes the .fai `lineBases`/`lineWidth` fields describe. Never materializes the
     /// contig's full base sequence as a `String` (see the call site's R3-R3ML-1 note).
-    private static func gcBaseCount(for entry: FASTAIndex.Entry, fileHandle: FileHandle) throws -> Int64 {
+    static func gcBaseCount(for entry: FASTAIndex.Entry, fileHandle: FileHandle) throws -> Int64 {
         guard entry.length > 0, entry.lineBases > 0 else { return 0 }
 
         // Matches FASTAIndex.byteOffset(for:in:)'s addressing exactly: the byte span from the

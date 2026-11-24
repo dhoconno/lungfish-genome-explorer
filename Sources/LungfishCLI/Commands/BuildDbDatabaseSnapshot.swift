@@ -82,7 +82,7 @@ struct BuildDbDatabaseSnapshot {
 
     /// Publishes the bytes of the captured copy `captured` as `url`, swapping out any regular file the name
     /// holds. A failure leaves the name with the file it held and no stage file in its folder.
-    private static func publish(_ captured: URL, as url: URL) throws {
+    static func publish(_ captured: URL, as url: URL) throws {
         try DurableReplace.replace(
             named: url.lastPathComponent,
             in: url.deletingLastPathComponent(),

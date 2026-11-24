@@ -105,7 +105,7 @@ public enum ThymineAlphabet {
         }
     }
 
-    private static func stream(_ url: URL, chunkSize: Int, _ body: ([UInt8]) throws -> Void) throws {
+    static func stream(_ url: URL, chunkSize: Int, _ body: ([UInt8]) throws -> Void) throws {
         let input = try FileHandle(forReadingFrom: url)
         defer { try? input.close() }
         while let data = try input.read(upToCount: chunkSize), !data.isEmpty {

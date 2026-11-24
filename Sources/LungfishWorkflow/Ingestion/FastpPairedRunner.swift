@@ -519,7 +519,7 @@ public enum FastpPairedRunner {
 
     /// Interleaves `r1` and `r2` into `target`, then appends every record of
     /// `unpaired`, and returns the record count the target must hold.
-    private static func writeInterleaved(r1: URL, r2: URL, appending unpaired: URL?, to target: URL) throws -> Int {
+    static func writeInterleaved(r1: URL, r2: URL, appending unpaired: URL?, to target: URL) throws -> Int {
         let fm = FileManager.default
         if fm.fileExists(atPath: target.path) {
             try fm.removeItem(at: target)

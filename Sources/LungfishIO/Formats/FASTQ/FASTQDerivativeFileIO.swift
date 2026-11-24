@@ -94,7 +94,7 @@ public enum FASTQOrientMapFile {
 
     /// Streams a text file line by line using buffered chunked reads, rather
     /// than loading it whole with `String(contentsOf:)`.
-    private static func forEachLine(in url: URL, _ body: (Substring) throws -> Void) throws {
+    static func forEachLine(in url: URL, _ body: (Substring) throws -> Void) throws {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 

@@ -155,7 +155,7 @@ public final class FASTAReader: Sendable {
 
     // MARK: - Private Implementation
 
-    private func forEachLineSync(_ body: (String) throws -> Void) throws {
+    func forEachLineSync(_ body: (String) throws -> Void) throws {
         if isCompressed {
             let stream = try GzipInputStream(url: url)
             try stream.forEachLine(body)

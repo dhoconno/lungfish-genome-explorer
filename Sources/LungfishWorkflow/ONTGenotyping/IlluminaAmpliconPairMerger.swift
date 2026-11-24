@@ -612,7 +612,7 @@ public enum IlluminaAmpliconPairMerger {
     }
 
     /// Appends every existing source into `destination`, returning the record count.
-    private static func concatenate(sources: [URL], into destination: URL) throws -> Int {
+    static func concatenate(sources: [URL], into destination: URL) throws -> Int {
         FileManager.default.createFile(atPath: destination.path, contents: nil)
         let handle = try FileHandle(forWritingTo: destination)
         defer { try? handle.close() }
