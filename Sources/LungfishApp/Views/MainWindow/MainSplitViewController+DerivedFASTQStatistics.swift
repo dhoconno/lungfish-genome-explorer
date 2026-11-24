@@ -27,7 +27,8 @@ extension MainSplitViewController {
         }
         let show: @MainActor (FASTQDatasetStatistics) -> Void = { [weak self] statistics in
             let opened = viewerController.displayFASTQDataset(
-                statistics: statistics, records: [], fastqURL: fastqURL, sraRunInfo: nil, enaReadRecord: nil,
+                statistics: FASTQStatisticsDisplayRules.statisticsToShow(statistics, of: manifest, in: sourceURL),
+                records: [], fastqURL: fastqURL, sraRunInfo: nil, enaReadRecord: nil,
                 ingestionMetadata: ingestion, fastqSourceURL: sourceURL, fastqDerivativeManifest: manifest
             )
             if !opened { self?.inspectorController.clearSelection() }

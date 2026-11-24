@@ -43,7 +43,9 @@ enum FASTQStatisticsDisplayRules {
         of manifest: FASTQDerivedBundleManifest,
         in bundleURL: URL? = nil
     ) -> FASTQDatasetStatistics {
-        statistics
+        let placeholders = FASTQQualityScoreOrigin.carryPlaceholderScores(manifest)
+            || bundleURL.map { FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: $0) } == true
+        return placeholders ? statistics.withoutQualities : statistics
     }
 
     /// Whether the reads carry no quality scores at all, as FASTA records and bridged reads do (ONT-BIO Backlog 3).
