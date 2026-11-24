@@ -39,8 +39,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     let rootRecordSource: VirtualRootRecordSource
     private static let observedForwardOrientationSuffix = "__lge_forward"
     private static let observedReverseComplementOrientationSuffix = "__lge_reverse_complement"
-    /// The most cutadapt lines a custom dual-index definition at Both Ends with no sample sheet may give, counted as
-    /// `(o5 + 1) x (o3 + 1) x 2` a pair (BIO-DUAL-ANCHOR item 5). It admits 96 pairs at 3/3 and one pair at 52/47.
+    /// The most cutadapt lines a dual-index run at Both Ends with no sample sheet may give, on both routes: a custom dual-index
+    /// definition counts `(o5 + 1) x (o3 + 1) x 2` a pair, and the built-in dual route counts the lines its writer writes
+    /// (BIO-DUAL-ANCHOR item 5, DEMUX-BUILTIN-DUAL-LINES). It admits 96 pairs at 3/3 and 4/4 and one pair at 52/47.
     static let observedPairLineCap = 6_000
 
     struct DemuxTrimEntry: Sendable {
@@ -1451,19 +1452,9 @@ extension DemultiplexingPipeline {
                     )
                 }
                 guard !entries.isEmpty else { throw DemultiplexError.noBarcodes }
-                // Each pair of 5' and 3' distances is a line of its own on each strand, and cutadapt spends a fixed time
-                // a run that grows with the lines before it reads the first read (BIO-DUAL-ANCHOR item 5, Q3).
-                // The distances are clamped to the cap before they are multiplied, so a distance of a billion is refused in words
-                // and does not overflow Int.
-                let cap = Self.observedPairLineCap
-                let lines = (min(config.maxDistanceFrom5Prime, cap) + 1) * (min(config.maxDistanceFrom3Prime, cap) + 1) * 2 * entries.count
-                guard lines <= Self.observedPairLineCap else {
-                    throw DemultiplexError.tooManySearchLines(
-                        kitName: config.barcodeKit.displayName, pairs: entries.count,
-                        maxDistanceFrom5Prime: config.maxDistanceFrom5Prime,
-                        maxDistanceFrom3Prime: config.maxDistanceFrom3Prime, lines: lines
-                    )
-                }
+                // Each pair of 5' and 3' distances is a line of its own on each of two strands, and the lines are bounded
+                // before cutadapt starts (BIO-DUAL-ANCHOR item 5, Q3).
+                try requireSearchLinesWithinCap(config: config, pairs: entries.count, strands: 2 * entries.count)
                 // The first reads choose which way the secondary sequence is read (DEMUX-DUAL-FORM, BIO-DUAL-FORM item 2).
                 let choice = readsSecondaryForm ? try await chooseSecondaryForm(of: entries, config: config) : nil
                 try writeObservedLinkedAdapterFASTA(
@@ -1493,6 +1484,11 @@ extension DemultiplexingPipeline {
                 )
             }
             guard !entries.isEmpty else { throw DemultiplexError.noBarcodes }
+            // The built-in dual route is bounded as the custom route is, counted as its writer writes the lines. The
+            // read-name and Exact Bare routes return before this in preflight and write no line (DEMUX-BUILTIN-DUAL-LINES).
+            if config.barcodeLocation == .bothEnds {
+                try requireSearchLinesWithinCap(config: config, pairs: entries.count, strands: Self.linkedStrandCount(of: entries))
+            }
             try writeLinkedAdapterFASTA(
                 entries: entries,
                 location: config.barcodeLocation,
@@ -1795,12 +1791,10 @@ extension DemultiplexingPipeline {
             // location's anchors kept, and a pair whose other strand reads as the pair itself writes one strand
             // (BIO-BARE-REVERSE item 2). The swap `second...first` written until then is no strand of the molecule, so
             // reverse-strand reads were left unassigned and swapped reads were placed (Q3).
-            let reverseFirst = PlatformAdapters.reverseComplement(second)
-            let reverseSecond = PlatformAdapters.reverseComplement(first)
-            if reverseFirst != first || reverseSecond != second {
+            if let reverse = Self.otherStrand(first: first, second: second) {
                 let reversePatterns = linkedAdapterPatterns(
-                    first: reverseFirst,
-                    second: reverseSecond,
+                    first: reverse.first,
+                    second: reverse.second,
                     location: location,
                     fivePrimeOffsets: fivePrimeOffsets,
                     threePrimeOffsets: threePrimeOffsets

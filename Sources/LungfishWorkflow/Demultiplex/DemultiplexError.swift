@@ -48,10 +48,10 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     /// counts 3 bases of a side at a read end, so reads that carry no barcode match a pair by chance (BIO-SATKIT-ANYWHERE
     /// items 3 and 4). The words name no Fluidigm route, and no sample-sheet route, which BIO did not check.
     case chanceCheckCannotJudgeKitPairsSearchedAnywhere(kitName: String)
-    /// A custom dual-index definition at Both Ends with no sample sheet whose pairs, strands and 5' and 3' distances give
-    /// cutadapt more than ``DemultiplexingPipeline/observedPairLineCap`` lines. Cutadapt spends a fixed time a run that
-    /// grows with its lines before it reads the first read, about 29 ms a line, so such a run is refused before it starts
-    /// (BIO-DUAL-ANCHOR item 5).
+    /// A dual-index run at Both Ends with no sample sheet, a custom definition or a built-in dual kit, whose pairs, strands
+    /// and 5' and 3' distances give cutadapt more than ``DemultiplexingPipeline/observedPairLineCap`` lines. Cutadapt spends a
+    /// fixed time a run that grows with its lines before it reads the first read, about 29 ms a line, so such a run is
+    /// refused before it starts (BIO-DUAL-ANCHOR item 5, DEMUX-BUILTIN-DUAL-LINES).
     case tooManySearchLines(kitName: String, pairs: Int, maxDistanceFrom5Prime: Int, maxDistanceFrom3Prime: Int, lines: Int)
     /// An Exact Bare Barcode run whose first read names carry `present` of the kit's barcodes, two or more, so the barcodes
     /// were read as an index and the search of the read sequences finds them there only by chance (DEMUX-EXACT-BARE-NO-FLOOR,

@@ -145,6 +145,38 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
         return max(0, cut(read.sequence, kit) - k)
     }
 
+    /// A Custom Definition whose `# kit:` line names `kitLine`, read from a file in `dir` as the dialog and the command read it.
+    static func definition(_ kitLine: String, _ rows: [String], in dir: URL) throws -> BarcodeKitDefinition {
+        let csv = dir.appendingPathComponent("\(kitLine).csv")
+        try (["# kit: \(kitLine)", "id,sequence,secondary_sequence"] + rows).joined(separator: "\n").appending("\n")
+            .write(to: csv, atomically: true, encoding: .utf8)
+        let kit = try BarcodeKitRegistry.loadCustomKit(from: csv, name: "plate-\(kitLine)")
+        XCTAssertEqual(kit.sourceKitID, kitLine)
+        XCTAssertEqual(kit.pairingMode, .fixedDual)
+        return kit
+    }
+
+    /// A `# kit: truseq-ht-dual` definition of the rows `ids` of the built-in TruSeq HT kit, with the kit's own sequences
+    /// (BIO-DEMUX-CAP item 5). Two rows at 8/8 are 2 x 81 x 2 = 324 lines, where the 96-row kit's 15,552 are refused.
+    static func truseqDefinition(_ ids: [String], in dir: URL) throws -> BarcodeKitDefinition {
+        let rows = try ids.map { id -> String in
+            let row = try XCTUnwrap(BarcodeKitRegistry.truseqHTDual.barcodes.first { $0.id == id }, id)
+            return "\(id),\(row.i7Sequence),\(try XCTUnwrap(row.i5Sequence, id))"
+        }
+        return try definition("truseq-ht-dual", rows, in: dir)
+    }
+
+    /// Asserts that `kit` at Both Ends and `distance` for both distances takes the built-in dual route, not the observed one.
+    func assertBuiltInRoute(_ kit: BarcodeKitDefinition, distance: Int) {
+        let config = DemultiplexConfig(
+            inputURL: dir.appendingPathComponent("reads.fastq"), barcodeKit: kit, outputDirectory: dir,
+            barcodeLocation: .bothEnds, maxDistanceFrom5Prime: distance, maxDistanceFrom3Prime: distance, engine: .cutadapt
+        )
+        let pipeline = DemultiplexingPipeline()
+        XCTAssertTrue(pipeline.searchesBuiltInDualPairsAtAnOffset(config), "\(kit.id) takes the built-in dual route")
+        XCTAssertFalse(pipeline.usesObservedCustomBarcodePairs(config), "\(kit.id) is not the observed route")
+    }
+
     // MARK: - The route the check runs on
 
     /// The check runs on the lines `writeLinkedAdapterFASTA` writes through the built-in dual route: the built-in TruSeq HT
@@ -164,20 +196,11 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
                 engine: .cutadapt, sampleAssignments: assignments
             ))
         }
-        func definition(_ kitLine: String, _ rows: [String]) throws -> BarcodeKitDefinition {
-            let csv = dir.appendingPathComponent("\(kitLine).csv")
-            try (["# kit: \(kitLine)", "id,sequence,secondary_sequence"] + rows).joined(separator: "\n").appending("\n")
-                .write(to: csv, atomically: true, encoding: .utf8)
-            let kit = try BarcodeKitRegistry.loadCustomKit(from: csv, name: "plate-\(kitLine)")
-            XCTAssertEqual(kit.sourceKitID, kitLine)
-            XCTAssertEqual(kit.pairingMode, .fixedDual)
-            return kit
-        }
         let kits = try [
             BarcodeKitRegistry.truseqHTDual, BarcodeKitRegistry.nexteraXTv2,
-            definition("truseq-ht-dual", ["D702-D508,TCCGGAGA,GTACTGAC", "D706-D508,GAATTCGT,GTACTGAC"]),
-            definition("nextera-xt-v2", ["N711-S502,AAGAGGCA,CTCTCTAT", "N703-S502,AGGCAGAA,CTCTCTAT"]),
-            definition("idt-ud-indexes", ["W01,ACGTTGCAAC,TTGGCCAAGG", "W02,TGCAACGTTG,CCAAGGTTGG"]),
+            Self.definition("truseq-ht-dual", ["D702-D508,TCCGGAGA,GTACTGAC", "D706-D508,GAATTCGT,GTACTGAC"], in: dir),
+            Self.definition("nextera-xt-v2", ["N711-S502,AAGAGGCA,CTCTCTAT", "N703-S502,AGGCAGAA,CTCTCTAT"], in: dir),
+            Self.definition("idt-ud-indexes", ["W01,ACGTTGCAAC,TTGGCCAAGG", "W02,TGCAACGTTG,CCAAGGTTGG"], in: dir),
         ]
         for kit in kits {
             XCTAssertTrue(checks(kit, 3, 3), "\(kit.id) at 3/3")
@@ -192,16 +215,20 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
 
     // MARK: - (a) and (b) D702-D508 of the built-in TruSeq HT kit at 8/8
 
-    /// The built-in TruSeq HT Dual Index kit at Both Ends, 8/8, the default error rate 0.15 (BIO-LINKED-OFFSET item 2 (a)
-    /// and (b)). D706 `GAATTCGT` fits a D702 read with one indel 6 bases further in than D702 `TCCGGAGA`, so for a molecule
-    /// whose indexes sit 0 to 2 bases in, the line of D706-D508 with its 6 more N's outscored D702-D508's, and the read and
-    /// its reverse complement landed in D706-D508 at the base. D702-D508 fits them with no error, so they now land in
-    /// D702-D508, trimmed between the two indexes as its own line trims them.
-    func testTruSeqHTReadsOfD702ThatD706FitsFurtherInLandInTheirOwnRow() async throws {
+    /// A `# kit: truseq-ht-dual` definition of D702-D508 and D706-D508 at Both Ends, 8/8, the default error rate 0.15
+    /// (BIO-LINKED-OFFSET item 2 (a) and (b)), 324 lines on the built-in route. It ran on the built-in kit until the 15,552
+    /// lines of that kit at 8/8 were refused (BIO-DEMUX-CAP item 5), and it expects what it expected there. D706 `GAATTCGT`
+    /// fits a D702 read with one indel 6 bases further in than D702 `TCCGGAGA`, so for a molecule whose indexes sit 0 to 2
+    /// bases in, the line of D706-D508 with its 6 more N's outscored D702-D508's, and the read and its reverse complement
+    /// landed in D706-D508 at the base. D702-D508 fits them with no error, so they now land in D702-D508, trimmed between the
+    /// two indexes as its own line trims them.
+    func testTruSeqHTDefinitionReadsOfD702ThatD706FitsFurtherInLandInTheirOwnRow() async throws {
+        let kit = try Self.truseqDefinition(["D702-D508", "D706-D508"], in: dir)
+        assertBuiltInRoute(kit, distance: 8)
         let rows = (0...2).map { (id: "D702-D508", k: $0, strands: "FR") }
-        let (reads, trimmed) = try Self.reads(BarcodeKitRegistry.truseqHTDual, Self.truseq, rows)
+        let (reads, trimmed) = try Self.reads(kit, Self.truseq, rows)
         XCTAssertEqual(reads.count, 6)
-        let outcome = try await run(BarcodeKitRegistry.truseqHTDual, reads, distance: 8, errorRate: 0.15)
+        let outcome = try await run(kit, reads, distance: 8, errorRate: 0.15)
         report("(a)(b)", outcome, reads.map(\.name))
         for (name, _) in reads {
             XCTAssertNotEqual(outcome.row(of: name), "D706-D508", "\(name): the line further in no longer takes it")
@@ -224,8 +251,12 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
     /// the other strand at 0 and 1 bases in the read ends in rc(D703) `AATGAGCG`, then `G` at 1 base in, and the NextSeq
     /// trim cuts those final G's before the search. D703 then fits the cut read with one error, the G it lost, and D701
     /// fits it with one indel 4 bases in, so the two rows tie and those 4 reads go to Unassigned as cut and are counted.
-    func testTruSeqHTReadsOfD703ThatD701FitsFurtherInLandInTheirOwnRows() async throws {
-        let kit = BarcodeKitRegistry.truseqHTDual
+    ///
+    /// The case runs on a `# kit: truseq-ht-dual` definition of D701-D501, D701-D508, D703-D501 and D703-D508, 648 lines at
+    /// 8/8, since the built-in kit's 15,552 lines are refused (BIO-DEMUX-CAP item 5), and it expects what it expected there.
+    func testTruSeqHTDefinitionReadsOfD703ThatD701FitsFurtherInLandInTheirOwnRows() async throws {
+        let kit = try Self.truseqDefinition(["D701-D501", "D701-D508", "D703-D501", "D703-D508"], in: dir)
+        assertBuiltInRoute(kit, distance: 8)
         let rows = ["D703-D501", "D703-D508"].flatMap { id in (0...3).map { (id: id, k: $0, strands: "FR") } }
         let (reads, trimmed) = try Self.reads(kit, Self.truseq, rows)
         XCTAssertEqual(reads.count, 16)
@@ -331,19 +362,22 @@ final class DemultiplexLinkedOffsetShiftTests: XCTestCase {
         }
     }
 
-    /// Reads whose indexes sit exactly at the distance, 8 bases in at 8/8 and error 0.15, land in their own rows before and
+    /// Reads whose indexes sit exactly at the distance, 4 bases in at 4/4 and error 0.15, land in their own rows before and
     /// after: each i7 with D508 on both strands, and D702 and D703 with each other i5 (BIO-LINKED-OFFSET item 2 (e), 576
-    /// of 576). The lines of D706 and D701 fit the D702 and D703 reads 14 and 13 bases in, past the distance and the 4
-    /// bases the check also fits.
+    /// of 576, moved from 8/8 to 4/4 by BIO-DEMUX-CAP item 5 since the built-in kit's 15,552 lines at 8/8 are refused). The
+    /// lines of D706 and D701 fit the D702 and D703 reads 10 and 9 bases in, past the distance and the 4 bases the check
+    /// also fits. The trim cuts no index base of any read.
     func testTruSeqHTReadsWithTheirIndexesAtTheDistanceStayInTheirOwnRows() async throws {
-        let withD508 = BarcodeKitRegistry.truseqSingleA.barcodes.map { (id: "\($0.id)-D508", k: 8, strands: "FR") }
+        let kit = BarcodeKitRegistry.truseqHTDual
+        let withD508 = BarcodeKitRegistry.truseqSingleA.barcodes.map { (id: "\($0.id)-D508", k: 4, strands: "FR") }
         let others = ["D702", "D703"].flatMap { i7 in
-            BarcodeKitRegistry.truseqSingleB.barcodes.filter { $0.id != "D508" }.map { (id: "\(i7)-\($0.id)", k: 8, strands: "F") }
+            BarcodeKitRegistry.truseqSingleB.barcodes.filter { $0.id != "D508" }.map { (id: "\(i7)-\($0.id)", k: 4, strands: "F") }
         }
-        let (reads, trimmed) = try Self.reads(BarcodeKitRegistry.truseqHTDual, Self.truseq, withD508 + others)
+        let (reads, trimmed) = try Self.reads(kit, Self.truseq, withD508 + others)
         XCTAssertEqual(reads.count, 38)
-        let outcome = try await run(BarcodeKitRegistry.truseqHTDual, reads, distance: 8, errorRate: 0.15)
-        report("(e) k8", outcome, [])
+        XCTAssertEqual(reads.filter { Self.indexBasesCut($0, kit) > 0 }.map(\.name), [])
+        let outcome = try await run(kit, reads, distance: 4, errorRate: 0.15)
+        report("(e) k4", outcome, [])
         XCTAssertEqual(outcome.wrong, [])
         XCTAssertEqual(outcome.placedCount, 38)
         XCTAssertEqual(outcome.unassignedCount, 0)
