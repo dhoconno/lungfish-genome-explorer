@@ -1747,18 +1747,18 @@ extension DemultiplexingPipeline {
         if !fm.fileExists(atPath: destinationURL.path) {
             fm.createFile(atPath: destinationURL.path, contents: nil)
         }
-
         let input = try FileHandle(forReadingFrom: sourceURL)
         defer { try? input.close() }
         let output = try FileHandle(forWritingTo: destinationURL)
         defer { try? output.close() }
         try output.seekToEnd()
-
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             let data = input.readData(ofLength: 1_048_576)
-            if data.isEmpty { break }
+            if data.isEmpty { return false }
             try output.write(contentsOf: data)
-        }
+            return true
+        }) {}
     }
 
     private func writeLinkedAdapterFASTA(
@@ -2258,17 +2258,16 @@ extension DemultiplexingPipeline {
             readInfos[compositeKey] = info
         }
 
-        while true {
+        while autoreleasepool(invoking: { () -> Bool in
             let chunk = handle.readData(ofLength: chunkSize)
             if chunk.isEmpty {
                 // Process any remaining data in buffer
                 if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8), !line.isEmpty {
                     processLine(line)
                 }
-                break
+                return false
             }
             buffer.append(chunk)
-
             // Process complete lines from buffer
             while let newlineRange = buffer.range(of: Data([0x0A])) {
                 let lineData = buffer[buffer.startIndex..<newlineRange.lowerBound]
@@ -2277,7 +2276,8 @@ extension DemultiplexingPipeline {
                 }
                 buffer.removeSubrange(buffer.startIndex...newlineRange.lowerBound)
             }
-        }
+            return true
+        }) {}
 
         // Group by barcode and compute final trim positions
         var result: [String: [DemuxTrimEntry]] = [:]

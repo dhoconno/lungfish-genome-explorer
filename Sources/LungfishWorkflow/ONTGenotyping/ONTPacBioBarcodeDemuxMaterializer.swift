@@ -908,17 +908,17 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
             for try await record in reader.records(from: sourceURL) {
                 statisticsCollector.process(record)
             }
-
             let input = try FileHandle(forReadingFrom: sourceURL)
             defer { try? input.close() }
             let output = try FileHandle(forWritingTo: fastqURL)
             defer { try? output.close() }
             try output.seekToEnd()
-            while true {
+            while try autoreleasepool(invoking: { () throws -> Bool in
                 let data = input.readData(ofLength: 1_048_576)
-                if data.isEmpty { break }
+                if data.isEmpty { return false }
                 try output.write(contentsOf: data)
-            }
+                return true
+            }) {}
             self.readCount += readCount
             self.baseCount += baseCount
         }

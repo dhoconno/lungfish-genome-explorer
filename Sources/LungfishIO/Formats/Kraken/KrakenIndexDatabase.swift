@@ -392,9 +392,9 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         // Begin first transaction.
         sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
 
-        while true {
+        while try autoreleasepool(invoking: { () throws -> Bool in
             let chunk = fileHandle.readData(ofLength: readBufferSize)
-            if chunk.isEmpty && leftover.isEmpty { break }
+            if chunk.isEmpty && leftover.isEmpty { return false }
 
             bytesRead += Int64(chunk.count)
             if !chunk.isEmpty {
@@ -408,7 +408,7 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
                 leftover = ""
             } else {
                 guard let chunkStr = String(data: chunk, encoding: .utf8) else {
-                    continue
+                    return true
                 }
                 text = leftover + chunkStr
                 leftover = ""
@@ -499,8 +499,9 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
             }
 
             // If the original chunk was empty, we processed leftover and are done.
-            if chunk.isEmpty { break }
-        }
+            if chunk.isEmpty { return false }
+            return true
+        }) {}
 
         // Commit any remaining rows.
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
@@ -788,11 +789,12 @@ public final class KrakenIndexDatabase: @unchecked Sendable {
         defer { try? handle.close() }
 
         var hasher = SHA256()
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while autoreleasepool(invoking: { () -> Bool in
             let data = handle.readData(ofLength: readBufferSize)
-            if data.isEmpty { break }
-            hasher.update(data: data)
-        }
+            if !data.isEmpty { hasher.update(data: data) }
+            return !data.isEmpty
+        }) {}
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }

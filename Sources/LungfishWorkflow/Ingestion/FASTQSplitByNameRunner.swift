@@ -320,9 +320,12 @@ public enum FASTQSplitByNameRunner {
             records += try FASTQPairInterleaver.countRecords(in: part)
             let source = try FileHandle(forReadingFrom: part)
             defer { try? source.close() }
-            while let chunk = try source.read(upToCount: 1 << 20), !chunk.isEmpty {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            while try autoreleasepool(invoking: { () throws -> Bool in
+                guard let chunk = try source.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
                 try sink.write(contentsOf: chunk)
-            }
+                return true
+            }) {}
         }
         return records
     }

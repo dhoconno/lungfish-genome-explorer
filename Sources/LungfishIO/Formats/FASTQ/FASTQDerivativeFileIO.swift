@@ -101,8 +101,9 @@ public enum FASTQOrientMapFile {
         let bufferSize = 256 * 1024
         var remainder = ""
 
-        while true {
-            guard let chunk = try handle.read(upToCount: bufferSize), !chunk.isEmpty else { break }
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let chunk = try handle.read(upToCount: bufferSize), !chunk.isEmpty else { return false }
             guard let text = String(data: chunk, encoding: .utf8) else {
                 throw CocoaError(.fileReadInapplicableStringEncoding)
             }
@@ -116,7 +117,8 @@ public enum FASTQOrientMapFile {
             for line in lines {
                 try body(line)
             }
-        }
+            return true
+        }) {}
 
         if !remainder.isEmpty {
             try body(Substring(remainder))

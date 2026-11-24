@@ -201,7 +201,9 @@ enum UnflaggedRecordFASTQWriter {
             }
         }
 
-        while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty else { return false }
             var bytes = carry
             bytes.append(contentsOf: chunk)
             var start = 0
@@ -210,7 +212,8 @@ enum UnflaggedRecordFASTQWriter {
                 start = end + 1
             }
             carry = Array(bytes[start...])
-        }
+            return true
+        }) {}
         if !carry.isEmpty { try consume(carry[...]) }
         if !buffer.isEmpty { try output.write(contentsOf: Data(buffer)) }
         return written
@@ -339,11 +342,13 @@ func writeSplitFASTQ(unflaggedSAM: URL, sidecars: [URL], to outputFASTQ: URL) th
         let inHandle = try FileHandle(forReadingFrom: partURL)
         defer { try? inHandle.close() }
 
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             let chunk = inHandle.readData(ofLength: 1 << 20)
-            if chunk.isEmpty { break }
+            if chunk.isEmpty { return false }
             outHandle.write(chunk)
-        }
+            return true
+        }) {}
     }
 }
 
@@ -400,7 +405,10 @@ func appendFileContents(of source: URL, to destination: URL) throws {
     try output.seekToEnd()
     let input = try FileHandle(forReadingFrom: source)
     defer { try? input.close() }
-    while let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty {
+    // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+    while try autoreleasepool(invoking: { () throws -> Bool in
+        guard let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
         try output.write(contentsOf: chunk)
-    }
+        return true
+    }) {}
 }

@@ -90,9 +90,12 @@ struct BuildDbDatabaseSnapshot {
         ) { stage in
             let input = try FileHandle(forReadingFrom: captured)
             defer { try? input.close() }
-            while let chunk = try input.read(upToCount: Self.chunkSize), !chunk.isEmpty {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            while try autoreleasepool(invoking: { () throws -> Bool in
+                guard let chunk = try input.read(upToCount: Self.chunkSize), !chunk.isEmpty else { return false }
                 try stage.write(chunk)
-            }
+                return true
+            }) {}
         }
     }
 

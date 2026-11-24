@@ -108,8 +108,11 @@ public enum ThymineAlphabet {
     static func stream(_ url: URL, chunkSize: Int, _ body: ([UInt8]) throws -> Void) throws {
         let input = try FileHandle(forReadingFrom: url)
         defer { try? input.close() }
-        while let data = try input.read(upToCount: chunkSize), !data.isEmpty {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let data = try input.read(upToCount: chunkSize), !data.isEmpty else { return false }
             try body([UInt8](data))
-        }
+            return true
+        }) {}
     }
 }

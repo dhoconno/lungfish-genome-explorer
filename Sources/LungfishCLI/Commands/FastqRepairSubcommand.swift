@@ -59,11 +59,13 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             let inputHandle = try FileHandle(forReadingFrom: url)
             defer { try? inputHandle.close() }
-            while true {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            while try autoreleasepool(invoking: { () throws -> Bool in
                 let chunk = inputHandle.readData(ofLength: 1_048_576)
-                if chunk.isEmpty { break }
+                if chunk.isEmpty { return false }
                 outputHandle.write(chunk)
-            }
+                return true
+            }) {}
         }
         var cliArguments = ["repair", resolvedInput.originalURL.path, "--output", output.output]
         if output.force {

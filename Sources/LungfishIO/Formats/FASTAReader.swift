@@ -170,9 +170,10 @@ public final class FASTAReader: Sendable {
         let bufferSize = 256 * 1024
         var remainder = ""
 
-        while true {
-            guard let chunk = try handle.read(upToCount: bufferSize) else { break }
-            if chunk.isEmpty { break }
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let chunk = try handle.read(upToCount: bufferSize) else { return false }
+            if chunk.isEmpty { return false }
 
             guard let text = String(data: chunk, encoding: .utf8) else {
                 throw FASTAError.invalidEncoding
@@ -190,7 +191,8 @@ public final class FASTAReader: Sendable {
             for line in lines {
                 try body(line)
             }
-        }
+            return true
+        }) {}
 
         if !remainder.isEmpty {
             try body(remainder)

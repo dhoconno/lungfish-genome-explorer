@@ -157,11 +157,13 @@ public enum FASTQReadsExport {
             let inputHandle = try FileHandle(forReadingFrom: inputURL)
             do {
                 defer { try? inputHandle.close() }
-                while true {
+                // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+                while try autoreleasepool(invoking: { () throws -> Bool in
                     let chunk = try inputHandle.read(upToCount: 1 << 20) ?? Data()
-                    if chunk.isEmpty { break }
+                    if chunk.isEmpty { return false }
                     try outputHandle.write(contentsOf: chunk)
-                }
+                    return true
+                }) {}
             }
         }
     }

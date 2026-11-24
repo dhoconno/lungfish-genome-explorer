@@ -48,11 +48,14 @@ struct FullLengthONTMHCFASTAInputSnapshotter {
 
         var hasher = SHA256()
         var byteSize: UInt64 = 0
-        while let data = try sourceHandle.read(upToCount: Self.bufferSize), !data.isEmpty {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let data = try sourceHandle.read(upToCount: Self.bufferSize), !data.isEmpty else { return false }
             hasher.update(data: data)
             byteSize += UInt64(data.count)
             try destinationHandle.write(contentsOf: data)
-        }
+            return true
+        }) {}
         try destinationHandle.synchronize()
 
         var finalSourceInfo = stat()

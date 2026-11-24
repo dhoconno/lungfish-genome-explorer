@@ -978,14 +978,13 @@ private struct ReferenceBundleBuildExecutor: Sendable {
             lineByteCount += 1
         }
 
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             try checkCancellation()
-
             let data = fileHandle.readData(ofLength: 64 * 1024)
             if data.isEmpty {
-                break
+                return false
             }
-
             for byte in data {
                 byteOffset += 1
 
@@ -1011,7 +1010,8 @@ private struct ReferenceBundleBuildExecutor: Sendable {
                     appendLineByte(byte)
                 }
             }
-        }
+            return true
+        }) {}
 
         if pendingCarriageReturn {
             throw BundleBuildError.invalidFASTAFormat(

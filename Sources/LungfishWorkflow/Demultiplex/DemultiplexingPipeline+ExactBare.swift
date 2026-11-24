@@ -134,11 +134,13 @@ extension DemultiplexingPipeline {
             let output = try FileHandle(forWritingTo: destinationURL)
             defer { try? output.close() }
             try output.seekToEnd()
-            while true {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            while try autoreleasepool(invoking: { () throws -> Bool in
                 let data = input.readData(ofLength: 1_048_576)
-                if data.isEmpty { break }
+                if data.isEmpty { return false }
                 try output.write(contentsOf: data)
-            }
+                return true
+            }) {}
         }
 
         func shardDirectory(for shardIndex: Int, root: URL) -> URL {

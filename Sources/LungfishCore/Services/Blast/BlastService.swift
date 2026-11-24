@@ -309,13 +309,12 @@ public actor BlastService {
             }
         }
 
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             let chunk = try Self.nextChunk(fileHandle, gzipRun, count: bufferSize)
-            if chunk.isEmpty { break }
-
+            if chunk.isEmpty { return false }
             var data = residual + chunk
             residual = Data()
-
             if let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) {
                 if lastNewline < data.endIndex - 1 {
                     residual = data[(lastNewline + 1)...]
@@ -323,10 +322,11 @@ public actor BlastService {
                 }
             } else {
                 residual = data
-                continue
+                return true
             }
             emit(data)
-        }
+            return true
+        }) {}
 
         if !residual.isEmpty {
             emit(residual)

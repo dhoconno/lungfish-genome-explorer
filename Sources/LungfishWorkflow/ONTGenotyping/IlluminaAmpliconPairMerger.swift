@@ -621,10 +621,13 @@ public enum IlluminaAmpliconPairMerger {
             guard FileManager.default.fileExists(atPath: source.path),
                   let input = try? FileHandle(forReadingFrom: source) else { continue }
             defer { try? input.close() }
-            while let chunk = try input.read(upToCount: 4 * 1_024 * 1_024), !chunk.isEmpty {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            while try autoreleasepool(invoking: { () throws -> Bool in
+                guard let chunk = try input.read(upToCount: 4 * 1_024 * 1_024), !chunk.isEmpty else { return false }
                 try handle.write(contentsOf: chunk)
                 lineCount += chunk.reduce(0) { $1 == UInt8(ascii: "\n") ? $0 + 1 : $0 }
-            }
+                return true
+            }) {}
         }
         return lineCount / 4
     }

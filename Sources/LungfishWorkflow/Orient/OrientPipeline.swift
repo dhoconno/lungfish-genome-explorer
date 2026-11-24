@@ -432,10 +432,13 @@ public final class OrientPipeline: @unchecked Sendable {
         defer { try? handle.close() }
 
         var buffer = Data()
-        while let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty else { return false }
             buffer.append(chunk)
             try drainLines(from: &buffer, flushRemainder: false, body)
-        }
+            return true
+        }) {}
         try drainLines(from: &buffer, flushRemainder: true, body)
     }
 

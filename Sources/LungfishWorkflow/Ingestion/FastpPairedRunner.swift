@@ -533,9 +533,12 @@ public enum FastpPairedRunner {
             expected += try FASTQPairInterleaver.countRecords(in: unpaired)
             let source = try FileHandle(forReadingFrom: unpaired)
             defer { try? source.close() }
-            while let chunk = try source.read(upToCount: 1 << 20), !chunk.isEmpty {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            while try autoreleasepool(invoking: { () throws -> Bool in
+                guard let chunk = try source.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
                 try handle.write(contentsOf: chunk)
-            }
+                return true
+            }) {}
         }
         return expected
     }

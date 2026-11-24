@@ -25,10 +25,13 @@ struct ToolProcessStdinFeed {
         let done = finished
         Thread.detachNewThread {
             var open = true
-            while let chunk = try? reader.read(upToCount: 1 << 20), !chunk.isEmpty {
-                guard open else { continue }
+            // A pipe's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            while autoreleasepool(invoking: { () -> Bool in
+                guard let chunk = try? reader.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
+                guard open else { return true }
                 do { try stdin.writeBlocking(chunk) } catch { open = false }
-            }
+                return true
+            }) {}
             stdin.close()
             try? reader.close()
             done.signal()

@@ -246,7 +246,8 @@ public final class GenBankReader: Sendable {
                     return nil
                 }
 
-                guard let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty else {
+                // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+                guard let chunk = try autoreleasepool(invoking: { try handle.read(upToCount: Self.chunkSize) }), !chunk.isEmpty else {
                     reachedEndOfFile = true
                     if pending.isEmpty {
                         return nil
@@ -255,7 +256,6 @@ public final class GenBankReader: Sendable {
                     pending.removeAll(keepingCapacity: true)
                     return finalLine
                 }
-
                 pending.append(chunk)
             }
         }

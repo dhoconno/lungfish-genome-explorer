@@ -553,9 +553,10 @@ func blastScanKrakenOutput(
     var residual = Data()
     let bufferSize = 1_048_576 // 1 MB chunks
 
-    while true {
+    // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+    while try autoreleasepool(invoking: { () throws -> Bool in
         let chunk = stream.read(upTo: bufferSize)
-        if chunk.isEmpty { break }
+        if chunk.isEmpty { return false }
 
         var data = residual + chunk
         residual = Data()
@@ -567,7 +568,7 @@ func blastScanKrakenOutput(
             }
         } else if !chunk.isEmpty {
             residual = data
-            continue
+            return true
         }
 
         if let text = String(data: data, encoding: .utf8) {
@@ -588,7 +589,8 @@ func blastScanKrakenOutput(
                 matchingReadIds.insert(readId)
             }
         }
-    }
+        return true
+    }) {}
 
     // Process remaining residual
     if !residual.isEmpty, let text = String(data: residual, encoding: .utf8) {

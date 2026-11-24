@@ -144,11 +144,13 @@ extension FASTQDerivativeService {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var lineCount = 0
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             let chunk = handle.readData(ofLength: 1_048_576)
-            if chunk.isEmpty { break }
+            if chunk.isEmpty { return false }
             lineCount += chunk.reduce(0) { $0 + ($1 == 0x0A ? 1 : 0) }
-        }
+            return true
+        }) {}
         return lineCount / 4
     }
 }

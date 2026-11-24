@@ -393,12 +393,14 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
 
                 // Stream in 4 MB blocks to avoid memory pressure
                 let blockSize = 4 * 1024 * 1024
-                while true {
+                // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+                while try autoreleasepool(invoking: { () throws -> Bool in
                     let data = inputHandle.readData(ofLength: blockSize)
-                    if data.isEmpty { break }
+                    if data.isEmpty { return false }
                     outputHandle.write(data)
                     totalBytesWritten += Int64(data.count)
-                }
+                    return true
+                }) {}
 
                 if (i + 1) % 5 == 0 || i == barcodeDir.chunkFiles.count - 1 {
                     progress("Concatenated \(i + 1)/\(barcodeDir.chunkFiles.count) chunks")

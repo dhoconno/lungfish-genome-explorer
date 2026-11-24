@@ -342,9 +342,11 @@ public struct AssemblyContigCatalog: Sendable {
         var remainingBytes = totalByteSpan
         var gcBases: Int64 = 0
 
-        while remainingBytes > 0 {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard remainingBytes > 0 else { return false }
             let readSize = min(chunkSize, remainingBytes)
-            guard let chunk = try fileHandle.read(upToCount: readSize), !chunk.isEmpty else { break }
+            guard let chunk = try fileHandle.read(upToCount: readSize), !chunk.isEmpty else { return false }
             remainingBytes -= chunk.count
 
             for byte in chunk {
@@ -358,7 +360,8 @@ public struct AssemblyContigCatalog: Sendable {
                     break
                 }
             }
-        }
+            return true
+        }) {}
 
         return gcBases
     }

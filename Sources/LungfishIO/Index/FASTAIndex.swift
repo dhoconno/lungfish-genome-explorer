@@ -465,10 +465,11 @@ public struct FASTAIndexBuilder {
         lineBuffer.reserveCapacity(1024)
         var lineStartOffset = 0
 
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             let chunk = handle.readData(ofLength: chunkSize)
             if chunk.isEmpty {
-                break
+                return false
             }
 
             for byte in chunk {
@@ -482,7 +483,8 @@ public struct FASTAIndexBuilder {
                     lineBuffer.append(byte)
                 }
             }
-        }
+            return true
+        }) {}
 
         if !lineBuffer.isEmpty {
             try processLine(lineBuffer, startOffset: lineStartOffset, newlineWidth: 0)

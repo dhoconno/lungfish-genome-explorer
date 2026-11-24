@@ -488,20 +488,19 @@ extension NaoMgsDatabase {
                     }
                 }
 
-                // Synchronous chunk-based line reader — no async buffer accumulation
-                while true {
+                // Synchronous chunk-based line reader, one autorelease pool a pass, so no chunk outlives its pass
+                while try autoreleasepool(invoking: { () throws -> Bool in
                     let chunk = gzipChild?.readChunk(upTo: chunkSize) ?? plainHandle?.readData(ofLength: chunkSize) ?? Data()
-                    if chunk.isEmpty { break }
-
+                    if chunk.isEmpty { return false }
                     partial.append(chunk)
 
                     guard let lastNewline = partial.lastIndex(of: UInt8(ascii: "\n")) else {
-                        continue
+                        return true
                     }
 
                     let completeRange = partial[partial.startIndex...lastNewline]
                     guard let text = String(data: Data(completeRange), encoding: .utf8) else {
-                        continue
+                        return true
                     }
 
                     // Split into lines and process as Substrings (zero-copy).
@@ -517,7 +516,8 @@ extension NaoMgsDatabase {
                     } else {
                         partial = Data()
                     }
-                }
+                    return true
+                }) {}
 
                 // Process remaining partial line
                 if !partial.isEmpty, let text = String(data: partial, encoding: .utf8) {

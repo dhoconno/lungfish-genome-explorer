@@ -630,16 +630,16 @@ extension VariantDatabase {
         var lastEmitTime = Date.distantPast
         var cancelled = false
         let chunkSize = 256 * 1024  // 256 KB read chunks
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             if shouldCancel?() == true {
                 cancelled = true
-                break
+                return false
             }
             let chunk = fh.readData(ofLength: chunkSize)
-            if chunk.isEmpty { break }
+            if chunk.isEmpty { return false }
             bytesRead += Int64(chunk.count)
             buffer.append(chunk)
-
             if totalFileSize > 0 {
                 emitThrottledProgress(
                     Double(bytesRead) / Double(totalFileSize),
@@ -648,7 +648,6 @@ extension VariantDatabase {
                     lastEmitTime: &lastEmitTime
                 )
             }
-
             // Parse all complete lines in-buffer, then drop the consumed prefix once.
             var lineStart = buffer.startIndex
             while let newlineIdx = buffer[lineStart...].firstIndex(of: 0x0A) {
@@ -662,7 +661,8 @@ extension VariantDatabase {
             if lineStart > buffer.startIndex {
                 buffer.removeSubrange(..<lineStart)
             }
-        }
+            return true
+        }) {}
 
         if !cancelled, !buffer.isEmpty {
             try autoreleasepool {

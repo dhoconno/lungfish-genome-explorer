@@ -1328,21 +1328,21 @@ public actor DatabaseRegistry {
     ) throws -> String {
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer { try? handle.close() }
-
         let totalBytes = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         var hasher = Insecure.MD5()
         var bytesRead: Int64 = 0
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             let data = try handle.read(upToCount: 1_048_576)
-            guard let data, !data.isEmpty else { break }
+            guard let data, !data.isEmpty else { return false }
             hasher.update(data: data)
             bytesRead += Int64(data.count)
             if totalBytes > 0 {
                 progress?(min(Double(bytesRead) / Double(totalBytes), 1.0))
             }
-        }
+            return true
+        }) {}
         progress?(1.0)
-
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 

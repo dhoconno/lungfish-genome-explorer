@@ -286,13 +286,15 @@ public final class GTFReader: Sendable {
         let chunkSize = 256 * 1024
         var buffer = Data()
 
-        while true {
-            guard let chunk = try handle.read(upToCount: chunkSize) else { break }
-            if chunk.isEmpty { break }
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
+            guard let chunk = try handle.read(upToCount: chunkSize) else { return false }
+            if chunk.isEmpty { return false }
 
             buffer.append(chunk)
             try Self.emitCompletePlainLines(from: &buffer, body)
-        }
+            return true
+        }) {}
 
         try Self.emitFinalPlainLine(from: buffer, body)
     }

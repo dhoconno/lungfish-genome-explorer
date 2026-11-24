@@ -239,14 +239,15 @@ func streamNaoMgsLines(
         }
     }
 
-    while true {
+    // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+    while try autoreleasepool(invoking: { () throws -> Bool in
         let chunk = decompression?.stdout.readUntilFull(chunkSize)
             ?? plainHandle?.readData(ofLength: chunkSize) ?? Data()
-        if chunk.isEmpty { break }
+        if chunk.isEmpty { return false }
 
         partial.append(chunk)
         guard let lastNewline = partial.lastIndex(of: UInt8(ascii: "\n")) else {
-            continue
+            return true
         }
 
         let completeRange = partial[partial.startIndex...lastNewline]
@@ -257,7 +258,8 @@ func streamNaoMgsLines(
 
         let nextIndex = partial.index(after: lastNewline)
         partial = nextIndex < partial.endIndex ? Data(partial[nextIndex...]) : Data()
-    }
+        return true
+    }) {}
 
     if !partial.isEmpty {
         guard let text = String(data: partial, encoding: .utf8) else {

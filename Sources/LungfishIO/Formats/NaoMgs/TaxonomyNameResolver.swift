@@ -89,13 +89,14 @@ public final class TaxonomyNameResolver: @unchecked Sendable {
         let chunkSize = 4_194_304  // 4 MB
         var partial = Data()
 
-        while true {
+        // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+        while try autoreleasepool(invoking: { () throws -> Bool in
             let chunk = handle.readData(ofLength: chunkSize)
-            if chunk.isEmpty { break }
+            if chunk.isEmpty { return false }
 
             partial.append(chunk)
             guard let lastNewline = partial.lastIndex(of: UInt8(ascii: "\n")) else {
-                continue
+                return true
             }
 
             let completeRange = partial[partial.startIndex...lastNewline]
@@ -119,11 +120,12 @@ public final class TaxonomyNameResolver: @unchecked Sendable {
                 }
             }
 
-            if result.count == needed.count { break }
+            if result.count == needed.count { return false }
 
             let nextIndex = partial.index(after: lastNewline)
             partial = nextIndex < partial.endIndex ? Data(partial[nextIndex...]) : Data()
-        }
+            return true
+        }) {}
 
         // Process remaining partial line
         if result.count < needed.count, !partial.isEmpty,
