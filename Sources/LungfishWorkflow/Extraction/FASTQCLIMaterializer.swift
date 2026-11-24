@@ -191,7 +191,8 @@ public final class FASTQCLIMaterializer: Sendable {
                     sequenceFormat: manifest.sequenceFormat,
                     provenance: manifest.provenance,
                     payloadChecksums: manifest.payloadChecksums,
-                    materializationState: manifest.materializationState
+                    materializationState: manifest.materializationState,
+                    qualityScoresArePlaceholders: manifest.qualityScoresArePlaceholders
                 )
                 try? FASTQBundle.saveDerivedManifest(repairedManifest, in: bundleURL)
             }
@@ -360,7 +361,8 @@ public final class FASTQCLIMaterializer: Sendable {
             sequenceFormat: manifest.sequenceFormat,
             provenance: manifest.provenance,
             payloadChecksums: manifest.payloadChecksums,
-            materializationState: manifest.materializationState
+            materializationState: manifest.materializationState,
+            qualityScoresArePlaceholders: manifest.qualityScoresArePlaceholders
         )
         try FASTQBundle.saveDerivedManifest(repairedManifest, in: bundleURL)
     }

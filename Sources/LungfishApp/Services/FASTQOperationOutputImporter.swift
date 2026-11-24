@@ -124,6 +124,14 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 outputStats = try await computeStatistics(from: result.outputFile)
             }
 
+            // Reads built from sequence counts carry a written Q40 that no instrument measured, and an operation's
+            // output keeps those characters. A child of such reads stores no quality figure and carries the mark of
+            // its parent (BIO-QUALITY F2).
+            let placeholderScores = sourceInputURL.map {
+                FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: $0)
+            } ?? false
+            let storedStatistics = placeholderScores ? outputStats.withoutQualities : outputStats
+
             // Only delete the pre-ingestion source once the re-ingested
             // output has at least as many reads as the source had. A lower
             // count means the pipeline dropped or filtered reads (e.g. a
@@ -161,8 +169,9 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 recordedOutputURL: finalOutputURL,
                 originalRequest: originalRequest,
                 sourceInputURL: sourceInputURL,
-                stats: outputStats,
-                pairingMode: metadata.ingestion?.pairingMode
+                stats: storedStatistics,
+                pairingMode: metadata.ingestion?.pairingMode,
+                qualityScoresArePlaceholders: placeholderScores
             )
             try await writeOperationProvenance(
                 for: result.outputFile,
@@ -308,7 +317,8 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         originalRequest: FASTQOperationLaunchRequest,
         sourceInputURL: URL?,
         stats: FASTQDatasetStatistics,
-        pairingMode: IngestionMetadata.PairingMode?
+        pairingMode: IngestionMetadata.PairingMode?,
+        qualityScoresArePlaceholders: Bool
     ) throws -> FASTQDerivativeOperation {
         let operation = derivativeOperation(
             for: originalRequest,
@@ -340,7 +350,8 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
             payloadChecksums: PayloadChecksum(checksums: [
                 outputFASTQ.lastPathComponent: checksum,
             ]),
-            materializationState: .materialized(checksum: checksum)
+            materializationState: .materialized(checksum: checksum),
+            qualityScoresArePlaceholders: qualityScoresArePlaceholders ? true : nil
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: storageBundleURL)
         return operation
@@ -1135,6 +1146,9 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                let manifest = FASTQBundle.loadDerivedManifest(in: inputURL) {
                 let manifestURL = FASTQBundle.derivedManifestURL(in: inputURL)
                 let originalData = try? Data(contentsOf: manifestURL)
+                // The report measured the reads' own characters. Reads that carry placeholder scores keep no quality
+                // figure, and the rewritten manifest keeps the mark (BIO-QUALITY item 6).
+                let placeholderScores = FASTQQualityScoreOrigin.carryPlaceholderScores(manifest)
                 let updatedManifest = FASTQDerivedBundleManifest(
                     id: manifest.id,
                     name: manifest.name,
@@ -1145,13 +1159,14 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                     payload: manifest.payload,
                     lineage: manifest.lineage,
                     operation: manifest.operation,
-                    cachedStatistics: entry.statistics,
+                    cachedStatistics: placeholderScores ? entry.statistics.withoutQualities : entry.statistics,
                     pairingMode: manifest.pairingMode,
                     readClassification: manifest.readClassification,
                     batchOperationID: manifest.batchOperationID,
                     sequenceFormat: manifest.sequenceFormat,
                     provenance: manifest.provenance,
-                    payloadChecksums: manifest.payloadChecksums
+                    payloadChecksums: manifest.payloadChecksums,
+                    qualityScoresArePlaceholders: placeholderScores ? true : nil
                 )
                 try FASTQBundle.saveDerivedManifest(updatedManifest, in: inputURL)
                 mutations.append(QCSummaryMutation(

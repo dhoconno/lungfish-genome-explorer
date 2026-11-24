@@ -386,7 +386,8 @@ public final class ONTFluidigmSampleMaterializer: Sendable {
                 notes: "Materialized gzip-compressed per-sample read exemplars after exact Fluidigm barcode assignment; duplicate counts encoded as size=N."
             ),
             payloadChecksums: PayloadChecksum(checksums: [fastqURL.lastPathComponent: checksum]),
-            materializationState: .materialized(checksum: checksum)
+            materializationState: .materialized(checksum: checksum),
+            qualityScoresArePlaceholders: true
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
 

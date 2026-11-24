@@ -167,6 +167,12 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
     /// for derived bundles, materialized for bundles with full/fullPaired/fullMixed payloads).
     public var materializationState: MaterializationState?
 
+    /// True when every base of the reads carries a score that no instrument measured, because the reads were built
+    /// from sequence counts and the writer gave each base the score Q40. Nil in every older manifest, and encoded
+    /// only when true. Read it through `FASTQQualityScoreOrigin`, which also recognizes the bundles the Fluidigm
+    /// materializers wrote before this field existed (QUALITY-BIO ruling F1).
+    public let qualityScoresArePlaceholders: Bool?
+
     /// Resolved materialization state, applying defaults for nil values and
     /// treating stale `.materializing` states (from crashed sessions) as `.virtual`.
     public var resolvedState: MaterializationState {
@@ -228,7 +234,8 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
         sequenceFormat: SequenceFormat? = .fastq,
         provenance: SampleProvenance? = nil,
         payloadChecksums: PayloadChecksum? = nil,
-        materializationState: MaterializationState? = nil
+        materializationState: MaterializationState? = nil,
+        qualityScoresArePlaceholders: Bool? = nil
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.id = id
@@ -248,6 +255,8 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
         self.provenance = provenance
         self.payloadChecksums = payloadChecksums
         self.materializationState = materializationState
+        // Only `true` is kept, so the key is written only for reads that carry placeholder scores.
+        self.qualityScoresArePlaceholders = qualityScoresArePlaceholders == true ? true : nil
     }
 
     // Custom decoding for backward compatibility with schema version 1 manifests
@@ -271,6 +280,8 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
         self.provenance = try container.decodeIfPresent(SampleProvenance.self, forKey: .provenance)
         self.payloadChecksums = try container.decodeIfPresent(PayloadChecksum.self, forKey: .payloadChecksums)
         self.materializationState = try container.decodeIfPresent(MaterializationState.self, forKey: .materializationState)
+        let marked = try container.decodeIfPresent(Bool.self, forKey: .qualityScoresArePlaceholders)
+        self.qualityScoresArePlaceholders = marked == true ? true : nil
     }
 
     // MARK: - Referential Integrity Validation
