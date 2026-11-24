@@ -49,7 +49,33 @@ final class AnnotationDrawerMissingTrackWordsTests: XCTestCase {
         XCTAssertTrue(line?.contains("missing or cannot be read") == true, line ?? "")
         XCTAssertFalse(readable.contains { $0.contains("Genes:") }, "the track that opened is named as missing: \(readable)")
         XCTAssertFalse(readable.contains { $0.contains("could not be built for") }, "the drawer says no table was built: \(readable)")
+        XCTAssertEqual(Self.footLines(of: drawer).last, "Reopen the bundle, and if this repeats, import those annotations again.")
         viewer.clearBundleDisplay()
+    }
+
+    /// A track that names no database, beside one that opened, is told to import its annotations again, since reopening
+    /// the bundle cannot add a database that was never built (DRAWERS-UX SF2).
+    func testAMissingTrackWithNoDatabaseIsToldToImportAgain() async throws {
+        let bundle = try makeBundle(named: "No Database Beside One Fixture", tracks: [
+            AnnotationTrackInfo(id: "genes", name: "Genes", path: "annotations/genes.bb", databasePath: "annotations/genes.db"),
+            AnnotationTrackInfo(id: "repeats", name: "Repeat Regions", path: "annotations/repeats.gff3", featureCount: 7),
+        ])
+        try writeAnnotationDatabase(rows: 2, into: bundle)
+        let (viewer, drawer) = try await showDrawer(of: bundle)
+
+        let foot = Self.footLines(of: drawer)
+        XCTAssertTrue(
+            foot.contains("Repeat Regions: this bundle has no annotation database for its 7 annotations, so they are not in this table."),
+            "\(foot)"
+        )
+        XCTAssertEqual(foot.last, "Import those annotations again.", "a track with no database was told to reopen the bundle: \(foot)")
+        viewer.clearBundleDisplay()
+    }
+
+    /// The lines of the words at the foot of the drawer, under the table.
+    private static func footLines(of drawer: AnnotationTableDrawerView) -> [String] {
+        let foot = drawer.subviews.first { $0.identifier == AnnotationDrawerIndexHandoff.missingTracksIdentifier } as? NSTextField
+        return foot?.stringValue.components(separatedBy: "\n") ?? []
     }
 
     /// A track that lists annotations and names no database, as `bundle create`'s basic builder leaves it, shows words

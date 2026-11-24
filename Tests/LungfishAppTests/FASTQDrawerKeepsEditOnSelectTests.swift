@@ -98,7 +98,38 @@ final class FASTQDrawerKeepsEditOnSelectTests: XCTestCase {
         XCTAssertEqual(alert.buttons.map(\.title), ["OK"])
     }
 
+    /// A Save the person presses that cannot write, because the reads are gone, does not say it saved (DRAWERS-UX SF1).
+    func testAHandPressedSaveThatCannotWriteDoesNotSayItSaved() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let first = try await fastq(named: "First", savedSampleName: "Saved name")
+
+        try show(first, in: viewer)
+        viewer.toggleFASTQMetadataDrawer()
+        let drawer = try XCTUnwrap(viewer.fastqMetadataDrawerView, "the drawer did not open")
+        try type("Typed name", intoSampleNameOfRow: 0, in: drawer)
+        try FileManager.default.removeItem(at: first)
+        let save = try XCTUnwrap(Self.buttons(in: drawer).first { $0.action == Selector(("saveClicked:")) }, "the drawer has no Save")
+        save.performClick(nil)
+
+        let readable = Self.readableText(in: drawer)
+        XCTAssertFalse(readable.contains { $0.contains("Saved with this dataset") }, "a Save that could not write said it saved: \(readable)")
+        XCTAssertTrue(readable.contains { $0.contains("Not saved") }, "a Save that could not write said nothing: \(readable)")
+    }
+
     // MARK: - Fixture
+
+    private static func buttons(in view: NSView) -> [NSButton] {
+        view.subviews.flatMap { subview in [subview as? NSButton].compactMap { $0 } + buttons(in: subview) }
+    }
+
+    /// Every string a person can read in the drawer, from its visible labels and fields.
+    private static func readableText(in view: NSView) -> [String] {
+        guard !view.isHidden else { return [] }
+        let own = (view as? NSTextField).map { [$0.stringValue] } ?? []
+        return own + view.subviews.flatMap(readableText)
+    }
 
     /// A FASTQ bundle with cached statistics, and a saved sample row named `savedSampleName` when one is given.
     private func fastq(named name: String, savedSampleName: String?) async throws -> URL {
