@@ -152,7 +152,8 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         var state = second.testingDisplayState
         state.layout = .listLeading
         second.applyDisplayState(state) // before the main actor's next turn, so before the read lands
-        await waitUntil(budget: .standard) { second.viewMemoryIsSettled }
+        let settled = await waitUntil(budget: .standard) { second.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "the open's restore did not run")
         XCTAssertEqual(second.testingDisplayState.summaryViewMode, .outline, "the late restore undid a change")
         XCTAssertEqual(second.testingDisplayState.layout, .listLeading)
         // The change is kept when the restore lands, not only at the leave (VS-GENO SWIFT SF-2).
@@ -179,7 +180,8 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
 
         let second = configuredController(fixture, store: fixture.store)
         second.resetViewMemory()
-        await waitUntil(budget: .standard) { second.viewMemoryIsSettled }
+        let settled = await waitUntil(budget: .standard) { second.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "the open's restore did not run")
         XCTAssertEqual(second.testingDisplayState.summaryViewMode, .outline, "the late restore undid Reset View")
         second.detachHostPresentationCallbacks()
 
