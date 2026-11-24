@@ -13,6 +13,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishAssemblyUI
 @testable import LungfishKit
+import LungfishTestSupport
 
 /// Every view of `type` under `view`, depth first.
 @MainActor

@@ -1006,7 +1006,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         await driver.settle(in: harness)
         let changed = try driver.read(in: harness)
 
-        let viewer = harness.split.viewerController
+        let viewer: ViewerViewController = try XCTUnwrap(harness.split.viewerController)
         let list = try XCTUnwrap(viewer.fastaCollectionController)
         list.open(row: 0)
         XCTAssertNil(viewer.fastaCollectionController, "one record shows in place of the list")
