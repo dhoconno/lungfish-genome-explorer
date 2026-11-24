@@ -9,14 +9,15 @@ tags: [gatk, haplotypecaller, germline, experimental, cli, gui]
 tools: [gatk, whatshap]
 parameters_refs: [variants.call-gatk-haplotypecaller, variants.call-gatk-whatshap-phased]
 entry_points:
-  - "GUI: Tools > Variant Calling > Call Variants... > GATK HaplotypeCaller"
+  - "GUI: Tools > Variant Calling > Call Variants… > GATK HaplotypeCaller"
+  - "CLI: lungfish-cli variants call --caller gatk"
   - "CLI: lungfish-cli gatk haplotype-caller"
   - "CLI: lungfish-cli variants phase"
 shots:
   - id: call-variants-dialog-gatk
     caption: "The Call Variants dialog with GATK HaplotypeCaller selected, showing the tool sidebar, the Overview section's Alignment Track picker and Output Variant Track Name field, the Thresholds fields the GATK tools ignore, and the readiness line in the footer."
 illustrations: []
-glossary_refs: [alignment-track, bam, benchmark-vcf, checksum, depth, genotype, germline, gvcf, haplotype, heterozygous, homozygous, indel, joint-genotyping, local-reassembly, phase-set, ploidy, plugin-pack, provenance, qual, read-backed-phasing, read-group, reference-bundle, sequence-dictionary, shotgun, snv, table-drawer, variant-caller, vcf]
+glossary_refs: [alignment-track, bam, benchmark-vcf, checksum, depth, genotype, germline, gvcf, haplotype, heterozygous, homozygous, indel, interval-list, joint-genotyping, local-reassembly, phase-set, ploidy, plugin-pack, provenance, qual, read-backed-phasing, read-group, reference-bundle, sequence-dictionary, shotgun, snv, table-drawer, variant-caller, vcf]
 features_refs: [variants.gatk-germline]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
@@ -33,7 +34,7 @@ What sets HaplotypeCaller apart is [local reassembly](../../GLOSSARY.md#local-re
 
 A [haplotype](../../GLOSSARY.md#haplotype) in its general sense is the set of alleles that sit together along one chromosome copy. HaplotypeCaller borrows the word for something narrower. Its candidate haplotypes are guesses at the sequence of one short stretch, a few hundred bases at most, rebuilt from the reads that cover it. Most are thrown away once the reads have been scored against them. The genotype written for each position is the pair of candidates the reads support best, and nothing in the output names a haplotype. The word keeps its general sense in the phased route below and a third, named sense in [MHC Allele Genotyping](../09-genotyping/01-what-is-mhc-genotyping.md#alleles-loci-and-haplotypes).
 
-Lungfish Genome Explorer (LGE) does not reimplement GATK. It assembles the GATK command, runs it in a managed environment, and files the result with a [provenance](../../GLOSSARY.md#provenance) record. Two routes reach it. The Call Variants dialog runs HaplotypeCaller on an [alignment track](../../GLOSSARY.md#alignment-track) a [reference bundle](../../GLOSSARY.md#reference-bundle) owns and attaches the calls back to that bundle. The command line runs the same tool on loose files. Use the dialog when you want calls to read in the window. Use the command line when you will genotype several samples together later, because only the command line writes the [GVCF](../../GLOSSARY.md#gvcf) that step needs, a VCF that also records the caller's confidence at positions where nothing varied.
+Lungfish Genome Explorer (LGE) does not reimplement GATK. It assembles the GATK command, runs it in a managed environment, and files the result with a [provenance](../../GLOSSARY.md#provenance) record. Two routes reach it. The Call Variants dialog runs HaplotypeCaller on an [alignment track](../../GLOSSARY.md#alignment-track) a [reference bundle](../../GLOSSARY.md#reference-bundle) owns and attaches the calls back to that bundle, through the same `lungfish-cli variants call --caller gatk` command you can type. `lungfish-cli gatk haplotype-caller` runs the tool on loose files. Use the dialog when you want calls to read in the window. Use the command line when you will genotype several samples together later, because only the command line writes the [GVCF](../../GLOSSARY.md#gvcf) that step needs, a VCF that also records the caller's confidence at positions where nothing varied.
 
 ## Why you would do this
 
@@ -83,23 +84,23 @@ Install the `phasing` pack as well for the phased route, from the Plugin Manager
 ### Open the Call Variants dialog
 
 1. Click the HG002 mapping result under Analyses in the sidebar, then click the one row in the table of mapped contigs the viewport shows. That loads the reference bundle inside the mapping result, the bundle that owns the `HG002 minimap2` track, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) describes.
-2. Choose **Tools > Variant Calling > Call Variants...**. The same dialog opens from the **Call Variants...** button in the **Variant Calling** tab of the Inspector's **Analysis** section. Both are greyed out until the loaded bundle holds a sorted and indexed BAM track, which a track mapped in LGE already is.
+2. Choose **Tools > Variant Calling > Call Variants…**. The same dialog opens from the **Call Variants…** button in the **Variant Calling** tab of the Inspector's **Analysis** section. Both are greyed out until the loaded bundle holds a sorted and indexed BAM track, which a track mapped in LGE already is.
 
 ### Select GATK HaplotypeCaller and read the dialog
 
 Click **GATK HaplotypeCaller** in the tool sidebar, whose subtitle reads "Germline SNP and indel calling with standard VCF genotypes." A badge reading "Requires GATK Core Pack" or "Requires GATK4" means the pack, or GATK inside it, is not ready yet.
 
-The right pane holds five sections. **Overview** holds the Alignment Track picker and the Output Variant Track Name field. **Thresholds** holds Minimum Allele Frequency and Minimum Depth. The tool's own section holds only the line "GATK HaplotypeCaller will write a standard genotype VCF for the selected BAM." **Extra arguments** is a single text field, and **Readiness** repeats the footer's readiness line, which reads "Ready to run GATK HaplotypeCaller on <track>." once a track is chosen.
+The right pane holds four sections. **Overview** holds the **Alignment Track** picker and the **Output Variant Track Name** field. **Thresholds** holds **Minimum Allele Frequency** and **Minimum Depth**. **GATK HaplotypeCaller settings** holds only the line "GATK HaplotypeCaller will write a standard genotype VCF for the selected BAM." **Extra arguments** is a single text field, whose grey hint `--call-indels` is LoFreq's flag and is never sent. The footer's readiness line reads "Ready to run GATK HaplotypeCaller on <track>." once a track is chosen.
 
 <!-- SHOT: call-variants-dialog-gatk -->
 
-The Thresholds fields do nothing for GATK HaplotypeCaller. They drive the threshold filter the other callers' output passes through, which [Three kinds of filter](../01-foundations/05-variants-and-vcf.md#three-kinds-of-filter) describes, but LGE does not pass them to GATK or record them in the run's provenance. GATK decides which alleles to write from its own genotype likelihoods, its probabilities that each possible genotype is correct.
+The Thresholds fields do nothing for GATK HaplotypeCaller. They drive the threshold filter the other callers' output passes through, which [Three kinds of filter](../01-foundations/05-variants-and-vcf.md#three-kinds-of-filter) describes, but the dialog leaves them out of the command it runs, so they reach neither GATK nor the run's provenance. GATK decides which alleles to write from its own genotype likelihoods, its probabilities that each possible genotype is correct.
 
 ### Run HaplotypeCaller
 
 Check that the Alignment Track picker names `HG002 minimap2`, leave every field alone, and click **Run**. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
 
-LGE runs GATK inside the `gatk-core` environment, writes the VCF to the bundle's `variants/gatk/` folder, and attaches it as a variant track described as "GATK HaplotypeCaller variants from <alignment>". The dialog always asks GATK for a plain VCF of variant positions, never a GVCF. That matters only when you combine this sample with others, which [Joint Genotyping](02-joint-genotyping.md) covers and which needs a GVCF from the command line.
+The row runs `lungfish-cli variants call --caller gatk`, which runs GATK inside the `gatk-core` environment, writes the VCF to the bundle's `variants/gatk/` folder, and attaches it as a variant track described as "GATK HaplotypeCaller variants from <alignment>". Each call keeps its own run record, and Copy CLI Command on the row copies the command with every value the dialog chose. The dialog always asks for a plain VCF of variant positions, `--emit-ref-confidence NONE`, never a GVCF. That matters only when you combine this sample with others, which [Joint Genotyping](02-joint-genotyping.md) covers and which needs a GVCF from the command line.
 
 ### Read the calls in the Variants tab
 
@@ -111,17 +112,17 @@ The phased route adds WhatsHap, a separate program that reads a set of calls and
 
 ## Settings
 
-The GATK HaplotypeCaller entry shows five controls. Where the command-line phased route has a matching flag, the entry names it.
+The GATK HaplotypeCaller entry shows five controls. Where the row's `variants call` command has a matching flag, the entry names it, with the phased route's flag where that differs.
 
-**Alignment Track.** Chooses which alignment GATK reassembles reads from. The default is the first analysis-ready BAM track the bundle holds, rather than the track you opened the dialog from. Change it when the bundle holds more than one alignment, and prefer whole-genome or exome shotgun data over amplicon data. For the phased route the alignment also decides how much phasing can work, since [read-backed phasing](../../GLOSSARY.md#read-backed-phasing) links two variants only when single reads or read pairs span both. On the command line this is `--bam`.
+**Alignment Track.** Chooses which alignment GATK reassembles reads from. The default is the first analysis-ready BAM track the bundle holds, rather than the track you opened the dialog from. Change it when the bundle holds more than one alignment, and prefer whole-genome or exome shotgun data over amplicon data. For the phased route the alignment also decides how much phasing can work, since [read-backed phasing](../../GLOSSARY.md#read-backed-phasing) links two variants only when single reads or read pairs span both. On the command line this is `--alignment-track`, or `--bam` for the phased route.
 
-**Output Variant Track Name.** Names the variant track the run creates, while the VCF itself is saved under a generated file name. The default is the alignment name, a bullet, and the tool name, and a name already in use gets a number added so runs never overwrite each other. Change it when you want a clearer label. This setting has no command-line flag.
+**Output Variant Track Name.** Names the variant track the run creates, while the VCF itself is saved under a generated file name. The default is the alignment name, a bullet, and the tool name, and a name already in use gets a number added so runs never overwrite each other. Change it when you want a clearer label. On the command line this is `--name`.
 
-**Minimum Allele Frequency.** Has no effect on GATK HaplotypeCaller, which LGE neither passes to GATK nor records. The field shows 0.05 because the dialog draws it for every caller, and the other callers use it. Leave it alone here. This setting has no command-line flag.
+**Minimum Allele Frequency.** Has no effect on GATK HaplotypeCaller, because the row leaves it out of the command. The field shows 0.05 because the dialog draws it for every caller, and the other callers use it. Leave it alone here.
 
-**Minimum Depth.** Has no effect on GATK HaplotypeCaller, for the same reason. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position. The field shows 10 and accepts a whole number or a blank. Leave it alone here. This setting has no command-line flag.
+**Minimum Depth.** Has no effect on GATK HaplotypeCaller, for the same reason. [Depth](../../GLOSSARY.md#depth), also called coverage, is the number of reads covering one position. The field shows 10 and accepts a whole number or a blank. Leave it alone here.
 
-**Extra arguments.** Passes text straight to GATK without LGE checking it, appended to the command the dialog assembles. The default is empty, which is right for almost every run. Use it for a GATK option the dialog does not set, such as an interval list. It cannot change [ploidy](../../GLOSSARY.md#ploidy), the number of copies of each chromosome, or the calling threshold, because the dialog always sends `--sample-ploidy 2` and `--standard-min-confidence-threshold-for-calling 30.0`, and GATK stops with an error when an option is given twice. On the command line this is `--extra-args`, and for the phased route `--extra-gatk-args`, which reaches only the GATK half.
+**Extra arguments.** Passes text straight to GATK without LGE checking it, after the options the dialog sets. The default is empty, which is right for almost every run. Use it for a GATK option the dialog does not set, such as an [interval list](../../GLOSSARY.md#interval-list). It cannot change [ploidy](../../GLOSSARY.md#ploidy), the number of copies of each chromosome, or the calling threshold, because the row always sends `--ploidy 2` and `--stand-call-conf 30.0`, which reach GATK as `--sample-ploidy` and `--standard-min-confidence-threshold-for-calling`, and GATK stops with an error when an option is given twice. On the command line this is `--extra-args`, and for the phased route `--extra-gatk-args`, which reaches only the GATK half.
 
 ## Reading the results
 
@@ -149,10 +150,18 @@ Check that the run finished. The Operations Panel row should end as completed, a
 
 ## On the command line
 
-Run these from the `LGE GATK` working folder with the variables from [Reference Files for GATK](04-reference-packs.md#before-you-start) set. Every `lungfish-cli gatk` command prints the GATK command and stops unless you add `--execute`. Every flag is listed under [Calling variants](../appendices/cli-reference.md#calling-variants) in the CLI Reference.
+Run these from the `LGE GATK` working folder with the variables from [Reference Files for GATK](04-reference-packs.md#before-you-start) set. Every `lungfish-cli gatk` command prints the GATK command and stops unless you add `--execute`, while `variants call` runs at once. Every flag is listed under [Calling variants](../appendices/cli-reference.md#calling-variants) in the CLI Reference.
 
 ```bash
-# A genotyped VCF, which is what the dialog asks for
+# The dialog's own call, attached to the bundle that owns the track
+PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants.lungfish"
+BUNDLE="$PROJECT/Analyses/minimap2-2026-09-27T11-10-11/GRCh38.chr20.10.0-10.5Mb.lungfishref"
+lungfish-cli variants call \
+    --bundle "$BUNDLE" \
+    --alignment-track "HG002 minimap2" \
+    --caller gatk
+
+# A genotyped VCF from loose files in the working folder
 lungfish-cli gatk haplotype-caller \
     --reference GRCh38.chr20.10.0-10.5Mb.fasta \
     --bam HG002.sorted.bam \
@@ -168,7 +177,7 @@ lungfish-cli variants phase \
 "$TOOLS/htslib/bin/tabix" -p vcf phased/HG002.phased.vcf.gz
 ```
 
-`tabix` in the last line writes the index other tools need to read one region of the phased VCF. Two command-line defaults change results. `gatk haplotype-caller` writes a GVCF unless you pass `--emit-ref-confidence NONE`, where the dialog always writes a plain VCF. Its `--ploidy` defaults to 2, the dialog never changes it, and setting 1 gives a haploid call set. The phased route always writes genotyped calls, since WhatsHap cannot phase a GVCF. On the recorded run the first command wrote the same 1,026 rows as the dialog.
+`tabix` in the last line writes the index other tools need to read one region of the phased VCF. The first command takes the values the dialog sends, a plain VCF, `--ploidy 2`, `--pcr-indel-model CONSERVATIVE`, `--stand-call-conf 30.0`, `--max-alternate-alleles 6`, and `--pair-hmm-threads 4`, as its defaults, and `--intervals` restricts it to the regions of a BED file or interval list. Use the same mapping result name as in Before you start. Two defaults of the loose-file commands change results. `gatk haplotype-caller` writes a GVCF unless you pass `--emit-ref-confidence NONE`, where the dialog always writes a plain VCF. Its `--ploidy` defaults to 2, the dialog never changes it, and setting 1 gives a haploid call set. The phased route always writes genotyped calls, since WhatsHap cannot phase a GVCF. On the recorded run `gatk haplotype-caller` with `--emit-ref-confidence NONE` wrote the same 1,026 rows as the dialog.
 
 ## Next
 

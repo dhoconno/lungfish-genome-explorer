@@ -9,12 +9,12 @@ tags: [variants, vcf, import, import-center, benchmark, table-drawer]
 tools: [bcftools]
 parameters_refs: [import.vcf]
 entry_points:
-  - "File > Import Center... > Variants > VCF Variants"
+  - "File > Import Center… > Variants > VCF Variants"
   - "Drag a VCF onto the viewport (always builds a new variant-only bundle)"
   - "CLI: lungfish-cli import vcf"
 shots:
   - id: import-center-vcf-card
-    caption: "The Variants tab of the Import Center showing the VCF Variants card and its Import... button."
+    caption: "The Variants tab of the Import Center showing the VCF Variants card and its Import… button."
   - id: name-imported-variant-bundle
     caption: "The Name Imported Variant Bundle prompt that appears when no reference bundle is open, with the project path in its message and the file's base name filled into the text field."
   - id: imported-benchmark-in-variants-tab
@@ -65,7 +65,7 @@ The bundle from Calling Variants is the right one, because the benchmark's posit
 
 ### Open the Import Center and choose the VCF
 
-Open the [Import Center](../../GLOSSARY.md#import-center) with **File > Import Center...** (Cmd-Shift-I), which [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) describes. Click the **Variants** tab. One card sits there, **VCF Variants**, with the accepted extensions `.vcf, .vcf.gz` underneath. Click its **Import...** button.
+Open the [Import Center](../../GLOSSARY.md#import-center) with **File > Import Center…** (Cmd-Shift-I), which [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) describes. Click the **Variants** tab. One card sits there, **VCF Variants**, with the accepted extensions `.vcf, .vcf.gz` underneath. Click its **Import…** button, or drag the file from Finder onto the card, which takes the same path.
 
 <!-- SHOT: import-center-vcf-card -->
 
@@ -75,9 +75,11 @@ Dragging a VCF from Finder onto the viewport does not attach it to the open bund
 
 ### Wait for the import to finish
 
-Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). A row titled `Importing HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz` shows the detail `Importing VCF variants (Auto)...`, where `Auto` names the import profile in force, the memory setting the Settings section describes.
+Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). A row titled `Importing HG002.chr20.10.0-10.5Mb.benchmark.vcf.gz` shows the detail `Importing VCF variants (Auto)...`, where `Auto` names the import profile in force, the memory setting the Settings section describes. The row runs `lungfish-cli import vcf`, the command [On the command line](#on-the-command-line) shows, so Copy CLI Command on the row gives a command that repeats the import.
 
 LGE reads the VCF's rows into a database inside the bundle's `variants/` folder, which the table sorts and filters quickly, and records the import in a [provenance](../../GLOSSARY.md#provenance) record beside it. The new track is named after the file, without its last extension, so the benchmark arrives as `HG002.chr20.10.0-10.5Mb.benchmark.vcf`.
+
+An import never overwrites a track. Import a file whose name matches a track the bundle already holds, and its rows become a second track whose id, the bundle's internal name for the track, gains `-2`, as in `HG002.chr20.10.0-10.5Mb.benchmark-2`. Both tracks keep the file's name in the `Variant Track` column, so import a file twice only on purpose. Replacing a track takes an explicit choice, the `--replace` flag of the command line.
 
 Only one operation can work on a bundle at a time. If a variant-calling run is still going, LGE shows an alert titled **Operation in Progress** and does not queue the import, so wait and start it again. If the import fails before it starts because the project folder is not writable, [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to check.
 
@@ -97,13 +99,13 @@ Click Create and LGE builds a variant-only bundle, a `.lungfishref` bundle holdi
 
 The bundle records a default [ploidy](../../GLOSSARY.md#ploidy), the number of copies of each chromosome an organism carries, as `auto` for a single file and `haploid` when several VCFs were merged into one track. LGE also reads the VCF's contig lines, the header lines naming each sequence the rows count along, looking for an assembly or an NCBI accession it recognises. When it finds one it downloads that reference in the background and attaches it. The benchmark's header lists the whole GRCh38 human assembly, so this path would try to fetch a whole human reference for a 500 kilobase example, which is why opening the right bundle comes first.
 
-With no project open at all, an alert titled **No Active Project** asks you to open or create one first.
+With no project open at all, an alert titled **No Project Open** asks you to open or create one first.
 
 ## Settings
 
 The VCF Variants card has no controls of its own. One preference shapes the import.
 
-**Import profile.** Chooses how much memory the import may use while writing the VCF's rows into the bundle's database. The default is Auto, which picks Fast, Low Memory, or Ultra-Low Memory from the file's size and your Mac's memory. Choose Fast for a VCF of a few gigabytes on a Mac with 32 GB of memory or more, and Low Memory when a Mac with 8 or 16 GB slows to a crawl during a large import. It lives in **Settings > General** under **VCF Import**, where its label ends in a colon. On the command line this is `--import-profile`, which applies when the command attaches a VCF to a bundle.
+**Import profile.** Chooses how much memory the import may use while writing the VCF's rows into the bundle's database, a preference under **VCF Import** in **Settings > General** rather than a control on the card. The default is Auto, which picks Fast, Low Memory, or Ultra-Low Memory from the file's size and your Mac's memory. Choose Fast for a VCF of a few gigabytes on a Mac with 32 GB of memory or more, and Low Memory when a Mac with 8 or 16 GB slows to a crawl during a large import. On the command line this is `--import-profile`.
 
 ## Reading the results
 
@@ -143,6 +145,8 @@ lungfish-cli import vcf \
 ```
 
 The summary ends "VCF import complete" and names the track it attached, and the Variants tab then reports 961 variants. When `--output-dir` names a plain folder instead of a bundle, the command only validates the file, prints a summary that also splits the records by type, and copies the VCF and its index there, attaching nothing. `--name` and `--import-profile` are refused in that case, because they apply only to a bundle.
+
+To replace a track rather than add one, give its id to `--replace`, as in `--replace HG002.chr20.10.0-10.5Mb.benchmark`, and the new database and record take the place of that track's. `lungfish-cli bundle list "$BUNDLE" --tracks` prints the ids of the tracks a bundle holds.
 
 ## Next
 
