@@ -57,7 +57,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private(set) var database: NaoMgsDatabase? { didSet { refreshExportItem() } }
 
     /// Bundle manifest metadata.
-    private var manifest: NaoMgsManifest?
+    private(set) var manifest: NaoMgsManifest?
 
     /// Total hits for percentage display in the action bar.
     private(set) var naoMgsTotalHits: Int = 0
@@ -70,10 +70,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     var exportFailurePresenter: ExportFailurePresenting = DefaultExportFailurePresenter()
 
     /// All samples with their hit counts from the database.
-    private var allSamples: [(sample: String, hitCount: Int)] = []
+    private(set) var allSamples: [(sample: String, hitCount: Int)] = []
 
     /// Currently selected sample names for filtering.
-    private var selectedSamples: Set<String> = []
+    var selectedSamples: Set<String> = []
 
     /// Sample entries for the picker view.
     public var sampleEntries: [NaoMgsSampleEntry] = []
@@ -102,20 +102,20 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var cachedTaxonRows: [NaoMgsTaxonSummaryRow] = []
 
     /// Currently selected taxon summary row.
-    private var selectedRow: NaoMgsTaxonSummaryRow?
+    var selectedRow: NaoMgsTaxonSummaryRow?
 
     /// Currently selected accession within the detail pane.
     private var selectedAccession: String?
 
     // MARK: - Child Views
 
-    private let summaryBar = NaoMgsSummaryBar()
+    let summaryBar = NaoMgsSummaryBar()
     let splitView = TrackedDividerSplitView()
     private let taxonomyTableScrollView = NSScrollView()
-    private let taxonomyTableView = NSTableView()
+    let taxonomyTableView = NSTableView()
     private let taxonomyFilterBar = NSStackView()
     private let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
-    private let taxonomySearchField = NSSearchField()
+    let taxonomySearchField = NSSearchField()
 
     /// Shared column-header sort/filter menu (replaces a hand-rolled
     /// copy that drifted from `TaxonomyTableView`/`ViralDetectionTableView`).
@@ -124,7 +124,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Free-text filter applied to the taxon and sample columns (NAO-MGS
     /// previously had no search field at all).
-    private var searchText: String = ""
+    var searchText: String = ""
 
     /// Per-column filters applied via column header click menus.
     private var columnFilterSet = ColumnFilterSet()
@@ -236,7 +236,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var tableContainer: NSView?
 
     /// Shared raw split-view coordinator for pane ordering and divider state.
-    private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
+    let splitCoordinator = TwoPaneTrackedSplitCoordinator()
 
     /// Active bottom constraint for the split view. Re-pinned when BLAST drawer opens.
     private var splitViewBottomConstraint: NSLayoutConstraint?
@@ -273,7 +273,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// This viewport owns the one AppKit typography observer for both standard
     /// and metadata cells, so the embedded controller must not observe the same
     /// preference independently.
-    let metadataColumnController = MetadataColumnController(
+    let metadataColumnController = MetadataColumnController.adoptingViewMemory(
         contentTypographyOwnership: .embedded,
         userDefaults: {
             #if DEBUG
@@ -338,7 +338,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Selection Sync
 
     /// Prevents infinite feedback loops when syncing selection between views.
-    private var suppressSelectionSync = false
+    var suppressSelectionSync = false
 
     // MARK: - Callbacks
 
@@ -497,7 +497,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         // Update sample column visibility
         updateSampleColumnVisibility()
 
-        hideLoadingOverlay()
+        finishDatabaseConfigure()
         logger.info("Configured NAO-MGS viewer with database, \(self.allSamples.count) samples")
     }
 
@@ -524,7 +524,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     // MARK: - Taxonomy Table Reload
 
-    private func reloadTaxonomyTable() {
+    func reloadTaxonomyTable() {
         if let database {
             do {
                 let rows = try database.fetchTaxonSummaryRows(samples: Array(selectedSamples))
@@ -663,7 +663,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     // MARK: - Sample Filter Button
 
-    private func updateSampleFilterButtonTitle() {
+    func updateSampleFilterButtonTitle() {
         let total = allSamples.count
         let selected = selectedSamples.count
         if selected == total {
@@ -1291,7 +1291,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         loadingSpinner.startAnimation(nil)
     }
 
-    private func hideLoadingOverlay() {
+    func hideLoadingOverlay() {
         loadingSpinner.stopAnimation(nil)
         loadingOverlay.isHidden = true
     }
@@ -1922,7 +1922,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         applyLayoutPreference()
     }
 
-    private func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
+    func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
         switch layout {
         case .detailLeading, .stacked:
             return 0.4
@@ -1948,7 +1948,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 self?.minimumExtents(for: MetagenomicsPanelLayout.current()) ?? (250, 300)
             },
             defaultLeadingFraction: { [weak self] in
-                self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
+                self?.keptSplitFraction ?? self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
             },
             afterApply: { [weak self] in
                 self?.resizeDetailContentToFit()
@@ -1959,7 +1959,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private func applyInitialSplitPositionIfNeeded() {
         splitCoordinator.applyInitialSplitPositionIfNeeded(
             to: splitView,
-            defaultLeadingFraction: defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
+            defaultLeadingFraction: keptSplitFraction ?? defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
             minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current()),
             afterApply: { [weak self] in
                 self?.resizeDetailContentToFit()
@@ -2710,7 +2710,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Metadata Column Updates
 
     /// Updates metadata columns for the current sample selection.
-    private func updateMetadataColumnsForCurrentSamples() {
+    func updateMetadataColumnsForCurrentSamples() {
         let isMulti = selectedSamples.count > 1
         let sampleId: String?
         if selectedSamples.count == 1 {

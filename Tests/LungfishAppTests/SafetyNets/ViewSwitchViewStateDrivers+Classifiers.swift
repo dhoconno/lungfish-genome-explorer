@@ -46,9 +46,10 @@ struct NaoMgsViewStateDriver: ViewStateDriver {
         }
         let table = viewer.testTaxonomyTableView
         table.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+        // The search matches a row's taxon name or sample, so the probe comes from a row that has a name.
         let last = try XCTUnwrap(viewer.displayedRows.last, "the result shows rows")
-        let name = last.name.isEmpty ? "Taxid \(last.taxId)" : last.name
-        viewer.testSetTaxonomySearchText(String(name.prefix(6)))
+        let probe = viewer.displayedRows.last { !$0.name.isEmpty }.map { String($0.name.prefix(6)) }
+        viewer.testSetTaxonomySearchText(probe ?? String(last.sample.prefix(6)))
         XCTAssertGreaterThan(table.numberOfRows, 0, "the filter matches the last row")
         viewer.testSelectTaxonomyRow(0)
         TaxonomyViewStateControls.moveDivider(of: viewer.testSplitView)

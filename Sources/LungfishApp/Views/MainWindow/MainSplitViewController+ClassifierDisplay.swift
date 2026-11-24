@@ -983,7 +983,7 @@ extension MainSplitViewController {
         )
 
         // Show a placeholder at once. Its viewer takes only a NAO-MGS block out of the Summary when it leaves.
-        let placeholderVC = NaoMgsResultViewController()
+        let placeholderVC = NaoMgsResultViewController.keepingViewMemory(of: url)
         do {
             try viewerController.displayNaoMgsResult(placeholderVC) { [weak self] in
                 guard let summary = self?.inspectorController?.viewModel.documentSectionViewModel,
