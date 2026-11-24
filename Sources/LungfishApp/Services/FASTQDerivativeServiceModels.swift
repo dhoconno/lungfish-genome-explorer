@@ -257,8 +257,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             return [
                 "strictness": "\(strictness)",
                 "minOverlap": "\(minOverlap)",
-                "countDuplicatesAfterMerge": "true",
-                "duplicateCountEncoding": "size=N",
+                "countDuplicatesAfterMerge": "false",
+                "duplicateCountEncoding": "none",
             ]
         case .pairedEndRepair:
             return [:]

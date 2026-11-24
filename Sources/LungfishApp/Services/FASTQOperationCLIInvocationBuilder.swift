@@ -532,7 +532,8 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         case .pairedEndMerge(let strictness, let minOverlap):
             var arguments = ["merge", inputURL.path, "--min-overlap", "\(minOverlap)", "-o", outputTarget]
             if strictness == .strict { arguments.append("--strict") }
-            arguments.append("--count-duplicates")
+            // The dialog offers no choice about duplicates. Counting wrote Q40 on every base, broke the unmerged
+            // pairs and made one record stand for N reads (MERGE-COUNTED-INVENTED-Q), so the argv never carries it.
             return arguments
         case .pairedEndRepair:
             return ["repair", inputURL.path, "-o", outputTarget]

@@ -25,7 +25,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("strict"), help: "Use strict merge mode")
     var strict: Bool = false
 
-    @Flag(name: .customLong("count-duplicates"), help: "Collapse identical output sequences after merge and encode support as size=N")
+    @Flag(name: .customLong("count-duplicates"), help: "Collapse identical sequences, merged and unmerged alike, into one record each, named u<number>;size=<reads>. The written scores are Q40 placeholders, not measured, and reads that did not merge lose their mate pairing.")
     var countDuplicates: Bool = false
 
     @OptionGroup var output: GzipOutputOptions

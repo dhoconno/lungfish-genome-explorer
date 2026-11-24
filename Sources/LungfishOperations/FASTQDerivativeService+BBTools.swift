@@ -37,7 +37,7 @@ extension FASTQDerivativeService {
         outputBundleURL: URL,
         strictness: FASTQMergeStrictness,
         minOverlap: Int,
-        countDuplicateMergedReads: Bool = true,
+        countDuplicateMergedReads: Bool = false,
         isInterleaved: Bool = true,
         provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> ReadClassification {
