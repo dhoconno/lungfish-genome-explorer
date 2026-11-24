@@ -15,12 +15,41 @@ package enum FASTQQualityScoreOrigin {
 
     /// Whether the reads of `fastqURL` carry placeholder scores. `fastqURL` is a FASTQ file inside a `.lungfishfastq`
     /// bundle or the bundle itself. A file that sits in no bundle, or in a bundle with no derived manifest, is false.
+    ///
+    /// A bundle whose own manifest holds no mark is read through its ancestors: a dataset made from a Fluidigm bundle
+    /// before the mark existed (a subsample, a filter, a trim or a demultiplex) holds the written Q40 and none of the
+    /// marks, so each manifest's `parentBundleRelativePath` is followed, resolved as the derived-bundle code resolves it,
+    /// and the reads count as placeholder when any ancestor's manifest says so. The walk stops with false at a missing
+    /// bundle, a bundle with no derived manifest, a bundle it has already seen or the sixteenth step, and it writes
+    /// nothing (lane FLUIDIGM-CHILDREN F8, ruling BIO-FLUIDIGM-CHILDREN).
     package static func readsCarryPlaceholderScores(fastqURL: URL) -> Bool {
         guard let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: fastqURL),
               let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) else {
             return false
         }
-        return carryPlaceholderScores(manifest)
+        if carryPlaceholderScores(manifest) {
+            return true
+        }
+        var visited: Set<String> = [bundleURL.standardizedFileURL.path]
+        var current = bundleURL.standardizedFileURL
+        var currentManifest = manifest
+        for _ in 0..<16 {
+            let parent = FASTQBundle.resolveBundle(relativePath: currentManifest.parentBundleRelativePath, from: current)
+                .standardizedFileURL
+            guard !visited.contains(parent.path),
+                  FASTQBundle.isBundleURL(parent),
+                  FileManager.default.fileExists(atPath: parent.path),
+                  let parentManifest = FASTQBundle.loadDerivedManifest(in: parent) else {
+                return false
+            }
+            if carryPlaceholderScores(parentManifest) {
+                return true
+            }
+            visited.insert(parent.path)
+            current = parent
+            currentManifest = parentManifest
+        }
+        return false
     }
 
     /// The same reading for a manifest in hand. True when the manifest holds the mark. A bundle made before the field
