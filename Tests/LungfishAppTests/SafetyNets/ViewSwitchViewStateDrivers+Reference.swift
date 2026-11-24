@@ -101,9 +101,10 @@ struct ReferenceViewStateDriver: ViewStateDriver {
 
     var lineAfterChangedBundle: String? { yourPlaceWasNotKept }
 
-    /// The line over the embedded viewer, which the viewer draws itself.
+    /// The embedded viewer's line, which the viewer makes: over its canvas for a reference, in the detail area of the
+    /// mapping viewport, which hosts it, for a mapping result (VS-LINE-HIDDEN).
     func resetLineWords(in harness: ViewSwitchWindowHarness) -> String? {
-        viewer(in: harness)?.view.subviews.compactMap { $0 as? ViewMemoryResetLineView }.first?.words
+        viewer(in: harness)?.testResetLineWords
     }
 }
 
@@ -228,7 +229,5 @@ final class ViewSwitchViewStateReferenceTests: XCTestCase {
         }
     }
 
-    private func resetLine(in viewer: ViewerViewController) -> String? {
-        viewer.view.subviews.compactMap { $0 as? ViewMemoryResetLineView }.first?.words
-    }
+    private func resetLine(in viewer: ViewerViewController) -> String? { viewer.testResetLineWords }
 }

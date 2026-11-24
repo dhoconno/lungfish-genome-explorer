@@ -946,9 +946,8 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         return row >= 0 ? viewport.sequenceTableView.displayedRows[row].summary.name : nil
     }
 
-    private func resetLine(in viewer: ViewerViewController) -> String? {
-        viewer.view.subviews.compactMap { $0 as? ViewMemoryResetLineView }.first?.words
-    }
+    /// The viewer's line, in the viewer or in the mapping viewport's detail area that hosts it (VS-LINE-HIDDEN).
+    private func resetLine(in viewer: ViewerViewController) -> String? { viewer.testResetLineWords }
 }
 
 /// The sender a click on a table row hands its action: a table whose clicked row is the row clicked. NSTableView sets

@@ -559,7 +559,7 @@ extension ReadConfidenceAcrossBundlesTests {
         XCTAssertEqual(viewportConfidence(viewer), 0, "and from the viewport")
         XCTAssertNil(filterLineText(viewer), "filters not restored show no filter line")
         let embedded = viewer.referenceBundleViewportController?.testEmbeddedViewerController
-        let resetLine = embedded?.view.subviews.compactMap { $0 as? ViewMemoryResetLineView }.first?.words
+        let resetLine = embedded?.testResetLineWords // in the viewer, or the mapping viewport's detail area
         XCTAssertEqual(resetLine, ViewMemoryWords.dataChanged([.place, .filters]), "word 2 names the filters")
     }
 
