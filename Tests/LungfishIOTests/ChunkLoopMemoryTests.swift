@@ -68,13 +68,22 @@ final class ChunkLoopMemoryTests: XCTestCase {
     /// The NAO-MGS import names its taxa from the taxonomy's names.dmp, about 250 MB.
     func testTheTaxonomyNameScanKeepsNoChunkOfNamesDmp() throws {
         let root = try makeRoot()
-        let written = try Self.writeBlocks(of: "9606\t|\tHomo sapiens\t|\t\t|\tscientific name\t|\n", to: root.appendingPathComponent("names.dmp"))
+        let written = try Self.writeBlocks(of: "9606\t|\tHomo sapiens\t|\t\t|\tscientific name\t|\n", to: root.appendingPathComponent("names.dmp"), blocks: 2 * Self.blocks)
 
         var names: [Int: String] = [:]
-        let rise = try peakRise { names = try TaxonomyNameResolver.resolveFromFile(root, taxIds: [9606]) }
+        // Taxon 1 is not in the file, so the scan reads all of it (TaxonomyNameResolver.swift:123 ends it once every wanted id is found).
+        let rise = try peakRise { names = try TaxonomyNameResolver.resolveFromFile(root, taxIds: [9606, 1]) }
 
         XCTAssertEqual(names[9606], "Homo sapiens", "the scan found the name")
-        assertKeepsNoChunk("TaxonomyNameResolver.resolveFromFile (TaxonomyNameResolver.swift:93)", input: written.bytes, rise: rise)
+        XCTAssertNil(names[1], "the absent taxon stays absent")
+        // One 4 MiB pass holds about 26 MB of text and lines, a bounded working set: 26.4 MB at 48 MiB and 27.7 MB at 96 MiB.
+        // A loop that kept its chunks would hold 0.7 to 1.0 times the input, over 70 MB here, so 64 MB still catches it.
+        print("ChunkLoopMemoryTests TaxonomyNameResolver.resolveFromFile (TaxonomyNameResolver.swift:93): footprint rise \(rise) B over an input of \(written.bytes) B")
+        XCTAssertLessThanOrEqual(
+            rise, 64_000_000,
+            "TaxonomyNameResolver.resolveFromFile raised the footprint by \(rise) B over an input of \(written.bytes) B, over the 64000000 B "
+                + "that one pass of the names scan allows, so it kept its chunks"
+        )
     }
 
     // MARK: - The loops POOL-LOOPS left unmeasured (lane POOL-LOOPS-2)
@@ -219,7 +228,7 @@ final class ChunkLoopMemoryTests: XCTestCase {
         return peak > baseline ? peak - baseline : 0
     }
 
-    private static func writeBlocks(of line: String, to url: URL) throws -> (bytes: Int, lines: Int) {
+    private static func writeBlocks(of line: String, to url: URL, blocks: Int = blocks) throws -> (bytes: Int, lines: Int) {
         let perBlock = (1 << 20) / line.utf8.count
         let block = Data(String(repeating: line, count: perBlock).utf8)
         FileManager.default.createFile(atPath: url.path, contents: nil)
