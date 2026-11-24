@@ -325,10 +325,16 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }
             var digest = SHA256()
-            while true {
-                let data = try handle.read(upToCount: 1 << 20) ?? Data()
-                if data.isEmpty { break }
-                digest.update(data: data)
+            var atEnd = false
+            while !atEnd {
+                // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+                try autoreleasepool { () throws -> Void in
+                    guard let data = try handle.read(upToCount: 1 << 20), !data.isEmpty else {
+                        atEnd = true
+                        return
+                    }
+                    digest.update(data: data)
+                }
             }
             return .init(size: size, sha256: digest.finalize().map { String(format: "%02x", $0) }.joined())
         }

@@ -2766,8 +2766,8 @@ public class SequenceViewerView: NSView {
     nonisolated internal static func checksumSnapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
-        let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }; var hash = SHA256()
-        while true { let data = try handle.read(upToCount: 1 << 20) ?? Data(); if data.isEmpty { break }; hash.update(data: data) }
+        let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }; var hash = SHA256(); var atEnd = false
+        while !atEnd { try autoreleasepool { () throws -> Void in guard let data = try handle.read(upToCount: 1 << 20), !data.isEmpty else { atEnd = true; return }; hash.update(data: data) } }
         return .init(size: size, sha256: hash.finalize().map { String(format: "%02x", $0) }.joined())
     }
 
