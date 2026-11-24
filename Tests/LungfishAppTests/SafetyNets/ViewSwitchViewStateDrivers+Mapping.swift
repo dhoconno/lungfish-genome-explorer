@@ -651,6 +651,41 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertEqual(viewport.alignmentActionContextTask, built, "and start no new evidence hash")
     }
 
+    /// VS-MAP-RACE SWIFT B1. A return to the same reference in the same viewport, as the route makes it, configures the
+    /// list's rows again, and the list sends its kept selection again. That is the list's own selection, not a
+    /// person's pick, so the late restore still brings back the kept view.
+    func testAReturnToTheSameReferenceInTheSameViewportStillRestoresTheKeptView() async throws {
+        let first = try bundle("First", Self.two)
+        let viewport = try await open(reference: first, store: makeStore())
+        let viewer = viewport.testEmbeddedViewerController
+        viewer.zoomIn() // a user event handler, which marks the view changed
+        let kept = try XCTUnwrap(viewer.referenceFrame)
+        viewer.clearBundleDisplay()
+
+        try viewport.configureForTesting(input: .directBundle(bundleURL: first, manifest: try BundleManifest.load(from: first)))
+        XCTAssertFalse(viewer.viewMemoryIsSettled, "the read is held")
+        let settled = await waitUntil(budget: .lookup) {
+            viewer.currentBundleURL?.standardizedFileURL == first.standardizedFileURL && viewer.viewMemoryIsSettled
+        }
+        XCTAssertTrue(settled, "the restore ran")
+        XCTAssertEqual(viewer.viewMemory?.pickedBeforeApply, false, "the list's own re-emission of its kept selection is no pick")
+        let frame = try XCTUnwrap(viewer.referenceFrame)
+        XCTAssertEqual(frame.end - frame.start, kept.end - kept.start, accuracy: 0.5, "the kept zoom came back")
+    }
+
+    /// VS-MAP-RACE BIO SF-2, the same family: the Inspector's reload of a reference configures the list's rows again and
+    /// selects the shown record again. That re-selection is the list's own, not a person's pick.
+    func testAnInspectorReloadOfAReferenceMarksNoPick() async throws {
+        let viewport = try await open(reference: try bundle("First", Self.two), store: makeStore())
+        pick("chr2", in: viewport)
+        try viewport.reloadViewerBundleForInspectorChanges()
+        XCTAssertFalse(viewport.testEmbeddedViewerController.viewMemoryIsSettled, "the reload starts a visit whose read is held")
+        XCTAssertEqual(
+            viewport.testEmbeddedViewerController.viewMemory?.pickedBeforeApply, false,
+            "the reload's re-selection of the kept row is the list's own")
+        XCTAssertEqual(selectedRecord(in: viewport), "chr2", "the reload keeps the shown record")
+    }
+
     /// VS-MAP-2 item 1 (VS B4, BIO R1). The drawer's row comes back by its identity once the drawer's rows load, never a
     /// row that shares its name or its start, after a switch away and back and after a relaunch, and Delete Annotation
     /// then acts on that row only (it reads `selectedAnnotationResults`).
