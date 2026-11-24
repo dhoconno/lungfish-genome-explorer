@@ -48,11 +48,21 @@ public actor ClassifierReadResolver {
 
     let toolRunner: NativeToolRunner
 
+    /// The Mac's memory that a read extraction is held against (READ-IDENTITY-EXTRACT-MEMORY).
+    let memoryShare: ProcessMemoryShare
+
     // MARK: - Initialization
 
     /// Creates a resolver using the shared native tool runner.
     public init(toolRunner: NativeToolRunner = .shared) {
         self.toolRunner = toolRunner
+        self.memoryShare = ProcessMemoryShare()
+    }
+
+    /// Creates a resolver that holds its extractions against `memoryShare`, which a test gives a Mac of another size.
+    package init(toolRunner: NativeToolRunner = .shared, memoryShare: ProcessMemoryShare) {
+        self.toolRunner = toolRunner
+        self.memoryShare = memoryShare
     }
 
     // MARK: - Static helpers

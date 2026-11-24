@@ -249,7 +249,7 @@ public actor TaxonomyExtractionPipeline {
     ///   - progress: Optional progress callback.
     /// - Returns: A set of read IDs assigned to any of the target taxa.
     /// - Throws: ``TaxonomyExtractionError`` on file read failure.
-    private func buildReadIdSet(
+    func buildReadIdSet(
         classificationURL: URL,
         targetTaxIds: Set<Int>,
         keepReadPairs: Bool = true,
