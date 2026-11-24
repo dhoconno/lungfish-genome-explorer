@@ -263,6 +263,32 @@ extension ViewSwitchViewStateTests {
         assertNoLayoutKeyWritten()
     }
 
+    /// A row the person picks after a Reset View made with the rows in is kept: a restore marker that no page will clear
+    /// never stands in for the selection the shown list holds.
+    func testTaxTriageKeepsARowPickedAfterAResetViewMadeAfterTheFirstPage() async throws {
+        let driver = TaxTriageViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let table = try XCTUnwrap(driver.viewer(in: harness)).testBatchFlatTableView
+        // A sort alone, so the reset reloads no page.
+        table.columnHeaderFilterMenu(sortByKey: "tt_reads", ascending: true)
+        harness.split.viewerController.surfaceHost.resetViewMemory()
+        table.tableView.selectRowIndexes(IndexSet(integer: table.displayedRows.count - 1), byExtendingSelection: false)
+        let picked = try driver.read(in: harness)[TaxTriageViewStateDriver.selectedLine]
+        let top = "selected \(table.displayedRows[0].sample ?? "none") \(table.displayedRows[0].organism)"
+        XCTAssertNotEqual(picked, top, "the person's pick is not the open's top row")
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(
+            try driver.read(in: harness)[TaxTriageViewStateDriver.selectedLine], picked, "the row picked after the reset is kept"
+        )
+        assertNoLayoutKeyWritten()
+    }
+
     /// The batch table and the organism table declare view memory, so their column layouts reach neither the account's
     /// defaults nor the test's suite (VS A10, QA 6).
     func testTaxTriageTablesDeclareViewMemoryAndWriteNoLayout() async throws {
@@ -323,8 +349,18 @@ extension ViewSwitchViewStateTests {
         try await leave(for: other, in: harness, driver: driver)
 
         await visit(sampleRow, expecting: ["MMU-17"])
+        await driver.settle(in: harness)
+        XCTAssertTrue(
+            try driver.read(in: harness)[TaxTriageViewStateDriver.selectedLine].hasPrefix("selected MMU-17 "),
+            "the route's sample opens with its own top row selected"
+        )
         try await leave(for: other, in: harness, driver: driver)
         await visit(batchRow, expecting: ["HG002"])
+        await driver.settle(in: harness)
+        XCTAssertTrue(
+            try driver.read(in: harness)[TaxTriageViewStateDriver.selectedLine].hasPrefix("selected HG002 "),
+            "the batch row brings back the row of its own sample"
+        )
         XCTAssertEqual(try driver.read(in: harness)[TaxTriageViewStateDriver.segmentLine], "segment HG002")
         XCTAssertNil(harness.resetLineWords, "the route's pick is not a loss, so no line shows")
     }
