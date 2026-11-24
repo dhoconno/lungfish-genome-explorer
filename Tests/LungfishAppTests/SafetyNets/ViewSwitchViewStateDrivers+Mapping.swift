@@ -568,7 +568,7 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertTrue(settled, "\(kind): the restore ran")
         XCTAssertEqual(selected(viewport), "chr1", "\(kind): the person's click on the first row, not the kept chr3")
         await viewport.testAwaitAlignmentActionContext()
-        if mapping { XCTAssertNotNil(viewer.alignmentActionContext, "k22: the click's evidence loads") }
+        if mapping { try assertTheContextNames("chr1", in: viewport, "k22: the click's evidence loads") }
         XCTAssertNil(viewer.alignmentEvidenceCue, "\(kind): no cue asks for a second click")
         XCTAssertNil(resetLine(in: viewer), "\(kind): a refused restore shows no line")
     }
@@ -594,7 +594,7 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertTrue(settled, "the restore ran")
         XCTAssertEqual(selectedContig(in: viewport), "chr1", "the clicked contig")
         await viewport.testAwaitAlignmentActionContext()
-        XCTAssertNotNil(viewer.alignmentActionContext, "the click's evidence survives the late restore")
+        try assertTheContextNames("chr1", in: viewport, "the click's evidence survives the late restore")
         XCTAssertNil(viewer.alignmentEvidenceCue, "no cue asks for a second click")
     }
 
@@ -622,7 +622,7 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         let frame = try XCTUnwrap(viewer.referenceFrame)
         XCTAssertEqual(frame.end - frame.start, kept.end - kept.start, accuracy: 0.5, "the restore brought back the zoom")
         await viewport.testAwaitAlignmentActionContext()
-        XCTAssertNotNil(viewer.alignmentActionContext, "the restore keeps the evidence the open's own selection started")
+        try assertTheContextNames("chr1", in: viewport, "the restore keeps the evidence the open's own selection started")
         XCTAssertNil(viewer.alignmentEvidenceCue, "and no cue asks for a click")
     }
 
@@ -644,6 +644,7 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertNotNil(viewport.alignmentActionContextTask, "and starts the new one")
         await viewport.testAwaitAlignmentActionContext()
         XCTAssertEqual(viewer.alignmentActionContext?.filters.readGroups, ["RG7"], "the new context holds the new groups")
+        try assertTheContextNames("chr2", in: viewport, "the rebuilt context")
 
         let built = try XCTUnwrap(viewport.alignmentActionContextTask)
         viewport.applyEmbeddedReadDisplaySettings(groups)
@@ -828,6 +829,23 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         let result = root.appendingPathComponent("mapping-\(try BundleManifest.load(from: bundle).name)", isDirectory: true)
         try Data("BAM stand-in".utf8).write(to: result.appendingPathComponent("sample.sorted.bam"))
         try Data("BAI stand-in".utf8).write(to: result.appendingPathComponent("sample.sorted.bam.bai"))
+    }
+
+    /// The context holds the evidence the view shows: the mapping's BAM, the row's contig, and the filters the view
+    /// shows now, the read groups with them (VS-MAP-RACE, BIO).
+    private func assertTheContextNames(
+        _ contig: String, in viewport: ReferenceBundleViewportController, _ message: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let context = try XCTUnwrap(
+            viewport.testEmbeddedViewerController.alignmentActionContext, message, file: file, line: line)
+        XCTAssertEqual(context.contig, contig, "\(message): the row's contig", file: file, line: line)
+        XCTAssertEqual(
+            context.alignmentURL.lastPathComponent, "sample.sorted.bam", "\(message): the mapping's BAM",
+            file: file, line: line)
+        XCTAssertEqual(
+            context.filters, viewport.currentAlignmentFilters(), "\(message): the filters the view shows",
+            file: file, line: line)
     }
 
     private func makeStore() -> ViewMemoryStore {
