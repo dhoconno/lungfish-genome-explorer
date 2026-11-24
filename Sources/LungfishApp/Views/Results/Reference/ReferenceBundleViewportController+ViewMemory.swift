@@ -177,16 +177,30 @@ extension ReferenceBundleViewportController {
         applyEmbeddedReadDisplaySettings(filters.payload)
     }
 
-    /// The viewer takes read display settings from the block or a restore. A person's change ends the filter line once
-    /// the filters differ from those it spoke of, and the visit takes the list as it stands, so a leave keeps it.
-    func applyReadDisplaySettingsToViewer(_ userInfo: [AnyHashable: Any]) {
+    /// The viewer takes read display settings from the block or a restore, with the row's action context cleared, since
+    /// the context is a snapshot of the filters. A person's change ends the filter line once the filters differ from
+    /// those it spoke of, and the visit takes the list as it stands, so a leave keeps it.
+    /// Returns true while a restored row waits for its click and these settings change none of the shown filters and
+    /// name no track: the block's `.onChange` handlers send a restore's own filters back one SwiftUI pass after it,
+    /// outside its no-hash window, and that must start no evidence hash (VS S4, SWIFT-EVIDENCE-HASH). That check comes
+    /// before the clear, since a clear outside the restore ends the cue (BIO SF-1). A waiting row has no context yet.
+    @discardableResult
+    func applyReadDisplaySettingsToViewer(_ userInfo: [AnyHashable: Any]) -> Bool {
+        let waiting = !embeddedViewerController.isRestoringViewportMemory
+            && embeddedViewerController.viewMemory?.contextWithheld == true && selectedRowAwaitsItsContext
+            && !userInfo.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable)
+        let before = shownReadFilters
+        if !waiting { clearAlignmentActionContext() }
         embeddedViewerController.applyReadDisplaySettings(userInfo)
-        guard !embeddedViewerController.isRestoringViewportMemory else { return }
+        let echo = waiting && shownReadFilters == before
+        if waiting && !echo { clearAlignmentActionContext() }
+        guard !embeddedViewerController.isRestoringViewportMemory else { return false }
         if let line = filterLineView, shownReadFilters != embeddedViewerController.viewMemory?.restoredReads {
             line.removeFromSuperview()
             embeddedViewerController.view.topAnchor.constraint(equalTo: detailContentContainer.topAnchor).isActive = true
         }
         _ = embeddedViewerController.captureViewerMemory()
+        return echo
     }
 
     private var filterLineView: ViewMemoryFilterLineView? {

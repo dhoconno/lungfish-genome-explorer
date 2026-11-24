@@ -844,8 +844,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     func applyEmbeddedReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {
         // The context is an immutable scientific snapshot. Never leave it
         // installed while any display/scientific filter is being replaced.
-        clearAlignmentActionContext()
-        applyReadDisplaySettingsToViewer(userInfo)
+        if applyReadDisplaySettingsToViewer(userInfo) { return } // clears it, but the block's echo of a restore waits
 
         guard currentInput?.kind == .mappingResult else {
             if let row = currentSelectedSequence(),
