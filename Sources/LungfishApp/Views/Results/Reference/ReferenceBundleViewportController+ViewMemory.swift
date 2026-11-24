@@ -243,8 +243,10 @@ extension ReferenceBundleViewportController {
     }
 
     /// A context task that starts ends the cue in the consensus row, the Inspector and the alerts (VS-MAP-2 item 6).
+    /// So does a clear outside the restore: a pick of a row with no evidence to load clears the context and starts no
+    /// task, and a click on it loads nothing the cue could name (BIO SF-1).
     func alignmentActionContextTaskDidChange() {
-        guard alignmentActionContextTask != nil else { return }
+        guard alignmentActionContextTask != nil || !embeddedViewerController.isRestoringViewportMemory else { return }
         embeddedViewerController.viewMemory?.contextWithheld = false
         embeddedViewerController.viewerView?.needsDisplay = true
         onConsensusActionStateChanged?()
