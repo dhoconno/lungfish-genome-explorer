@@ -532,28 +532,14 @@ extension URL {
     /// - Parameter urls: Ordered list of FASTQ file URLs.
     /// - Returns: AsyncThrowingStream yielding lines from all files sequentially.
     public static func multiFileLinesAutoDecompressing(_ urls: [URL]) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    for url in urls {
-                        for try await line in url.linesAutoDecompressing() {
-                            if case .terminated = continuation.yield(line) {
-                                throw CancellationError()
-                            }
-                            try Task.checkCancellation()
-                        }
-                    }
-                    continuation.finish()
-                } catch is CancellationError {
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { @Sendable _ in
-                task.cancel()
-            }
-        }
+        // Pulled on demand, like `linesAutoDecompressing()`. A producer task that yields into an unbounded stream outruns a
+        // consumer that counts every read, and the whole input then waits in memory as strings: about 544 B a FASTQ
+        // record, 22 GB for the 40 M records of 20 M pairs (DEMUXSPLIT-S3-GROUP).
+        let source = MultiFileLineSource(urls)
+        return AsyncThrowingStream(unfolding: {
+            if Task.isCancelled { return nil }
+            return try await source.next()
+        })
     }
 }
 
@@ -563,4 +549,28 @@ private final class AsyncLineIteratorBox: @unchecked Sendable {
     private var iterator: AsyncLineSequence<URL.AsyncBytes>.AsyncIterator
     init(_ iterator: AsyncLineSequence<URL.AsyncBytes>.AsyncIterator) { self.iterator = iterator }
     func next() async throws -> String? { try await iterator.next() }
+}
+
+/// Holder for the files of `multiFileLinesAutoDecompressing` inside a `@Sendable` unfolding closure: the line stream of the
+/// file being read, and the files that wait. An actor, so that the closure needs no escape hatch.
+private actor MultiFileLineSource {
+    private var urls: ArraySlice<URL>
+    private var current: AsyncThrowingStream<String, Error>.Iterator?
+
+    init(_ urls: [URL]) { self.urls = urls[...] }
+
+    func next() async throws -> String? {
+        while true {
+            if var iterator = current {
+                if let line = try await iterator.next(isolation: self) {
+                    current = iterator
+                    return line
+                }
+                current = nil
+            } else {
+                guard let url = urls.popFirst() else { return nil }
+                current = url.linesAutoDecompressing().makeAsyncIterator()
+            }
+        }
+    }
 }
