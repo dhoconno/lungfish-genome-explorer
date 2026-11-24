@@ -159,7 +159,7 @@ Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift 1208
 Sources/LungfishWorkflow/Mapping/MappingProvenance.swift 910
 Sources/LungfishWorkflow/Mapping/MappingViewerBundlePublicationService.swift 1740
 Sources/LungfishWorkflow/Metagenomics/ClassificationPipeline.swift 2479
-Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2034
+Sources/LungfishWorkflow/Metagenomics/MetagenomicsDatabaseRegistry.swift 2042
 Sources/LungfishWorkflow/Metagenomics/MetagenomicsImportService.swift 2539
 Sources/LungfishWorkflow/Native/NativeBundleBuilder.swift 1781
 Sources/LungfishWorkflow/Native/NativeToolRunner.swift 881
