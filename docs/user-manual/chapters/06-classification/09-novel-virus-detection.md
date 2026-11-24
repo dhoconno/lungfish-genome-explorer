@@ -68,7 +68,7 @@ LGE looks in two locations for optional files and copies the files it finds into
 
 The demo has the table and simulated contig FASTA files, so you can verify a match. To count Unique Reads, view mapped reads, or extract reads, use a run with the sample's BAM file. A plugin pack is an add-on that supplies tools. This import needs no plugin pack and the demo import can take well under a second.
 
-NCBI Taxonomy is NCBI's catalog of named groups of organisms. It is an optional download in the **Databases** tab of the **Plugin Manager**. The verdict in the last verification step needs it.
+NCBI Taxonomy is NCBI's catalog of named groups of organisms. It is an optional download in the **Databases** tab of the **Plugin Manager**, the window where you install plugin packs and databases. Choose **Tools > Plugin Manager…** (Cmd-Shift-B) to open it. Without NCBI Taxonomy, LGE cannot judge the BLAST result in the last verification step.
 
 ## Procedure
 
@@ -116,13 +116,15 @@ Four summary cards repeat the preview counts under **Experiment**, **Samples**, 
 
 ### Verify a contig with BLAST
 
-To check a match with a fresh BLAST search, LGE uses the contig's sequence from the sample's FASTA file. All four simulated contigs in the demo use sequence from the SARS-CoV-2 reference, a sequence used for comparison. SampleA's `NODE_1_length_500_cov_10.0` tests a row whose reported match and sequence refer to the same virus. The other three demo contigs hold SARS-CoV-2 sequence under rows that name HIV-1, a herpesvirus, or a norovirus. With NCBI Taxonomy installed, verifying one of those three returns a mismatch. The simulated files produce those mismatches.
+To check a match with a fresh BLAST search, LGE uses the contig's sequence from the sample's FASTA file. All four simulated contigs in the demo use sequence from the SARS-CoV-2 reference, a sequence used for comparison. SampleA's `NODE_1_length_500_cov_10.0` tests a row whose reported match and sequence refer to the same virus. The other three demo contigs hold SARS-CoV-2 sequence under rows that name HIV-1, a herpesvirus, or a norovirus.
+
+With NCBI Taxonomy installed, verifying one of those three gives **Unsupported** when NCBI's best match is SARS-CoV-2 and not the organism the row names. It gives **Inconclusive** if NCBI returns no strong match. The simulated files produce those results.
 
 1. Select one contig row or one of its expanded matches. For the demo, use SampleA's `NODE_1_length_500_cov_10.0`. A [taxon](../../GLOSSARY.md#taxon) is a named group of organisms. The **By Taxon** headings label those groups, so selecting one leaves verification grayed.
 
 2. Click **Verify with BLAST…** in the action bar at the bottom of the window. If the button is grayed, point to it to see the reason in its tooltip, the note shown beside the pointer.
 
-3. Confirm in the **Run BLAST at NCBI?** sheet. LGE submits the contig sequence to NCBI and looks for a copy of NCBI Taxonomy that you have already installed. If it finds one, LGE judges the result against the species of the organism in the selected row's **Classification** cell. If you select a lower-ranked hit that names a different organism, LGE judges the result against that organism's species instead.
+3. Confirm in the **Run BLAST at NCBI?** sheet. LGE submits the contig sequence to NCBI and looks for a copy of NCBI Taxonomy that you have already installed. If it finds one, LGE judges the result against the species of the organism in the selected row's **Classification** cell, or against the organism itself when the row names a group above species. The same rule applies if you select a lower-ranked hit.
 
 4. Read the verdict for the contig's single search in the **BLAST Results** drawer at the bottom of the window. If the badge reads **Not judged**, install NCBI Taxonomy in the **Databases** tab of the **Plugin Manager** and run **Verify with BLAST…** again. For what the verdict means, see the [BLAST Verification](06-blast-verification.md#the-summary-bar-and-the-verdict) chapter.
 
@@ -142,7 +144,7 @@ Three controls above the outline change what you see. For `lungfish-cli nvd expo
 
 ## Reading the results
 
-The outline has fourteen columns, six of which also appear as detail badges. NVD's taxonomy adjustment uses the contig's matches together to assign an organism name.
+The outline has fourteen columns, six of which also appear as detail badges. NVD's taxonomy adjustment is the pipeline's own step that sets the organism name shown in **Classification**.
 
 | Column | What it holds |
 |---|---|
@@ -174,17 +176,17 @@ The outline lists contigs longest first, and clicking a header keeps that order.
 
 <!-- ILLUSTRATION: contig-alignment-length -->
 
-Identity describes the aligned stretch. In the demo it is high for all four best matches. An isolate is a virus sample obtained from a particular source. Look at how much of the contig aligns and how the identity compares with matches among isolates of the named virus.
+Identity describes the aligned stretch. In the demo it is high for all four best matches. An isolate is a virus sample obtained from a particular source. Look at how much of the contig aligns and whether the identity sits well below the identity that isolates of the named virus show with one another.
 
 | What you see | How to read it |
 |---|---|
 | Near 100% identity across nearly all of a long contig | Supports a match to a known viral sequence |
-| A match that covers only part of a long contig, or with identity well below matches among isolates of the named virus | Expand the row if it has multiple matches. Compare **Length** with **Aln Length** for each match to estimate how much of the contig lies outside it |
+| A match that covers only part of a long contig, or whose identity sits well below the identity that isolates of the named virus show with one another | Expand the row if it has multiple matches. Compare **Length** with **Aln Length** for each match to estimate how much of the contig lies outside it |
 | Demo best matches at 99.5%, 96.0%, 99.0%, and 97.5% identity | Inspect alignment length to see how much of each contig agrees |
 
 A fresh search from **Verify with BLAST…** runs megablast, a BLAST mode tuned for nearly identical sequences. It can confirm a near-identical contig but can miss a distant relative. For a possible new virus, use a protein-level search outside LGE. It compares sequences of amino acids, the building blocks of proteins, and can find relatives whose base sequences are too different for a nucleotide search, which compares bases directly.
 
-An e-value shown as `0` is too small for BLAST to print at its displayed precision. See how the scores fit together in [BLAST Verification](06-blast-verification.md#reading-the-results). Report the match at the rank shown, such as genus or family if the row gives a broad name. The name comes from the pipeline's adjustment across the contig's matches, so check the row's **Subject** and **Accession** before you report it.
+An e-value shown as `0` is too small for BLAST to print at its displayed precision. See how the scores fit together in [BLAST Verification](06-blast-verification.md#reading-the-results). Report the match at the rank shown, such as genus or family if the row gives a broad name. The name comes from the pipeline's own adjustment, so check the row's **Subject** and **Accession** before you report it.
 
 **Mapped Reads and Unique Reads.** Mapped Reads comes from NVD's table. [Mates](../../GLOSSARY.md#mate) are the two reads from one fragment, and NVD may count them separately. LGE marks duplicates, reads that appear to be copies from the same original fragment, at import, then counts BAM records on the contig for Unique Reads. It skips records marked as unmapped, secondary (an alternative placement), supplementary (another part of a split placement), or duplicate. Each mate has its own record and counts once if retained. The demo shows dashes in Unique Reads because it has no BAM files.
 
@@ -195,7 +197,7 @@ An e-value shown as `0` is too small for BLAST to print at its displayed precisi
 | SampleA SARS-CoV-2 | 50 | 1,000,000 | 50,000 |
 | SampleB herpesvirus | 100 | 2,000,000 | 50,000 |
 
-The same share of each sample's reads mapped to its contig, even though the SampleB contig had twice the mapped reads. RPB has no fixed good value. It corrects only for sequencing depth, the total reads from a sample. Contig length and how much virus survived collection and extraction can still affect RPB. Compare RPB between contigs of similar length or for the same contig across samples. Use the alignment and read support to judge each match.
+The same share of each sample's reads mapped to its contig, even though the SampleB contig had twice the mapped reads. RPB has no fixed good value. It corrects only for sequencing depth, the total reads from a sample. Contig length and how much virus survived collection and extraction can still affect RPB. Compare RPB between contigs of similar length, such as contigs for the same virus in different samples. Use the alignment and read support to judge each match.
 
 ### The NVD action bar and row menu
 
@@ -226,7 +228,7 @@ Apply the [read classification evidence checklist](01-what-is-classification.md#
 
 1. Check **Samples** against the number of samples you submitted for the run. If an expected sample is missing, check whether the table has any rows for it. **Hits** should equal or exceed **Contigs** because each reported contig has at least one hit.
 
-2. Start with the longest contigs. Compare **Length** with **Aln Length** to see how much of the contig a match covers. Look more closely if the match covers only part of the contig or its percent identity is well below matches among isolates of the named virus.
+2. Start with the longest contigs. Compare **Length** with **Aln Length** to see how much of the contig a match covers. Look more closely if the match covers only part of the contig or its percent identity sits well below the identity that isolates of the named virus show with one another.
 
 3. If the contig has multiple matches, expand it and compare bit scores across organism names. A clear score gap favors the higher match among the records searched. If matches for different organisms score within a few percent of each other, compare how much of the contig each match covers and report uncertainty if the evidence leaves the names unresolved. SampleA's HIV-1 contig has scores of 750, 720, 700, 680, and 660, all naming HIV-1. Databases often hold many isolates of a common virus, so seeing one name throughout the list is common and a nearly equal match to another organism can still fall outside it.
 
