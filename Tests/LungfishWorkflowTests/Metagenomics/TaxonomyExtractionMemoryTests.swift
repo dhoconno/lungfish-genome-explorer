@@ -71,6 +71,7 @@ final class TaxonomyExtractionMemoryTests: XCTestCase {
         XCTAssertEqual([check.named, check.missing, check.otherLength], [fragments, 0, 0], "\(shape): every fragment is found with its length")
         let rise = peak > baseline ? peak - baseline : 0
         let allowed = UInt64(200 * fragments + 16_000_000)
+        print("TaxonomyExtractionMemoryTests \(shape): footprint rise \(rise) B, \(rise / UInt64(fragments)) B a fragment, allowed \(allowed) B")
         XCTAssertLessThanOrEqual(
             rise, allowed,
             "\(shape): the scan and the check raised the footprint by \(rise) B, \(rise / UInt64(fragments)) B a fragment, "

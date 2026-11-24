@@ -14,7 +14,7 @@ extension TaxonomyExtractionPipeline {
     /// is read by `extractOne`, seqkit grep, and a file that holds none of
     /// the reads gives nil. Throws when no file holds any.
     func extractWithMatePairs(
-        _ readIDs: Set<String>,
+        _ readIDs: some ReadIDCollection,
         from sources: [URL],
         matePairStarts: Set<Int>,
         outputDirectory: URL,
@@ -82,7 +82,7 @@ extension TaxonomyExtractionPipeline {
     static func extractMatePairInStep(
         r1: URL,
         r2: URL,
-        readIDs: Set<String>,
+        readIDs: some ReadIDCollection,
         to output: URL
     ) throws -> Int {
         let reader1 = try FASTQRawLineReader(url: r1)

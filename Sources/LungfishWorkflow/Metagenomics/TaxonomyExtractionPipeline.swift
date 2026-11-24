@@ -69,7 +69,7 @@ public actor TaxonomyExtractionPipeline {
         matePairStarts: [Int] = [],
         readLengths: Bool = false,
         progress: (@Sendable (Double, String) -> Void)?
-    ) async throws -> (outputs: [URL?], taxIds: Set<Int>, readCount: Int, named: [String: [KrakenReadLength]]) {
+    ) async throws -> (outputs: [URL?], taxIds: Set<Int>, readCount: Int, named: ReadLengthTable) {
         // Validate source/output count parity.
         guard config.sourceFiles.count == config.outputFiles.count else {
             throw TaxonomyExtractionError.sourceOutputCountMismatch(
@@ -116,11 +116,11 @@ public actor TaxonomyExtractionPipeline {
             progress: progress
         )
 
-        if matchingReadIds.isEmpty {
+        // The route that checks lengths keeps its IDs as the keys of namedLengths, with no second set of them.
+        let matchCount = matchingReadIds.count + namedLengths.count
+        if matchCount == 0 {
             throw TaxonomyExtractionError.noMatchingReads
         }
-
-        let matchCount = matchingReadIds.count
         logger.info("Found \(matchCount, privacy: .public) matching reads")
         progress?(0.30, "Extracting \(matchCount) reads...")
 
@@ -129,10 +129,9 @@ public actor TaxonomyExtractionPipeline {
         // line-by-line Swift FASTQ parsing because it uses optimized C I/O and handles .gz natively.
         try Task.checkCancellation()
 
-        let outputs: (urls: [URL?], readCount: Int)
-        do {
-            outputs = try await extractReadIDs(
-                matchingReadIds,
+        func extract<IDs: ReadIDCollection>(_ ids: IDs) async throws -> (urls: [URL?], readCount: Int) {
+            try await extractReadIDs(
+                ids,
                 from: config.sourceFiles,
                 matching: config.keepReadPairs || pairedRun ? .fragmentName : .firstWord,
                 matePairStarts: Set(matePairStarts),
@@ -140,6 +139,14 @@ public actor TaxonomyExtractionPipeline {
                 baseName: config.outputFile.deletingPathExtension().lastPathComponent,
                 progress: progress
             )
+        }
+        let outputs: (urls: [URL?], readCount: Int)
+        do {
+            if namedLengths.isEmpty {
+                outputs = try await extract(matchingReadIds)
+            } else {
+                outputs = try await extract(namedLengths)
+            }
         } catch ExtractionError.emptyExtraction where readLengths {
             outputs = (config.sourceFiles.map { _ in nil }, 0)
         }
@@ -155,7 +162,7 @@ public actor TaxonomyExtractionPipeline {
     /// `matching` is the fragment-name rule when mates are kept together or
     /// kraken2 named fragments, so a mate named `X/1` matches `X` (D7c).
     private func extractReadIDs(
-        _ readIDs: Set<String>,
+        _ readIDs: some ReadIDCollection,
         from sources: [URL],
         matching: ReadIDMatching,
         matePairStarts: Set<Int>,
@@ -167,7 +174,7 @@ public actor TaxonomyExtractionPipeline {
         func config(_ files: [URL], _ name: String) -> ReadIDExtractionConfig {
             ReadIDExtractionConfig(
                 sourceFASTQs: files,
-                readIDs: readIDs,
+                readIDs: [],  // the service takes the IDs as `ids`, so the config carries none
                 keepReadPairs: matching == .fragmentName,
                 outputDirectory: outputDirectory,
                 outputBaseName: name
@@ -177,14 +184,14 @@ public actor TaxonomyExtractionPipeline {
             return try await extractWithMatePairs(
                 readIDs, from: sources, matePairStarts: matePairStarts, outputDirectory: outputDirectory, baseName: baseName,
                 extractOne: { source, name, index in
-                    try await service.extractByReadIDs(config: config([source], name), matching: matching) { fraction, message in
+                    try await service.extractByReadIDs(config: config([source], name), ids: readIDs, matching: matching) { fraction, message in
                         progress?(0.30 + (Double(index) + fraction) * 0.65 / Double(sources.count), message)
                     }
                 }
             )
         }
         guard sources.count > 1 else {
-            let result = try await service.extractByReadIDs(config: config(sources, baseName), matching: matching) { fraction, message in
+            let result = try await service.extractByReadIDs(config: config(sources, baseName), ids: readIDs, matching: matching) { fraction, message in
                 // Map service progress (0..1) into our pipeline range (0.30..0.95)
                 progress?(0.30 + fraction * 0.65, message)
             }
@@ -196,7 +203,7 @@ public actor TaxonomyExtractionPipeline {
         for (index, source) in sources.enumerated() {
             let name = "\(baseName)_R\(index + 1)"
             do {
-                let result = try await service.extractByReadIDs(config: config([source], name), matching: matching) { fraction, message in
+                let result = try await service.extractByReadIDs(config: config([source], name), ids: readIDs, matching: matching) { fraction, message in
                     progress?(0.30 + (Double(index) + fraction) * share, message)
                 }
                 urls.append(result.fastqURLs.first)
@@ -255,7 +262,7 @@ public actor TaxonomyExtractionPipeline {
         keepReadPairs: Bool = true,
         readLengths: Bool = false,
         progress: (@Sendable (Double, String) -> Void)?
-    ) throws -> (ids: Set<String>, lengths: [String: [KrakenReadLength]]) {
+    ) throws -> (ids: Set<String>, lengths: ReadLengthTable) {
         let indexURL = KrakenIndexDatabase.indexURL(for: classificationURL)
         if !readLengths, FileManager.default.fileExists(atPath: indexURL.path) {
             do {
@@ -264,7 +271,7 @@ public actor TaxonomyExtractionPipeline {
                 if index.canResolve(taxIds: targetTaxIds) {
                     let readIds = try index.readIds(forTaxIds: targetTaxIds)
                     progress?(0.30, "Loaded \(readIds.count) read IDs from Kraken2 index")
-                    return (normalizeReadIds(readIds, keepReadPairs: keepReadPairs), [:])
+                    return (normalizeReadIds(readIds, keepReadPairs: keepReadPairs), ReadLengthTable())
                 }
             } catch {
                 logger.warning(
@@ -285,7 +292,7 @@ public actor TaxonomyExtractionPipeline {
         )[.size] as? Int64) ?? 0
 
         var matchingReadIds = Set<String>()
-        var lengths: [String: [KrakenReadLength]]? = readLengths ? [:] : nil
+        let lengths: ReadLengthTable? = readLengths ? ReadLengthTable() : nil
         var bytesRead: Int64 = 0
         var residual = Data()
         let bufferSize = 1_048_576 // 1 MB read chunks
@@ -316,14 +323,14 @@ public actor TaxonomyExtractionPipeline {
                     from: text,
                     targetTaxIds: targetTaxIds,
                     keepReadPairs: keepReadPairs,
-                    into: &matchingReadIds, lengths: &lengths
+                    into: &matchingReadIds, lengths: lengths
                 )
             }
 
             // Report progress
             if fileSize > 0 {
                 let fraction = 0.10 + 0.20 * (Double(bytesRead) / Double(fileSize))
-                progress?(min(fraction, 0.30), "Scanning classification: \(matchingReadIds.count) matches...")
+                progress?(min(fraction, 0.30), "Scanning classification: \(lengths?.count ?? matchingReadIds.count) matches...")
             }
         }
 
@@ -357,11 +364,11 @@ public actor TaxonomyExtractionPipeline {
                 from: text,
                 targetTaxIds: targetTaxIds,
                 keepReadPairs: keepReadPairs,
-                into: &matchingReadIds, lengths: &lengths
+                into: &matchingReadIds, lengths: lengths
             )
         }
 
-        return (matchingReadIds, lengths ?? [:])
+        return (matchingReadIds, lengths ?? ReadLengthTable())
     }
 
     private func normalizeReadIds(_ readIds: Set<String>, keepReadPairs: Bool) -> Set<String> {
@@ -379,7 +386,7 @@ public actor TaxonomyExtractionPipeline {
         targetTaxIds: Set<Int>,
         keepReadPairs: Bool,
         into matchingReadIds: inout Set<String>,
-        lengths: inout [String: [KrakenReadLength]]?
+        lengths: ReadLengthTable?
     ) {
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             // Kraken2 output format: C/U \t readId \t taxId \t length \t kmerHits
@@ -393,19 +400,34 @@ public actor TaxonomyExtractionPipeline {
             guard let taxId = Int(taxIdStr), targetTaxIds.contains(taxId) else { continue }
             guard status == "C" || taxId == 0 else { continue }
 
-            var readId = String(columns[1].trimmingCharacters(in: .whitespaces))
+            var readId = Self.readID(of: columns[1])
             var mateInID: Int?
             if keepReadPairs, readId.hasSuffix("/1") || readId.hasSuffix("/2") {
                 mateInID = readId.hasSuffix("/1") ? 1 : 2
                 readId = String(readId.dropLast(2))
             }
-            matchingReadIds.insert(readId)
-            // kraken2's length of the read, or of each mate as `L|L`, which the read check compares (4.1).
-            if lengths != nil, columns.count > 3 {
-                let recorded = KrakenReadLength.lengths(column: columns[3].trimmingCharacters(in: .whitespaces), mateInID: mateInID)
-                lengths?[readId, default: []].append(contentsOf: recorded)
+            // The route that checks lengths keeps the ID in its table alone, and a line with no length column in it too.
+            guard let lengths else {
+                matchingReadIds.insert(readId)
+                continue
             }
+            // kraken2's length of the read, or of each mate as `L|L`, which the read check compares (4.1).
+            lengths.record(
+                readId,
+                expected: columns.count > 3
+                    ? KrakenReadLength.lengths(column: columns[3].trimmingCharacters(in: .whitespaces), mateInID: mateInID)
+                    : nil
+            )
         }
+    }
+
+    /// The read ID of the second column of a per-read line, as a native string with the spaces and tabs at its ends
+    /// dropped. A column with none at its ends is copied as it is, which is what the trim gives, without a Foundation
+    /// string behind every ID of a table that holds millions.
+    private static func readID(of column: Substring) -> String {
+        guard let first = column.unicodeScalars.first, let last = column.unicodeScalars.last else { return "" }
+        if !CharacterSet.whitespaces.contains(first), !CharacterSet.whitespaces.contains(last) { return String(column) }
+        return String(column.trimmingCharacters(in: .whitespaces))
     }
 
     // MARK: - Provenance

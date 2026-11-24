@@ -89,11 +89,23 @@ public actor ReadExtractionService {
         matching: ReadIDMatching = .firstWord,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ExtractionResult {
+        try await extractByReadIDs(config: config, ids: config.readIDs, matching: matching, progress: progress)
+    }
+
+    /// ``extractByReadIDs(config:matching:progress:)`` with the IDs given as `ids`, which a caller that keeps them in a
+    /// table of its own passes so that no second copy of them is built (READ-IDENTITY-EXTRACT-MEMORY). `config.readIDs`
+    /// is not read.
+    func extractByReadIDs(
+        config: ReadIDExtractionConfig,
+        ids: some ReadIDCollection,
+        matching: ReadIDMatching = .firstWord,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> ExtractionResult {
         // Validate inputs
         guard !config.sourceFASTQs.isEmpty else {
             throw ExtractionError.noSourceFASTQ
         }
-        guard !config.readIDs.isEmpty else {
+        guard ids.idCount > 0 else {
             throw ExtractionError.emptyReadIDSet
         }
         // The FASTQ child of an extraction is a plain bundle that no mark can sit on, so reads built from sequence counts,
@@ -116,10 +128,9 @@ public actor ReadExtractionService {
         defer { try? fm.removeItem(at: tempDir) }
 
         let readIDFile = tempDir.appendingPathComponent("read_ids.txt")
-        let readIDContent = config.readIDs.sorted().joined(separator: "\n")
-        try readIDContent.write(to: readIDFile, atomically: true, encoding: .utf8)
+        try Self.writeReadIDFile(ids, to: readIDFile)
 
-        progress?(0.1, "Wrote \(config.readIDs.count) read IDs to filter file")
+        progress?(0.1, "Wrote \(ids.idCount) read IDs to filter file")
 
         // Process each source FASTQ
         var outputURLs: [URL] = []
@@ -184,13 +195,35 @@ public actor ReadExtractionService {
         }
 
         progress?(1.0, "Extracted \(readCount) reads")
-        logger.info("Read ID extraction complete: \(readCount) reads from \(config.readIDs.count) IDs")
+        logger.info("Read ID extraction complete: \(readCount) reads from \(ids.idCount) IDs")
 
         return ExtractionResult(
             fastqURLs: outputURLs,
             readCount: readCount,
             pairedEnd: config.isPairedEnd
         )
+    }
+
+    /// Writes `ids` to `url`, one to a line with no line break after the last, a chunk of about 4 MB at a time, so the
+    /// text of every ID at once is never held (READ-IDENTITY-EXTRACT-MEMORY). seqkit grep takes the IDs in any order.
+    static func writeReadIDFile(_ ids: some ReadIDCollection, to url: URL) throws {
+        let chunkSize = 4 * 1_048_576
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        var buffer: [UInt8] = []
+        buffer.reserveCapacity(chunkSize + 4096)
+        var first = true
+        try ids.forEachID { id in
+            if !first { buffer.append(UInt8(ascii: "\n")) }
+            first = false
+            buffer.append(contentsOf: id.utf8)
+            if buffer.count >= chunkSize {
+                try handle.write(contentsOf: buffer)
+                buffer.removeAll(keepingCapacity: true)
+            }
+        }
+        if !buffer.isEmpty { try handle.write(contentsOf: buffer) }
     }
 
     // MARK: - Extract by Read IDs (BAM source)

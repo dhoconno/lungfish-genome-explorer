@@ -17,6 +17,9 @@ extension TaxonomyExtractionPipeline {
     /// lengths kraken2 recorded or another. Found IDs are compared, never raw counts, so a merged or mixed derivative
     /// keeps its mate arithmetic (D7a).
     ///
+    /// Each length found is marked in `named` itself, in place, so the check builds no table of its own beside the one
+    /// the scan filled (READ-IDENTITY-EXTRACT-MEMORY). `named` serves one check.
+    ///
     /// The output of an R1 file holds that pair of files read in step, each R1 record followed by its R2 record, so
     /// the two are mate 1 and mate 2 of the pair whose ID either names. Every other output holds a file's records as
     /// seqkit found them by `matching`, and a record's mate is the `/1` or `/2` its ID ends with, or the next one in
@@ -24,10 +27,9 @@ extension TaxonomyExtractionPipeline {
     static func checkReads(
         _ outputs: [URL?],
         of files: [KrakenResultReadSources.File],
-        named: [String: [KrakenReadLength]],
+        named: ReadLengthTable,
         matching: ReadIDMatching
     ) throws -> KrakenReadCheck {
-        var found: [String: [KrakenReadLength]] = [:]
         for (index, file) in files.enumerated() {
             guard index < outputs.count, let output = outputs[index] else { continue }
             let reader = try FASTQRawLineReader(url: output)
@@ -35,24 +37,21 @@ extension TaxonomyExtractionPipeline {
             if file.role == .r1 {
                 while let mate1 = try nextRecord(reader), let mate2 = try nextRecord(reader) {
                     let id1 = matching.readID(ofHeaderLine: mate1.header)
-                    let id = named[id1] != nil ? id1 : matching.readID(ofHeaderLine: mate2.header)
-                    found[id, default: []] += [
-                        KrakenReadLength(mate: 1, length: mate1.length), KrakenReadLength(mate: 2, length: mate2.length),
-                    ]
+                    let id = named.isNamed(id1) ? id1 : matching.readID(ofHeaderLine: mate2.header)
+                    named.markFound(
+                        id,
+                        mate1: KrakenReadLength(mate: 1, length: mate1.length),
+                        mate2: KrakenReadLength(mate: 2, length: mate2.length)
+                    )
                 }
             } else {
                 while let record = try nextRecord(reader) {
                     let id = matching.readID(ofHeaderLine: record.header)
-                    guard named[id] != nil else { continue }
-                    found[id, default: []].append(KrakenReadLength(mate: mate(of: record.header, matching: matching), length: record.length))
+                    named.markFound(id, KrakenReadLength(mate: mate(of: record.header, matching: matching), length: record.length))
                 }
             }
         }
-        var check = KrakenReadCheck()
-        for (id, expected) in named {
-            check.add(expected: expected, found: found[id] ?? [])
-        }
-        return check
+        return named.tally()
     }
 
     /// The next FASTQ record of `reader`: its header line and the length of its sequence.
