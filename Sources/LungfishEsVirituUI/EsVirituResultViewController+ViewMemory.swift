@@ -158,6 +158,10 @@ extension EsVirituResultViewController {
             }
         }
 
+        // A kept detection row under an assembly the outline shows closed is shown first, as the click that reached it
+        // did, so a row that still exists is selected again (adopters' lesson 11). Only a row that no longer exists is
+        // dropped, and word 2 names a loss only on a changed data key: on an equal key the data did not change.
+        table.revealRows(withPortableIdentities: memory.selectedIdentities)
         let visible = table.visibleSelectionIdentities() ?? []
         let byPortable = Dictionary(visible.map { (EsVirituRowIdentity.portable($0), $0) }) { first, _ in first }
         let kept = ViewMemoryRules.keepIdentities(memory.selectedIdentities, existing: Set(byPortable.keys))
@@ -167,7 +171,7 @@ extension EsVirituResultViewController {
             table.selectionIdentities.select(kept.kept.compactMap { byPortable[$0] })
         }
         table.restoreSelectionAfterDisplayedItemsChanged()
-        if kept.droppedCount > 0 { lost.insert(.selection) }
+        if kept.droppedCount > 0, dataChanged { lost.insert(.selection) }
 
         // Expansion last: a collapse hides rows, and the selection above is already in place. The collapse is kept by
         // the assembly's identity with its sample (VS B4), also on a changed data key: it hides no count, since the
@@ -235,6 +239,27 @@ extension EsVirituResultViewController {
         }
         memo.routedSample = sampleId
         samplePickerState?.selectedSamples = [sampleId]
+    }
+}
+
+extension ViralDetectionTableView {
+    /// Opens each assembly that holds a row whose identity, without the result's path, is in `identities`, as the click
+    /// that reached the row did, so a kept detection row under an assembly the outline shows closed shows and can be
+    /// selected again (adopters' lesson 11). The children are read from the table's own data source, which holds them
+    /// while the assembly is closed. The kept collapse is applied after the selection, as before. It starts nothing.
+    func revealRows(withPortableIdentities identities: [String]) {
+        guard !identities.isEmpty else { return }
+        let kept = Set(identities)
+        let outline = outlineView
+        for index in 0..<outlineView(outline, numberOfChildrenOfItem: nil) {
+            let assembly = outlineView(outline, child: index, ofItem: nil)
+            guard outline.isExpandable(assembly), !outline.isItemExpanded(assembly) else { continue }
+            let holdsKept = (0..<outlineView(outline, numberOfChildrenOfItem: assembly)).contains { child in
+                selectionIdentity(for: outlineView(outline, child: child, ofItem: assembly))
+                    .map { kept.contains(EsVirituRowIdentity.portable($0)) } ?? false
+            }
+            if holdsKept { outline.expandItem(assembly) }
+        }
     }
 }
 

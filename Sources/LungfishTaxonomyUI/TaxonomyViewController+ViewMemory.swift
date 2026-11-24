@@ -35,7 +35,8 @@ enum TaxonomyRowIdentity {
 ///   the field itself shows it, so no filter line is needed.
 /// - `sort` is presentation and always comes back.
 /// - `selectedIdentities` are table row identities with the sample (VS B4), without the result's path. An identity
-///   that no longer exists is dropped, and none left means no selection, never row 0.
+///   that no longer exists is dropped, and none left means no selection, never row 0. A kept row under a node the
+///   outline opens closed is opened to first, so the outline's expansion is not kept beyond the selected rows' paths.
 /// - `zoomIdentity`, the sunburst's zoom centre by the same identity. A node that no longer exists drops the zoom.
 /// - `drawerOpen`, the Collections drawer, is presentation.
 /// - `columns` and `batchColumns`, the metadata column layouts of the outline and the batch table, are presentation and
@@ -168,6 +169,10 @@ extension TaxonomyViewController {
             }
         }
 
+        // A kept row under a node the outline opens closed is shown first, as the clicks that reached it did, so a row
+        // that still exists is selected again (adopters' lesson 11). Only a row that no longer exists is dropped, and
+        // word 2 names a loss only on a changed data key: on an equal key the data did not change.
+        table.revealRows(withPortableIdentities: memory.selectedIdentities)
         let visible = table.visibleSelectionIdentities() ?? []
         let byPortable = Dictionary(visible.map { (TaxonomyRowIdentity.portable($0), $0) }) { first, _ in first }
         let kept = ViewMemoryRules.keepIdentities(memory.selectedIdentities, existing: Set(byPortable.keys))
@@ -177,13 +182,13 @@ extension TaxonomyViewController {
             table.selectionIdentities.select(kept.kept.compactMap { byPortable[$0] })
         }
         table.restoreSelectionAfterDisplayedNodesChanged()
-        if kept.droppedCount > 0 { lost.insert(.selection) }
+        if kept.droppedCount > 0, dataChanged { lost.insert(.selection) }
 
         if let identity = memory.zoomIdentity {
             if let node = taxonNode(withPortableIdentity: identity) {
                 sunburstView.centerNode = node
                 breadcrumbBar.update(zoomNode: node)
-            } else {
+            } else if dataChanged {
                 lost.insert(.place)
             }
         } else if sunburstView.centerNode != nil {
@@ -221,6 +226,30 @@ extension TaxonomyViewController {
             pending.append(contentsOf: node.children)
         }
         return nil
+    }
+}
+
+extension TaxonomyTableView {
+    /// Opens the nodes above each row whose identity, without the result's path, is in `identities`, top down, as the
+    /// clicks that reached the row did, so a kept row under a node the outline opens closed shows and can be selected
+    /// again (adopters' lesson 11). Only nodes with a kept taxon id build an identity, so a large tree costs one walk.
+    /// It opens no other node and starts nothing (VS S4).
+    func revealRows(withPortableIdentities identities: [String]) {
+        guard !identities.isEmpty, let root = tree?.root else { return }
+        let kept = Set(identities)
+        let taxIds = Set(identities.compactMap { identity -> String? in
+            let parts = identity.components(separatedBy: TaxonomyRowIdentity.separator)
+            return parts.count > 3 ? parts[3] : nil
+        })
+        var pending = [root]
+        while let node = pending.popLast() {
+            pending.append(contentsOf: node.children)
+            guard taxIds.contains(String(node.taxId)), let identity = selectionIdentity(for: node),
+                  kept.contains(TaxonomyRowIdentity.portable(identity)) else { continue }
+            for ancestor in node.pathFromRoot().dropLast() where ancestor !== root {
+                outlineView.expandItem(ancestor)
+            }
+        }
     }
 }
 
