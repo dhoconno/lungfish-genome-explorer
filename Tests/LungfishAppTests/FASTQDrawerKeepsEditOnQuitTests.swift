@@ -140,6 +140,7 @@ final class FASTQDrawerKeepsEditOnQuitTests: XCTestCase {
         XCTAssertTrue(asked.first?.window === harness.window, "the sheet was not put on the closing window")
         XCTAssertEqual(asked.first?.alert.messageText, "The FASTQ drawer\u{2019}s edits for illumina-reads were not saved.")
         XCTAssertEqual(asked.first?.alert.buttons.map(\.title), ["OK"])
+        XCTAssertTrue(asked.first?.alert.informativeText.contains("The window closes when you press OK.") == true, asked.first?.alert.informativeText ?? "")
 
         asked.first?.close()
         XCTAssertEqual(viewer.fastqMetadataDrawerView?.hasWaitingEdit, false, "after OK the edit still holds the close")

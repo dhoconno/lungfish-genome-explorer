@@ -13,7 +13,7 @@ extension MainWindowController {
     func keepFASTQDrawerEditBeforeClose(_ sender: NSWindow) -> Bool {
         guard let viewer = mainSplitViewController?.viewerController,
               let unkept = viewer.keepWaitingFASTQDrawerEditReportingFailure() else { return true }
-        let alert = ViewerViewController.unkeptFASTQDrawerEditAlert(unkept)
+        let alert = ViewerViewController.unkeptFASTQDrawerEditAlert(unkept, closingWindow: true)
         ViewerViewController.presentUnkeptFASTQDrawerEditBeforeClose(alert, sender) { [weak viewer, weak sender] in
             // The person has read that the edit was not saved, and the drawer goes with the window.
             viewer?.fastqMetadataDrawerView?.markSettingsKept()

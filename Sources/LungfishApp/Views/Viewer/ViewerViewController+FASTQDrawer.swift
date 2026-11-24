@@ -162,13 +162,15 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         }
     }
 
-    static func unkeptFASTQDrawerEditAlert(_ unkept: UnkeptFASTQDrawerEdit) -> NSAlert {
+    static func unkeptFASTQDrawerEditAlert(_ unkept: UnkeptFASTQDrawerEdit, closingWindow: Bool = false) -> NSAlert {
         let name = unkept.name
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "The FASTQ drawer\u{2019}s edits for \(name) were not saved."
-        alert.informativeText = "\(unkept.reason) The settings saved earlier are unchanged. Check that \(name) "
-            + "is still in the project and that its folder can be written, then select it and make the edits again."
+        let closes = closingWindow ? " The window closes when you press OK." : ""
+        let next = closingWindow ? "then open the project, select it and make the edits again." : "then select it and make the edits again."
+        alert.informativeText = "\(unkept.reason) The settings saved earlier are unchanged.\(closes) Check that \(name) "
+            + "is still in the project and that its folder can be written, \(next)"
         alert.addButton(withTitle: "OK")
         return alert
     }
