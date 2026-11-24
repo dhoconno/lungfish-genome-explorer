@@ -296,13 +296,15 @@ final class ChunkLoopMemoryTests: XCTestCase {
     func testTheNaoMgsSampleScanKeepsNoChunkOfTheHits() throws {
         let root = try makeRoot()
         let hits = root.appendingPathComponent("virus_hits.tsv")
-        let written = try Self.writeBlocks(of: "sample_1\tA00123:45:H7KLMDSX5:1:1101:10000:0001\t11676\tNC_001802.1\t150\n", to: hits)
+        let written = try Self.writeBlocks(of: "sample_1\tA00123:45:H7KLMDSX5:1:1101:10000:0001\t11676\tNC_001802.1\t150\n", to: hits, blocks: 2 * Self.blocks)
 
         var lines = 0
         let rise = try peakRise { try streamNaoMgsLines(from: hits) { _, _ in lines += 1 } }
 
         XCTAssertGreaterThanOrEqual(lines, written.records, "every line came through")
-        assertKeepsNoChunk("streamNaoMgsLines (NaoMgsSamplePartitioner.swift:244)", input: written.bytes, rise: rise)
+        // One 4 MiB pass holds about 22 MB of text and lines, a bounded working set: 22.5 MB at 48 MiB and 21.8 MB at 96 MiB.
+        // A loop that kept its chunks would hold 0.7 to 1.0 times the input, over 70 MB here, so 64 MB still catches it.
+        assertKeepsNoChunk("streamNaoMgsLines (NaoMgsSamplePartitioner.swift:244)", input: written.bytes, rise: rise, limit: 64_000_000)
     }
 
     // MARK: - Helpers
@@ -324,11 +326,11 @@ final class ChunkLoopMemoryTests: XCTestCase {
         return root
     }
 
-    private func assertKeepsNoChunk(_ loop: String, input: Int, rise: UInt64, file: StaticString = #filePath, line: UInt = #line) {
+    private func assertKeepsNoChunk(_ loop: String, input: Int, rise: UInt64, limit: UInt64 = ChunkLoopMemoryTests.allowedRise, file: StaticString = #filePath, line: UInt = #line) {
         print("ChunkLoopMemoryTests \(loop): footprint rise \(rise) B over an input of \(input) B")
         XCTAssertLessThanOrEqual(
-            rise, Self.allowedRise,
-            "\(loop) raised the footprint by \(rise) B over an input of \(input) B, over the \(Self.allowedRise) B "
+            rise, limit,
+            "\(loop) raised the footprint by \(rise) B over an input of \(input) B, over the \(limit) B "
                 + "that a chunk in hand allows, so it kept its chunks",
             file: file, line: line
         )
