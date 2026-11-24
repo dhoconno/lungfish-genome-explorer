@@ -15,14 +15,12 @@ struct ViewStateDeclaredGap: Sendable {
 
 enum ViewStateDeclaredGaps {
     /// The most rows the table may hold. Lower it in the commit that removes a row.
-    static let ceiling = 14
+    static let ceiling = 11
 
     static let all: [ViewStateDeclaredGap] = [
         gap("TaxTriage", "VS-CLASS", "sample, filter, batch facet, selection, sort and split are not kept yet"),
         gap("NAO-MGS", "VS-CLASS", "sample filter, filter, selection, sort and split are not kept yet"),
         gap("NVD", "VS-CLASS", "grouping, sample filter, search, expansion, selection and split are not kept yet"),
-        gap("Assembly", "VS-DATA", "contig selection, sort, filter and split are not kept yet"),
-        gap("FASTQ", "VS-DATA", "middle tab and splits are not kept yet"),
         gap("MSA", "VS-ALN", "zoom, selection, colour scheme, search and bottom pane are not kept yet"),
         gap("Tree", "VS-ALN", "layout, zoom, pan, node, collapse, colour mode and columns are not kept yet"),
         gap("Primer analysis", "VS-PRIMER", "section, selection, template and pair are not kept yet"),
@@ -31,7 +29,6 @@ enum ViewStateDeclaredGaps {
         gap("Quick Look", "VS-PRIMER", "its preview draws in another process, unless VS-PRIMER finds the app's own text view (VS U8)"),
         gap("Status only", "none", "a status line holds no view (VS U8)"),
         gap("PDF", "VS-PRIMER", "page and scale are not kept yet (VS U8)"),
-        gap("FASTA collection", "VS-DATA", "filter, selection, sort and split are not kept yet"),
     ]
 
     private static func gap(_ kind: String, _ lane: String, _ reason: String) -> ViewStateDeclaredGap {
