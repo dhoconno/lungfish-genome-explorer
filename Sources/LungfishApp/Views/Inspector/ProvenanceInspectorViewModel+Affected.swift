@@ -35,6 +35,13 @@ extension ProvenanceInspectorViewModel {
         case .naoMgsResult: return .naoMgs
         case .nvdResult: return .nvd
         case .czIdResult: return .czIdImport
+        case .twelveSAmpliconResultBundle:
+            // A 12S run always writes a root record, so the record of a metadata import there replaced it (RECORDS-BIO R4).
+            return envelope.map(AffectedResults.isTheRecordOfAMetadataImport) == true ? .twelveSRunRecordReplaced : nil
+        case .genotypeResultBundle:
+            // Only the reuse of a sample checkpoint is read here (TTL-ONT-CHECKPOINT-REUSE, CKPT-DEPTH-BIO SF1).
+            let kind = envelope.flatMap(AffectedResults.kind(of:))
+            return kind == .genotypeCheckpointReuse ? kind : nil
         case .analysisResult:
             // A result in the Analyses folder names its tool in its metadata. A mapping is a kind only when its record
             // names two loose files bound as a pair (``AffectedResults/kind(of:)``).

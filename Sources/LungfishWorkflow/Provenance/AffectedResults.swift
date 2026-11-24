@@ -91,6 +91,21 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// without `--no-cleanup`. It is a narrower ``taxTriage``. A TaxTriage result whose record names it shows the rows of
     /// both kinds (``AffectedResults/rows(for:kind:)``), so no row of ``taxTriage`` names it.
     case taxTriageLegacyCleanup
+    /// A demultiplexing run that Demultiplex… of the Demux tab started, whose definition is `<dataset> demux plan <12
+    /// hex>.csv` (DEMUXPLAN-LIMITS-S3-GROUP). The run's record shows its rows beside those of its own demultiplexing kind.
+    case fastqDemultiplexPlanRun
+    /// Merged reads whose record holds the step `lungfish fastq merge count-duplicates` (MERGE-COUNTED-INVENTED-Q).
+    case fastqCountedMerge
+    /// A 12S result whose record is a sample metadata import's, which replaced the run's (TWELVES-IMPORT-REPLACES-RUN-RECORD).
+    case twelveSRunRecordReplaced
+    /// A TaxTriage, EsViritu, Kraken 2 or NAO-MGS result whose record is a sample metadata import's, which replaced the run's
+    /// (RECORDS-AFFECTED-OTHER-RESULT-TYPES). Such a result shows its rows beside those of its own kind.
+    case resultRunRecordReplaced
+    /// A taxa-collection folder whose in-place ingest removed an original and kept no step of its extraction record
+    /// (PAIRING-RECORD-LOST). A pair ingested in place is ``fastqIngestLoosePair`` and shows these rows beside its own.
+    case fastqIngestDroppedExtractionRecord
+    /// A genotyping result whose record holds the step of a reused sample checkpoint (TTL-ONT-CHECKPOINT-REUSE).
+    case genotypeCheckpointReuse
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -153,19 +168,6 @@ public enum AffectedResults {
         rows.filter {
             $0.kinds.contains(kind) && $0.holds(build: builds.lowerBound) && $0.holds(build: builds.upperBound)
         }
-    }
-
-    /// The rows for `kind` that hold every build that may have made the result `envelope` records (``builds(of:)``). A
-    /// TaxTriage result whose record ran the legacy cleanup of `lungfish build-db taxtriage` also takes the rows of that
-    /// narrower kind, in table order (``AffectedResultKind/taxTriageLegacyCleanup``).
-    public static func rows(for envelope: ProvenanceEnvelope, kind: AffectedResultKind) -> [AffectedResultRow] {
-        guard let builds = builds(of: envelope) else { return [] }
-        guard kind == .taxTriage, Self.kind(of: envelope) == .taxTriageLegacyCleanup else {
-            return rows(forBuilds: builds, kind: kind)
-        }
-        let held = Set((rows(forBuilds: builds, kind: kind) + rows(forBuilds: builds, kind: .taxTriageLegacyCleanup))
-            .map(\.backlogID))
-        return rows.filter { held.contains($0.backlogID) }
     }
 
     /// The builds that may have made the result `envelope` records, or nil when no packaged build did.
@@ -744,12 +746,9 @@ extension AffectedResults {
             return ingestedTwoLooseFiles(envelope) ? .fastqIngestLoosePair : nil
         case RecordName.fastqRiboDetector, RecordName.fastqDeaconRibo:
             return filteredTwoLooseFiles(envelope) ? .fastqRiboFilterLoosePair : nil
-        case RecordName.buildDbTaxTriage:
-            return ranTheLegacyTaxTriageCleanup(envelope) ? .taxTriageLegacyCleanup : nil
         default:
-            // An in-place ingest merges into the record that stands in the folder, which keeps its own root name, so the
-            // ingest shows only as its step (BIO-ROUTES-5 item 4).
-            return mergedIngestOfTwoLooseFiles(envelope) ? .fastqIngestLoosePair : nil
+            // The roots of the S1 sweep and an in-place ingest merged into the record of any other root.
+            return kindOfAnotherRoot(envelope)
         }
     }
 
