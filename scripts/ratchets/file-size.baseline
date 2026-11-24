@@ -68,7 +68,7 @@ Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift 1822
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationDialogState.swift 2066
 Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift 1094
 Sources/LungfishCLI/Commands/BAMCommand.swift 1071
-Sources/LungfishCLI/Commands/ExtractReadsCommand.swift 929
+Sources/LungfishCLI/Commands/ExtractReadsCommand.swift 941
 Sources/LungfishCLI/Commands/GATKCommand.swift 1094
 Sources/LungfishCLI/Commands/GenotypeAIHaplotypingSubcommand.swift 1017
 Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift 997
@@ -149,7 +149,7 @@ Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1592
 Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2562
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 822
-Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1153
+Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1184
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2645
