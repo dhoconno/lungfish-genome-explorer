@@ -129,6 +129,10 @@ public class ViewerViewController: NSViewController {
 
     /// Leading constraints for ruler, viewer, and overlay — animated by chromosome drawer
     var contentLeadingConstraints: [NSLayoutConstraint] = []
+
+    /// The tops of the canvas and the progress overlay, pinned to the gene tab bar's bottom. The reset line takes them
+    /// off the bar while it shows, and `removeViewMemoryLine` puts them back, so neither has two tops or none.
+    var contentTopPins: [NSLayoutConstraint] = []
     
     /// The preview of a file, while the surface host shows it.
     var quickLookPreviewController: QuickLookPreviewController? { installedSurface?.viewController as? QuickLookPreviewController }
@@ -472,6 +476,9 @@ public class ViewerViewController: NSViewController {
         let overlayLeading = progressOverlay.leadingAnchor.constraint(equalTo: containerView.leadingAnchor)
 
         contentLeadingConstraints = [rulerLeading, geneTabLeading, viewerLeading, overlayLeading]
+        let viewerTop = viewerView.topAnchor.constraint(equalTo: geneTabBarView.bottomAnchor)
+        let overlayTop = progressOverlay.topAnchor.constraint(equalTo: geneTabBarView.bottomAnchor)
+        contentTopPins = [viewerTop, overlayTop]
 
         NSLayoutConstraint.activate([
             // Enhanced ruler spans full width above content, using safe area to avoid toolbar overlap
@@ -486,7 +493,7 @@ public class ViewerViewController: NSViewController {
             geneTabBarView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
 
             // Viewer fills the main area (full width)
-            viewerView.topAnchor.constraint(equalTo: geneTabBarView.bottomAnchor),
+            viewerTop,
             viewerLeading,
             viewerView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             viewerView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
@@ -498,7 +505,7 @@ public class ViewerViewController: NSViewController {
             statusBar.heightAnchor.constraint(equalToConstant: statusHeight),
 
             // Progress overlay covers the viewer area
-            progressOverlay.topAnchor.constraint(equalTo: geneTabBarView.bottomAnchor),
+            overlayTop,
             overlayLeading,
             progressOverlay.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             progressOverlay.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
