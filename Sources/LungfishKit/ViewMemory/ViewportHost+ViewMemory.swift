@@ -80,6 +80,9 @@ extension ViewportHost {
                 if pending?.isApplied == false { start.resetBeforeApply = true }
                 self?.removeResetLine()
                 _ = adopter?.restoreViewMemory(start.view, dataChanged: false)
+                // The view the reset shows is the start from now on, as the reference and genotype viewers re-base
+                // theirs, so a restore that cannot give back the start exactly still leaves the item off (VS-INSP).
+                if let adopter { start.view = adopter.captureViewMemory() }
                 adopter?.announceViewMemory()
             },
             announce: { [weak adopter] in adopter?.announceViewMemory() },
