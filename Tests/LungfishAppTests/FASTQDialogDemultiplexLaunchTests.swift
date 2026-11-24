@@ -139,7 +139,7 @@ final class FASTQDialogDemultiplexLaunchTests: XCTestCase {
         state.prepareForRun()
         XCTAssertTrue(state.isRunEnabled, file: file, line: line)
         let launch = try XCTUnwrap(state.pendingLaunchRequest, file: file, line: line)
-        guard case .derivative(.demultiplex(_, _, _, _, _, _, _, let engine, _, _, _, _), let inputs, _) = launch else {
+        guard case .derivative(.demultiplex(_, _, _, _, _, _, _, let engine, _, _, _, _, _, _), let inputs, _) = launch else {
             XCTFail("the dialog builds a demultiplex request, got \(launch)", file: file, line: line)
             throw CocoaError(.featureUnsupported)
         }

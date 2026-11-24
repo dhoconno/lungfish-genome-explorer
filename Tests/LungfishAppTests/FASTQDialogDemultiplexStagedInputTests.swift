@@ -239,7 +239,7 @@ final class FASTQDialogDemultiplexStagedInputTests: XCTestCase {
         state.prepareForRun()
         XCTAssertTrue(state.isRunEnabled)
         let launch = try XCTUnwrap(state.pendingLaunchRequest)
-        guard case .derivative(.demultiplex(_, _, _, _, _, _, _, let engine, _, _, _, _), let inputs, _) = launch else {
+        guard case .derivative(.demultiplex(_, _, _, _, _, _, _, let engine, _, _, _, _, _, _), let inputs, _) = launch else {
             return XCTFail("the dialog builds a demultiplex request, got \(launch)")
         }
         XCTAssertEqual(engine, .headerIndex)

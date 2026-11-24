@@ -63,7 +63,7 @@ final class FASTQDialogExactBareKeepUncheckedTests: XCTestCase {
     private func launch(_ state: FASTQOperationDialogState) throws -> (keep: Bool?, arguments: [String]) {
         state.prepareForRun()
         let launch = try XCTUnwrap(state.pendingLaunchRequest)
-        guard case .derivative(.demultiplex(_, _, _, _, _, _, _, _, _, _, _, let keep), _, _) = launch else {
+        guard case .derivative(.demultiplex(_, _, _, _, _, _, _, _, _, _, _, _, _, let keep), _, _) = launch else {
             XCTFail("the dialog builds a demultiplex request, got \(launch)")
             throw CocoaError(.featureUnsupported)
         }
