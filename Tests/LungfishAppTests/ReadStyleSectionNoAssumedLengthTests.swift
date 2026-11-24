@@ -96,19 +96,6 @@ final class ReadStyleSectionNoAssumedLengthTests: XCTestCase {
         return depths.reduce(0, +) / Double(max(1, depths.count))
     }
 
-    private func depthShown(
-        by viewModel: ReadStyleSectionViewModel, near expected: Double, within seconds: TimeInterval
-    ) async throws -> Double? {
-        let deadline = Date().addingTimeInterval(seconds)
-        var shown = viewModel.chromosomeStats.first?.estimatedCoverage
-        while Date() < deadline {
-            if let value = shown, abs(value - expected) < 1e-6 { return value }
-            try await Task.sleep(nanoseconds: 100_000_000)
-            shown = viewModel.chromosomeStats.first?.estimatedCoverage
-        }
-        return shown
-    }
-
     func testTheDepthShownIsTheMeasuredMeanNotMappedReadsTimes150() async throws {
         let fixture = try await makeFixture(writeBAM: true, mappedRecords: 10)
         let measured = try await samtoolsDepthMean(of: fixture.bam)
@@ -119,9 +106,9 @@ final class ReadStyleSectionNoAssumedLengthTests: XCTestCase {
         viewModel.loadStatistics(from: fixture.bundle)
         XCTAssertEqual(viewModel.chromosomeStats.count, 1)
 
-        let shown = try await depthShown(by: viewModel, near: measured, within: 20)
+        await viewModel.meanDepthTask?.value
         XCTAssertEqual(
-            try XCTUnwrap(shown), measured, accuracy: 1e-6,
+            try XCTUnwrap(viewModel.chromosomeStats.first?.estimatedCoverage), measured, accuracy: 1e-6,
             "the row shows samtools' mean depth, not 10 records x 150 bp / 1,000 bp = 1.5"
         )
     }
@@ -143,9 +130,9 @@ final class ReadStyleSectionNoAssumedLengthTests: XCTestCase {
         viewModel.loadStatistics(from: fixture.bundle)
         XCTAssertEqual(viewModel.chromosomeStats.count, 1)
 
-        let shown = try await depthShown(by: viewModel, near: tableDepth, within: 20)
+        await viewModel.meanDepthTask?.value
         XCTAssertEqual(
-            try XCTUnwrap(shown), tableDepth, accuracy: 1e-6,
+            try XCTUnwrap(viewModel.chromosomeStats.first?.estimatedCoverage), tableDepth, accuracy: 1e-6,
             "the row equals the mapping table's Mean Depth, 12.0 if supplementary alignments are counted"
         )
     }
@@ -158,7 +145,7 @@ final class ReadStyleSectionNoAssumedLengthTests: XCTestCase {
         XCTAssertEqual(viewModel.chromosomeStats.count, 1)
         XCTAssertNil(viewModel.chromosomeStats.first?.estimatedCoverage, "no read length is assumed")
 
-        try await Task.sleep(nanoseconds: 1_500_000_000)
+        await viewModel.meanDepthTask?.value
         XCTAssertNil(viewModel.chromosomeStats.first?.estimatedCoverage, "a measurement that failed leaves no row")
     }
 }

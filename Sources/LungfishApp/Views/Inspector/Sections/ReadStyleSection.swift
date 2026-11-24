@@ -174,6 +174,7 @@ public final class ReadStyleSectionViewModel {
 
     /// Per-chromosome read statistics.
     public var chromosomeStats: [ChromosomeReadStat] = []
+    @ObservationIgnored var meanDepthTask: Task<Void, Never>? // The run that measures the mean depth of a one-sequence bundle (+MeanDepth.swift).
 
     /// Flag statistics from samtools flagstat.
     public var flagStats: [FlagStatEntry] = []

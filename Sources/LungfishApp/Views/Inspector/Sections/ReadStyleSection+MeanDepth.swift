@@ -46,7 +46,8 @@ public struct ChromosomeReadStat: Identifiable {
 
 extension ReadStyleSectionViewModel {
     /// A one-sequence bundle shows its mean depth. It is measured off the main thread, so none shows until it returns,
-    /// and none where it cannot be measured. `stats` gains the alignment file the figure is measured from.
+    /// and none where it cannot be measured. `stats` gains the alignment file the figure is measured from. The run is kept
+    /// in `meanDepthTask`: a new run cancels the earlier one, and a run that was cancelled writes nothing.
     func startMeanDepthMeasurement(
         for stats: inout [ChromosomeReadStat],
         databases: [(trackID: String, db: AlignmentMetadataDatabase)],
@@ -62,8 +63,10 @@ extension ReadStyleSectionViewModel {
             chromosome: chromosome, length: only.length, mappedReads: only.mappedReads,
             unmappedReads: only.unmappedReads, alignmentURL: alignmentURL
         )]
-        Task { [weak self] in
+        meanDepthTask?.cancel()
+        meanDepthTask = Task { [weak self] in
             guard let depth = await AlignmentMeanDepth.measure(alignmentURL: alignmentURL, chromosome: chromosome) else { return }
+            guard !Task.isCancelled else { return }
             guard let self else { return }
             self.chromosomeStats = self.chromosomeStats.map {
                 $0.alignmentURL == alignmentURL && $0.chromosome == chromosome ? $0.withMeasuredMeanDepth(depth) : $0
