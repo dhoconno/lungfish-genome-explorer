@@ -187,6 +187,9 @@ extension InspectorViewController {
         guard let viewer = enclosingSplit?.viewerController else { return false }
         if viewer.surfaceHost.viewMemoryDiffersFromStart { return true }
         if viewer.genotypeResultViewController?.viewMemoryDiffersFromStart == true { return true }
+        // The minimums the viewer does not keep, which Reset View returns too (VS-INSP BIO SF-2).
+        if viewer.genotypeResultViewController != nil,
+           viewModel.genotypeResultDisplaySectionViewModel.countFiltersDifferFromDefaults { return true }
         return referenceViewerOnShow?.viewMemoryDiffersFromStart ?? false
     }
 

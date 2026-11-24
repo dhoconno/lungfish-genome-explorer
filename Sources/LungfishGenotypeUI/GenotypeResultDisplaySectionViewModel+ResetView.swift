@@ -17,4 +17,14 @@ extension GenotypeResultDisplaySectionViewModel {
         setMatrixMinimumPercent(start.matrixMinimumPercent)
         setMatrixMinimumPrevalencePercent(start.matrixMinimumPrevalencePercent)
     }
+
+    /// Whether a count filter ``resetCountFilters()`` returns differs from its default, which enables View > Reset View
+    /// while only a minimum is set (VS-INSP BIO SF-2, SWIFT SF-2).
+    public var countFiltersDifferFromDefaults: Bool {
+        let start = GenotypeResultDisplayState(), now = displayState
+        return now.hideLowSupport != start.hideLowSupport || now.minimumSupportPercent != start.minimumSupportPercent
+            || now.minimumReads != start.minimumReads || now.matrixMinimumReads != start.matrixMinimumReads
+            || now.matrixMinimumPercent != start.matrixMinimumPercent
+            || now.matrixMinimumPrevalencePercent != start.matrixMinimumPrevalencePercent
+    }
 }
