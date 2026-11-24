@@ -40,7 +40,8 @@ enum FASTQStatisticsDisplayRules {
     /// reads "No quality scores" as a new one does (`FASTQQualityScoreOrigin`, QUALITY-2 BIO review B1).
     static func statisticsToShow(
         _ statistics: FASTQDatasetStatistics,
-        of manifest: FASTQDerivedBundleManifest
+        of manifest: FASTQDerivedBundleManifest,
+        in bundleURL: URL? = nil
     ) -> FASTQDatasetStatistics {
         statistics
     }

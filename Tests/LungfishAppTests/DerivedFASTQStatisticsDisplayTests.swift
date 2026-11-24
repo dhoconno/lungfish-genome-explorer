@@ -311,6 +311,53 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         XCTAssertTrue(FASTQStatisticsDisplayRules.hasQualityReport(kept), "measured reads keep their charts")
     }
 
+    /// F8 (ruling BIO-FLUIDIGM-CHILDREN, FLUIDIGM-OLD-CHILDREN-UNMARKED). A dataset made from a Fluidigm bundle before
+    /// the mark, here a subsample of it, holds no mark and no Fluidigm library prep of its own, and a view reads "No
+    /// quality scores" for it because the reader follows the manifests' parents. The control is a subsample of reads
+    /// that were measured.
+    func testAnOldChildOfAFluidigmBundleReadsNoQualityScores() throws {
+        let root = try TestTempDirectory.make(prefix: "old-fluidigm-child")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+
+        func bundle(named name: String, holding manifest: FASTQDerivedBundleManifest) throws -> URL {
+            let url = root.appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)", isDirectory: true)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            try FASTQBundle.saveDerivedManifest(manifest, in: url)
+            return url
+        }
+        func subsample(of parent: URL, named name: String) throws -> (bundle: URL, manifest: FASTQDerivedBundleManifest) {
+            let operation = FASTQDerivativeOperation(kind: .subsampleCount, count: 2)
+            let manifest = FASTQDerivedBundleManifest(
+                name: name, parentBundleRelativePath: "../\(parent.lastPathComponent)",
+                rootBundleRelativePath: "../\(parent.lastPathComponent)", rootFASTQFilename: "LF2871.fastq.gz",
+                payload: .subset(readIDListFilename: "read-ids.txt"), lineage: [operation], operation: operation,
+                cachedStatistics: Self.counted(
+                    [40: 400], mean: 40, q20: 100, q30: 100, perPositionQuality: [Self.flatSummary(40)]
+                ),
+                pairingMode: .singleEnd
+            )
+            return (try bundle(named: name, holding: manifest), manifest)
+        }
+
+        let fluidigm = try bundle(named: "LF2871", holding: storedFluidigmManifest(libraryPrep: "Fluidigm Access Array"))
+        let old = try subsample(of: fluidigm, named: "old-child")
+        let shown = FASTQStatisticsDisplayRules.statisticsToShow(
+            old.manifest.cachedStatistics, of: old.manifest, in: old.bundle
+        )
+        XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(shown), "No quality scores", "Mean Q of an old child")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.q20Text(shown), "No quality scores", "Q20 of an old child")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(shown), "No quality scores", "Q30 of an old child")
+        XCTAssertFalse(FASTQStatisticsDisplayRules.hasQualityReport(shown), "a written Q40 draws no quality charts")
+        XCTAssertEqual(shown.readCount, 4)
+
+        let measured = try bundle(named: "scored", holding: storedFluidigmManifest(libraryPrep: nil))
+        let kept = try subsample(of: measured, named: "measured-child")
+        let keptShown = FASTQStatisticsDisplayRules.statisticsToShow(
+            kept.manifest.cachedStatistics, of: kept.manifest, in: kept.bundle
+        )
+        XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(keptShown), "40.0", "a child of measured reads keeps its numbers")
+    }
+
     /// The overlay and the failure alert name the object ("the read statistics for NAME"), put the next step before the
     /// reason, and end on the reason, since a raw reason can be long (UX review S1, S2).
     func testTheMeasuringWordsGiveTheNextStepBeforeTheReason() throws {
