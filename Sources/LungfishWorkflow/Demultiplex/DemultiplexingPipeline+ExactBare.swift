@@ -480,9 +480,11 @@ extension DemultiplexingPipeline {
                     ),
                     lineage: [demuxOp],
                     operation: demuxOp,
-                    cachedStatistics: cachedStatistics,
+                    cachedStatistics: sourceCarriesPlaceholderScores(config)
+                        ? cachedStatistics.withoutQualities : cachedStatistics,
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: parentBundleURL ?? config.inputURL),
-                    sequenceFormat: config.inputSequenceFormat
+                    sequenceFormat: config.inputSequenceFormat,
+                    qualityScoresArePlaceholders: sourceCarriesPlaceholderScores(config) ? true : nil
                 )
                 try saveRequiredDerivedManifest(
                     derivedManifest,

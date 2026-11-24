@@ -848,9 +848,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     ),
                     lineage: [demuxOp],
                     operation: demuxOp,
-                    cachedStatistics: stats,
+                    cachedStatistics: sourceCarriesPlaceholderScores(config) ? stats.withoutQualities : stats,
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: parentBundleURL ?? config.inputURL),
-                    sequenceFormat: config.inputSequenceFormat
+                    sequenceFormat: config.inputSequenceFormat,
+                    qualityScoresArePlaceholders: sourceCarriesPlaceholderScores(config) ? true : nil
                 )
                 try saveRequiredDerivedManifest(
                     derivedManifest,
@@ -1068,9 +1069,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     ),
                     lineage: [demuxOp],
                     operation: demuxOp,
-                    cachedStatistics: stats,
+                    cachedStatistics: sourceCarriesPlaceholderScores(config) ? stats.withoutQualities : stats,
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: config.sourceBundleURL ?? config.inputURL),
-                    sequenceFormat: config.inputSequenceFormat
+                    sequenceFormat: config.inputSequenceFormat,
+                    qualityScoresArePlaceholders: sourceCarriesPlaceholderScores(config) ? true : nil
                 )
                 try saveRequiredDerivedManifest(
                     derivedManifest,
@@ -1147,9 +1149,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     ),
                     lineage: [demuxOp],
                     operation: demuxOp,
-                    cachedStatistics: stats,
+                    cachedStatistics: sourceCarriesPlaceholderScores(config) ? stats.withoutQualities : stats,
                     pairingMode: config.inputPairingMode ?? inferredPairingMode(from: config.sourceBundleURL ?? config.inputURL),
-                    sequenceFormat: config.inputSequenceFormat
+                    sequenceFormat: config.inputSequenceFormat,
+                    qualityScoresArePlaceholders: sourceCarriesPlaceholderScores(config) ? true : nil
                 )
                 try saveRequiredDerivedManifest(
                     derivedManifest,
@@ -1219,6 +1222,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     // MARK: - Private Helpers
 
     /// Resolves the actual FASTQ file from a URL (handles .lungfishfastq bundles).
+    /// Whether the reads this run starts from carry placeholder scores no instrument measured, as the reads of a Fluidigm
+    /// bundle do. Each child of such reads stores the statistics without qualities and the mark, since the `I`
+    /// characters it holds were written and not measured (lane FLUIDIGM-CHILDREN F5, ruling BIO-FLUIDIGM-CHILDREN).
+    func sourceCarriesPlaceholderScores(_ config: DemultiplexConfig) -> Bool {
+        FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: config.sourceBundleURL ?? config.inputURL)
+    }
+
     func resolveInputFASTQ(_ url: URL) -> URL {
         if FASTQBundle.isBundleURL(url) {
             return FASTQBundle.resolvePrimaryFASTQURL(for: url) ?? url
