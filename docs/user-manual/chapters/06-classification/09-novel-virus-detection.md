@@ -118,7 +118,7 @@ Four summary cards repeat the preview counts under **Experiment**, **Samples**, 
 
 To check a match with a fresh BLAST search, LGE uses the contig's sequence from the sample's FASTA file. All four simulated contigs in the demo use sequence from the SARS-CoV-2 reference, a sequence used for comparison. SampleA's `NODE_1_length_500_cov_10.0` tests a row whose reported match and sequence refer to the same virus. The other three demo contigs hold SARS-CoV-2 sequence under rows that name HIV-1, a herpesvirus, or a norovirus.
 
-With NCBI Taxonomy installed, verifying one of those three gives **Unsupported** when NCBI's best match is SARS-CoV-2 and not the organism the row names. It gives **Inconclusive** if NCBI returns no strong match. The simulated files produce those results.
+With NCBI Taxonomy installed, verifying one of those three gives **Unsupported** or **Inconclusive**, never support for the organism the row names, because NCBI's best matches are SARS-CoV-2. The simulated files produce those results.
 
 1. Select one contig row or one of its expanded matches. For the demo, use SampleA's `NODE_1_length_500_cov_10.0`. A [taxon](../../GLOSSARY.md#taxon) is a named group of organisms. The **By Taxon** headings label those groups, so selecting one leaves verification grayed.
 
