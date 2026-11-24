@@ -886,7 +886,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         _ = try await pipeline.run()
     }
 
-    private func makePipeline(
+    func makePipeline(
         caller: ViralVariantCaller,
         medakaModel: String? = "unused",
         advancedArguments: [String] = [],
@@ -988,7 +988,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         )
     }
 
-    private func makeFakeVariantToolRunner() throws -> NativeToolRunner {
+    func makeFakeVariantToolRunner() throws -> NativeToolRunner {
         let home = tempDir.appendingPathComponent("fake-home", isDirectory: true)
         try writeFakeTool(home: home, environment: "samtools", executable: "samtools", script: """
         #!/bin/sh
