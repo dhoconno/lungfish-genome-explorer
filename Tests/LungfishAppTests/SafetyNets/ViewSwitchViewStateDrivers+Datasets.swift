@@ -5,7 +5,7 @@
 // Each driver reads the view's own controls, found in the view tree where the controller keeps them private (QA 2).
 // FASTQ: the routing fixture's bundle with cached statistics. The change opens the Reads tab and widens the
 // operations list to 260 points. Assembly: the SPAdes fixture's two contigs. The change filters for NODE_2, sorts by
-// length, longest first, and selects NODE_2. FASTA collection: `Inputs/clusters.fasta` with cluster_1 (12 bp) and
+// length, longest first, selects NODE_2 and drags the divider beside the detail pane to 45 percent. FASTA collection: `Inputs/clusters.fasta` with cluster_1 (12 bp) and
 // cluster_2 (8 bp). The change filters for cluster_2, sorts by length, selects it and sets the detail pane to 150 points.
 
 import AppKit
@@ -117,12 +117,26 @@ struct AssemblyViewStateDriver: ViewStateDriver {
     }
 
     /// Waits for the kept view, applied when the contigs load (VS A2), and for the selection's own read, which sets the
-    /// contigs that Extract, Export and BLAST act on.
+    /// contigs that Extract, Export and BLAST act on and shows the detail pane beside the table.
     func settle(in harness: ViewSwitchWindowHarness) async {
         _ = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
             guard viewStateIsSettled(in: harness), let viewer = viewer(in: harness) else { return false }
             return viewer.selectedContigNames == selectedNames(in: viewer)
+                && (viewer.selectedContigNames.isEmpty || !viewer.testDetailContainer.isHidden)
         }
+    }
+
+    /// The divider between the detail pane and the table, as the leading pane's share of the split in percent, read
+    /// from the split itself. The pane shows only while a contig is selected.
+    private func divider(in viewer: AssemblyResultViewController) -> String {
+        let split = viewer.testSplitView
+        let extent = split.isVertical ? split.bounds.width : split.bounds.height
+        guard !viewer.testDetailContainer.isHidden, split.arrangedSubviews.count == 2, extent > 0 else {
+            return "divider none"
+        }
+        let leading = split.arrangedSubviews[0].frame
+        let share = (split.isVertical ? leading.width : leading.height) / extent
+        return "divider \(Int((share * 100).rounded()))"
     }
 
     private func selectedNames(in viewer: AssemblyResultViewController) -> [String] {
@@ -130,14 +144,25 @@ struct AssemblyViewStateDriver: ViewStateDriver {
         return table.tableView.selectedRowIndexes.compactMap { table.record(at: $0)?.name }
     }
 
+    /// Filters, sorts and selects, then, once the selection's read shows the detail pane, drags the divider to a
+    /// share of the split away from where the viewer places it.
     func change(in harness: ViewSwitchWindowHarness) async throws {
-        let table = try XCTUnwrap(viewer(in: harness)).testContigTableView
+        let viewer = try XCTUnwrap(viewer(in: harness))
+        let table = viewer.testContigTableView
         table.setFilterText("NODE_2")
         table.tableView.sortDescriptors = [NSSortDescriptor(key: "length", ascending: false)]
         table.selectContigs(named: [Self.kept])
+        let paneShows = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+            !viewer.testDetailContainer.isHidden
+        }
+        XCTAssertTrue(paneShows, "the selected contig's read shows the detail pane")
+        let split = viewer.testSplitView
+        let extent = split.isVertical ? split.bounds.width : split.bounds.height
+        split.setPosition((extent * 0.45).rounded(), ofDividerAt: 0)
+        split.layoutSubtreeIfNeeded()
     }
 
-    /// The filter field, the sort, the rows, the selected rows, and the contigs the actions read.
+    /// The filter field, the sort, the rows, the selected rows, the contigs the actions read, and the divider.
     func read(in harness: ViewSwitchWindowHarness) throws -> [String] {
         let viewer = try XCTUnwrap(viewer(in: harness))
         let table = viewer.testContigTableView
@@ -148,6 +173,7 @@ struct AssemblyViewStateDriver: ViewStateDriver {
             "rows \(table.tableView.numberOfRows)",
             "selected \(selectedNames(in: viewer).joined(separator: ", "))",
             "actions read \(viewer.selectedContigNames.joined(separator: ", "))",
+            divider(in: viewer),
         ]
     }
 
@@ -158,8 +184,8 @@ struct AssemblyViewStateDriver: ViewStateDriver {
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 120)], ofItemAtPath: contigs.path)
     }
 
-    /// The filter text is a search text, so a changed key drops it and both contigs show. The sort and the selected
-    /// contig by its name come back (VS B4, B6).
+    /// The filter text is a search text, so a changed key drops it and both contigs show. The sort, the selected
+    /// contig by its name and the divider, which is presentation, come back (VS B4, B6).
     func readingAfterChangedBundle(changed: [String]) -> [String] {
         var reading = changed
         reading[0] = "filter "
