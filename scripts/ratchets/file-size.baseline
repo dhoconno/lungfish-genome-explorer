@@ -3,7 +3,7 @@ Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 1303
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1014
 Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 812
 Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 820
-Sources/LungfishApp/App/AppDelegate.swift 2637
+Sources/LungfishApp/App/AppDelegate.swift 2638
 Sources/LungfishApp/App/MainMenu.swift 1364
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 864
 Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1343
@@ -51,7 +51,7 @@ Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 2394
 Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift 1159
 Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift 1157
 Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2025
-Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2194
+Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2238
 Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4218
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1766
 Sources/LungfishApp/Views/Viewer/SequenceViewerView+Alignment.swift 1411
@@ -146,7 +146,7 @@ Sources/LungfishWorkflow/Conda/CondaManager.swift 1413
 Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift 1214
 Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1552
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1592
-Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2558
+Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2562
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 822
 Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1153
