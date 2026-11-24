@@ -103,18 +103,20 @@ final class ChunkLoopMemoryTests: XCTestCase {
         assertKeepsNoChunk("KrakenIndexDatabase.sha256 (KrakenIndexDatabase.swift:792)", input: written.bytes, rise: rise)
     }
 
-    /// Opening a Kraken2 result builds the read index from the per-read output, one row a read.
+    /// Opening a Kraken2 result builds the read index from the per-read output, one row a read. Each line carries
+    /// about 1 KB of k-mer hits, as a long read's do, so the rows SQLite holds stay few and the pin weighs the chunks.
     func testTheKrakenIndexBuildKeepsNoChunkOfTheOutput() throws {
         let root = try makeRoot()
         let output = root.appendingPathComponent("classification.kraken")
         FileManager.default.createFile(atPath: output.path, contents: nil)
         let writer = try FileHandle(forWritingTo: output)
+        let hits = String(repeating: "9606:116 0:34 ", count: 68)
         var bytes = 0
         for block in 0..<Self.blocks {
             var text = ""
             var read = 0
-            while text.utf8.count < (1 << 20) - 64 {
-                text += "C\tread_\(block)_\(read)\t9606\t150\t9606:116\n"
+            while text.utf8.count < (1 << 20) - 1_024 {
+                text += "C\tread_\(block)_\(read)\t9606\t1500\t\(hits)\n"
                 read += 1
             }
             let data = Data(text.utf8)
