@@ -223,7 +223,7 @@ extension ReferenceBundleViewportController {
         guard !embeddedViewerController.isRestoringViewportMemory else { return unchanged }
         if let line = filterLineView, shownReadFilters != embeddedViewerController.viewMemory?.restoredReads {
             line.removeFromSuperview()
-            embeddedViewerController.view.topAnchor.constraint(equalTo: detailContentContainer.topAnchor).isActive = true
+            restackDetailLines()
         }
         _ = embeddedViewerController.captureViewerMemory()
         return unchanged
@@ -242,17 +242,7 @@ extension ReferenceBundleViewportController {
         guard let filters = shownReadFilters, let form = filters.lineForm else { return }
         let line = filterLineView ?? {
             let line = ViewMemoryFilterLineView()
-            let detailView = embeddedViewerController.view
-            detailContentContainer.addSubview(line)
-            detailContentContainer.constraints.first {
-                $0.firstItem === detailView && $0.firstAttribute == .top && $0.secondItem === detailContentContainer
-            }?.isActive = false
-            NSLayoutConstraint.activate([
-                line.topAnchor.constraint(equalTo: detailContentContainer.topAnchor),
-                line.leadingAnchor.constraint(equalTo: detailContentContainer.leadingAnchor),
-                line.trailingAnchor.constraint(equalTo: detailContentContainer.trailingAnchor),
-                detailView.topAnchor.constraint(equalTo: line.bottomAnchor),
-            ])
+            hangInDetailArea(line)
             return line
         }()
         embeddedViewerController.viewMemory?.restoredReads = filters
@@ -269,9 +259,45 @@ extension ReferenceBundleViewportController {
         _ = restoreViewportMemory(start, dataChanged: false)
         if let line = filterLineView {
             line.removeFromSuperview()
-            embeddedViewerController.view.topAnchor.constraint(equalTo: detailContentContainer.topAnchor).isActive = true
+            restackDetailLines()
         }
         embeddedViewerController.viewMemory?.restoredReads = nil
+    }
+
+    /// A mapping result hosts the viewer's reset line in its detail area, under the filter line and above the viewer
+    /// and the placeholder. The placeholder state hides the embedded viewer, and with it a line inside the viewer, so
+    /// a result that opens with no contig on show would never say why its view was reset (VS-LINE-HIDDEN). A reference
+    /// keeps the viewer's own placement.
+    func hostViewMemoryLine(_ line: ViewMemoryResetLineView) -> Bool {
+        guard currentInput?.kind == .mappingResult else { return false }
+        hangInDetailArea(line)
+        return true
+    }
+
+    /// Hangs the filter line, then the hosted reset line, then the viewer from the detail area's top, each from the
+    /// bottom of the one above, so a line covers nothing, each view has the one top, and a line's removal by any path
+    /// leaves no gap and no view without a top (LESSONS 4).
+    func restackDetailLines() {
+        let lines = detailContentContainer.subviews.filter { $0 is ViewMemoryFilterLineView }
+            + detailContentContainer.subviews.filter { $0 is ViewMemoryResetLineView }
+        let stack = lines + [embeddedViewerController.view]
+        NSLayoutConstraint.deactivate(detailContentContainer.constraints.filter { pin in
+            pin.firstAttribute == .top && stack.contains { $0 === pin.firstItem }
+        })
+        var above = detailContentContainer.topAnchor
+        for view in stack {
+            view.topAnchor.constraint(equalTo: above).isActive = true
+            above = view.bottomAnchor
+        }
+    }
+
+    private func hangInDetailArea(_ line: NSView) {
+        detailContentContainer.addSubview(line)
+        NSLayoutConstraint.activate([
+            line.leadingAnchor.constraint(equalTo: detailContentContainer.leadingAnchor),
+            line.trailingAnchor.constraint(equalTo: detailContentContainer.trailingAnchor),
+        ])
+        restackDetailLines()
     }
 
     var selectedRowAwaitsItsContext: Bool {

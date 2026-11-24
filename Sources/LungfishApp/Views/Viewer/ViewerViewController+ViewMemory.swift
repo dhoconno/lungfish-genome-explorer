@@ -108,6 +108,11 @@ protocol ReferenceViewportMemoryOwner: AnyObject {
     func showReadFilterLineIfKept()
     /// Reset View: the list, the mode and the read filters as the open showed them, and no filter line (VS U3).
     func resetViewportMemory(to opening: ReferenceViewportMemory)
+    /// Shows the viewer's line in the viewport's own place for it and reports whether it took it. The mapping viewport
+    /// takes it, since its placeholder state hides the viewer and a line inside it (VS-LINE-HIDDEN).
+    func hostViewMemoryLine(_ line: ViewMemoryResetLineView) -> Bool
+    /// Hangs the viewport's lines and the viewer from the top of its detail area again, after a hosted line left it.
+    func restackDetailLines()
 }
 
 extension ViewerViewController {
@@ -518,36 +523,46 @@ extension ViewerViewController {
         viewMemory = nil
     }
 
-    /// Shows the line that says what was not kept, in flow between the gene tab bar and the canvas, as the Kit host's
-    /// `showResetLine` does (VS-REF-LINE, lesson 4). The canvas and the progress overlay hang from the line while it
-    /// shows, so it covers no track and the overlay covers the canvas only. The next show replaces it, and every end of
-    /// the line goes through `removeViewMemoryLine`, so the canvas has the one top.
+    /// Shows the line that says what was not kept (VS U2). The mapping viewport hosts it in its detail area, in flow
+    /// above the viewer, so the placeholder state, which hides the viewer, does not hide the line and a contig click
+    /// finds it above the canvas (VS-LINE-HIDDEN). A reference keeps the viewer's own placement: in flow between the
+    /// gene tab bar and the canvas, as the Kit host's `showResetLine` does (VS-REF-LINE, lesson 4), with the canvas and
+    /// the progress overlay hanging from the line while it shows, so it covers no track. The next show replaces the
+    /// line, and every end of it goes through `removeViewMemoryLine`, so the canvas has the one top.
     func showViewMemoryLine(_ words: String, in session: ReferenceViewerMemorySession) {
         removeViewMemoryLine(of: session)
         let line = ViewMemoryResetLineView(words: words)
-        view.addSubview(line)
-        NSLayoutConstraint.deactivate(contentTopPins)
-        NSLayoutConstraint.activate([
-            line.topAnchor.constraint(equalTo: geneTabBarView.bottomAnchor),
-            line.leadingAnchor.constraint(equalTo: viewerView.leadingAnchor),
-            line.trailingAnchor.constraint(equalTo: viewerView.trailingAnchor),
-            viewerView.topAnchor.constraint(equalTo: line.bottomAnchor),
-            progressOverlay.topAnchor.constraint(equalTo: line.bottomAnchor),
-        ])
+        if viewMemoryViewport?.hostViewMemoryLine(line) != true {
+            view.addSubview(line)
+            NSLayoutConstraint.deactivate(contentTopPins)
+            NSLayoutConstraint.activate([
+                line.topAnchor.constraint(equalTo: geneTabBarView.bottomAnchor),
+                line.leadingAnchor.constraint(equalTo: viewerView.leadingAnchor),
+                line.trailingAnchor.constraint(equalTo: viewerView.trailingAnchor),
+                viewerView.topAnchor.constraint(equalTo: line.bottomAnchor),
+                progressOverlay.topAnchor.constraint(equalTo: line.bottomAnchor),
+            ])
+        }
         session.line = line
         NSAccessibility.post(element: line.label, notification: .announcementRequested, userInfo: [
             .announcement: words, .priority: NSAccessibilityPriorityLevel.high.rawValue,
         ])
     }
 
-    /// Removes the line, by any path (the end of the visit, the next show, Reset View), and hangs the canvas and the
-    /// progress overlay from the gene tab bar again. The line's own constraints go with it, as the Kit host's
-    /// `removeResetLine` has it, so no path leaves the canvas with two tops or none.
+    /// Removes the line, by any path (the end of the visit, the next show, Reset View). The line's own constraints go
+    /// with it, as the Kit host's `removeResetLine` has it. A viewport that hosted it hangs its detail area from its top
+    /// again, and a reference's canvas and progress overlay hang from the gene tab bar again, so no path leaves the
+    /// canvas or the viewer with two tops or none.
     func removeViewMemoryLine(of session: ReferenceViewerMemorySession) {
         guard let line = session.line else { return }
         session.line = nil
+        let hosted = line.superview.map { $0 !== view } ?? false
         line.removeFromSuperview()
-        NSLayoutConstraint.activate(contentTopPins)
+        if hosted {
+            viewMemoryViewport?.restackDetailLines()
+        } else {
+            NSLayoutConstraint.activate(contentTopPins)
+        }
     }
 
     /// Keeps a pending change when the window closes or the app quits, since nothing leaves the bundle on those ways
