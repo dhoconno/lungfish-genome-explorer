@@ -883,13 +883,73 @@ final class DemultiplexingPipelineTests: XCTestCase {
 
     // MARK: - Children of reads with placeholder scores (lane FLUIDIGM-CHILDREN F5, ruling BIO-FLUIDIGM-CHILDREN)
 
-    /// A bundle whose derived manifest holds the placeholder mark and whose reads carry `I`. The mark is the only thing
-    /// that makes it a marked source: its operation is a subsample and it holds no Fluidigm library prep, so the legacy
-    /// clause of `FASTQQualityScoreOrigin` does not apply.
+    /// FLUIDIGM-CHILDREN review SF2, the over-mark guard of F5 (it passes at the base and at the head). A child of reads
+    /// whose manifest holds no mark carries no mark and keeps the figures it measured: a Mean Q above zero, a score
+    /// histogram and per-position summaries, with the read counts of the marked case. It fails if the mark ever reaches
+    /// the child of a scored source.
+    func testAChildOfUnmarkedReadsCarriesNoMarkAndKeepsItsStatistics() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        let fld0001 = "GTATCGTCGT"
+        let bareSource = try makeMarkedSourceBundle(
+            in: tempDir,
+            name: "scored-bare",
+            sequences: [
+                "AAAAA" + fld0001 + "CCCCCGGGGG",
+                "TTTTT" + PlatformAdapters.reverseComplement(fld0001) + "GGGGGCCCCC",
+                "AAAAAAAAAACCCCCCCCCC",
+            ],
+            marked: false
+        )
+        let bareOutput = tempDir.appendingPathComponent("bare-out", isDirectory: true)
+        _ = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: bareSource,
+                barcodeKit: BarcodeKitDefinition(
+                    id: "custom-unmarked-subset",
+                    displayName: "Custom Unmarked Subset",
+                    vendor: "custom",
+                    isDualIndexed: false,
+                    pairingMode: .singleEnd,
+                    barcodes: [BarcodeEntry(id: "FLD0001", i7Sequence: fld0001)]
+                ),
+                outputDirectory: bareOutput,
+                barcodeLocation: .bothEnds,
+                maxDistanceFrom5Prime: 0,
+                maxDistanceFrom3Prime: 0,
+                trimBarcodes: true,
+                threads: 1,
+                engine: .exactBareBarcode,
+                rootBundleURL: bareSource,
+                rootFASTQFilename: "reads.fastq"
+            ),
+            progress: { _, _ in }
+        )
+
+        let children = try childManifests(in: bareOutput)
+        let readCounts = ["FLD0001": 2, "unassigned": 1]
+        XCTAssertEqual(Set(children.keys), Set(readCounts.keys), "exact bare-barcode route children")
+        for (name, readCount) in readCounts {
+            guard let manifest = children[name] else { continue }
+            let stats = manifest.cachedStatistics
+            XCTAssertNil(manifest.qualityScoresArePlaceholders, "\(name), a child of unmarked reads carries no mark")
+            XCTAssertEqual(stats.readCount, readCount, "\(name) read count")
+            XCTAssertGreaterThan(stats.meanQuality, 0, "\(name) Mean Q of reads whose scores were measured")
+            XCTAssertFalse(stats.qualityScoreHistogram.isEmpty, "\(name) score histogram")
+            XCTAssertFalse(stats.perPositionQuality.isEmpty, "\(name) per-position quality summaries")
+        }
+    }
+
+    /// A bundle whose derived manifest holds the placeholder mark (`marked`, the default) and whose reads carry `I`. The
+    /// mark is the only thing that makes it a marked source: its operation is a subsample and it holds no Fluidigm
+    /// library prep, so the legacy clause of `FASTQQualityScoreOrigin` does not apply. With `marked` false the manifest
+    /// holds no mark, which is a bundle of scored reads.
     private func makeMarkedSourceBundle(
         in tempDir: URL,
         name: String,
-        sequences: [String]
+        sequences: [String],
+        marked: Bool = true
     ) throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -905,7 +965,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
             operation: operation,
             cachedStatistics: .empty,
             pairingMode: .singleEnd,
-            qualityScoresArePlaceholders: true
+            qualityScoresArePlaceholders: marked ? true : nil
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
         return bundleURL

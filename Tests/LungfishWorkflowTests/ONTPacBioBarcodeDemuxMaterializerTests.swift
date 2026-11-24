@@ -267,6 +267,61 @@ final class ONTPacBioBarcodeDemuxMaterializerTests: XCTestCase {
         XCTAssertTrue(stats.perPositionQuality.isEmpty, "\(stats.perPositionQuality.count) per-position quality summaries")
     }
 
+    /// FLUIDIGM-CHILDREN review SF2, the over-mark guard of F7 (it passes at the base and at the head). The fixture of
+    /// `testASampleOfPlaceholderReadsIsMarked` with no mark on its manifest. A sample of scored reads carries no mark and
+    /// keeps its read count, its Mean Q above zero, its score histogram and its per-position summaries.
+    func testASampleOfUnmarkedReadsKeepsItsStatistics() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let forward = "CACATATCAGAGTGCG"  // BC1001
+        let reverse = "CTATACATAGTGATGT"  // BC1021
+        let input = root.appendingPathComponent("scored.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
+        try writeFASTQ(
+            records: [
+                ("read-1", exactBarcodeRead(forward: forward, reverse: reverse)),
+                ("read-2", exactBarcodeRead(forward: forward, reverse: reverse)),
+            ],
+            to: input.appendingPathComponent("reads.fastq")
+        )
+        let operation = FASTQDerivativeOperation(kind: .subsampleCount, count: 2)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "scored", parentBundleRelativePath: ".", rootBundleRelativePath: ".",
+                rootFASTQFilename: "reads.fastq", payload: .full(fastqFilename: "reads.fastq"),
+                lineage: [operation], operation: operation, cachedStatistics: .empty, pairingMode: .singleEnd,
+                qualityScoresArePlaceholders: nil
+            ),
+            in: input
+        )
+        let barcodesCSV = root.appendingPathComponent("NB13_MHC-I_plate1.barcodes.csv")
+        try "32286-001_DL46,BC1001,BC1021\n".write(to: barcodesCSV, atomically: true, encoding: .utf8)
+
+        let result = try await ONTPacBioBarcodeDemuxMaterializer().run(
+            ONTPacBioBarcodeDemuxMaterializationRequest(
+                inputURL: input,
+                barcodeDefinitionsURL: barcodesCSV,
+                outputDirectory: root.appendingPathComponent("mhc-pacbio-demux", isDirectory: true),
+                force: true,
+                threads: 1,
+                chunkJobs: 2,
+                maxReadsPerSlice: 0
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.assignedReadCount, 2)
+        let bundle = try XCTUnwrap(result.outputBundleURLs.first)
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
+        let stats = manifest.cachedStatistics
+        XCTAssertNil(manifest.qualityScoresArePlaceholders, "a child of unmarked reads carries no mark")
+        XCTAssertEqual(stats.readCount, 2, "read count")
+        XCTAssertGreaterThan(stats.meanQuality, 0, "Mean Q of reads whose scores were measured")
+        XCTAssertFalse(stats.qualityScoreHistogram.isEmpty, "score histogram")
+        XCTAssertFalse(stats.perPositionQuality.isEmpty, "per-position quality summaries")
+    }
+
     func testRepeatedPacBioSampleNamesMaterializeNumberedBundlesInSheetOrder() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
