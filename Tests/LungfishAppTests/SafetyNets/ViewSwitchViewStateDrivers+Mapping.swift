@@ -217,6 +217,41 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertEqual(resetLine(in: changed.testEmbeddedViewerController), ViewMemoryWords.dataChanged([.place, .selection]))
     }
 
+    /// SWIFT-EVIDENCE-HASH. A restored contig has no alignment action context until the person picks it, and a click on
+    /// the restored row is that pick. A click NSTableView sends no selection change for (the row is already selected)
+    /// reaches the viewport only through the table's action. A synthetic mouse click does not reach that action in a
+    /// test, so the click is pinned in its two parts: the restored table's target and action are the viewport and its
+    /// click method, and that action, sent as the table sends it with the restored row as the clicked row, builds the
+    /// context a pick builds. The fixture has no alignment file, so the context's task is the state pinned (the
+    /// ruling's item 5), not the finished context.
+    func testARestoredContigTableSendsItsClickToThePickThatBuildsTheActionContext() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        pick("chr2", in: viewport)
+        XCTAssertNotNil(viewport.alignmentActionContextTask, "a pick builds the contig's action context")
+        viewport.testEmbeddedViewerController.zoomIn() // a user event handler, which marks the view changed
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(mapping: first, store: store)
+        let table: NSTableView = viewport.contigTableView.tableView
+        XCTAssertEqual(selectedContig(in: viewport), "chr2", "the contig as left")
+        XCTAssertNil(viewport.alignmentActionContextTask, "a restored contig starts no evidence hash")
+        XCTAssertNil(viewport.testEmbeddedViewerController.alignmentActionContext, "nor gives Extract a target")
+
+        // (a) A click on the restored list goes to the viewport's click method.
+        XCTAssertTrue(table.target === viewport, "the restored list sends its clicks to its viewport")
+        XCTAssertEqual(table.action.map(NSStringFromSelector), "viewMemoryRowClicked:", "the restored list's click action")
+
+        // (b) That action, sent as the table sends it on a click on the restored row, is the person's pick.
+        let click = ClickedRowStandIn(clickedRow: table.selectedRow)
+        let sent = table.action.map { NSApplication.shared.sendAction($0, to: table.target, from: click) } ?? false
+        XCTAssertTrue(sent, "the click reaches the table's target")
+        XCTAssertEqual(selectedContig(in: viewport), "chr2", "the click keeps the row")
+        XCTAssertNotNil(
+            viewport.alignmentActionContextTask, "a click on the restored row builds its action context as a pick does")
+    }
+
     // MARK: - Support
 
     private func makeStore() -> ViewMemoryStore {
@@ -291,4 +326,21 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
     private func resetLine(in viewer: ViewerViewController) -> String? {
         viewer.view.subviews.compactMap { $0 as? ViewMemoryResetLineView }.first?.words
     }
+}
+
+/// The sender a click on a table row hands its action: a table whose clicked row is the row clicked. NSTableView sets
+/// `clickedRow` only while it tracks a real mouse press, which a test cannot deliver to the table's action.
+@MainActor
+private final class ClickedRowStandIn: NSTableView {
+    private let row: Int
+
+    init(clickedRow: Int) {
+        row = clickedRow
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var clickedRow: Int { row }
 }
