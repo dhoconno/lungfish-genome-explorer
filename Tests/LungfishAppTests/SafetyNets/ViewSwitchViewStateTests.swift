@@ -90,8 +90,8 @@ extension ViewSwitchWindowHarness {
 
 @MainActor
 final class ViewSwitchViewStateTests: XCTestCase {
-    private var root: URL!
-    private var project: URL!
+    var root: URL!
+    var project: URL!
     private var storeRoot: URL!
     /// The adopting tables write no column layout to the runner's defaults (VS A10, QA 6), which
     /// `testKraken2AndEsVirituKeepAMovedColumnInViewMemoryAndWriteNoLayoutToTheAccountDefaults` pins before this
@@ -893,7 +893,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
 
     // MARK: - The three cases
 
-    private func assertSwitchAwayAndBack(_ driver: any ViewStateDriver) async throws {
+    func assertSwitchAwayAndBack(_ driver: any ViewStateDriver) async throws {
         let (fixture, other) = try await fixtures(for: driver)
         let store = loadedStore()
         let harness = try ViewSwitchWindowHarness()
@@ -912,7 +912,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertNil(driver.resetLineWords(in: harness), "\(driver.kind): nothing was lost, so no line shows")
     }
 
-    private func assertRelaunch(_ driver: any ViewStateDriver) async throws {
+    func assertRelaunch(_ driver: any ViewStateDriver) async throws {
         let (fixture, _) = try await fixtures(for: driver)
         let changed: [String]
         do {
@@ -937,7 +937,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertNil(driver.resetLineWords(in: harness), "\(driver.kind): nothing was lost, so no line shows")
     }
 
-    private func assertChangedBundle(_ driver: any ViewStateDriver) async throws {
+    func assertChangedBundle(_ driver: any ViewStateDriver) async throws {
         let (fixture, other) = try await fixtures(for: driver)
         let store = loadedStore()
         let harness = try ViewSwitchWindowHarness()
@@ -1100,7 +1100,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
     }
 
     /// The driver's kind and a kind to switch to, built in the project.
-    private func fixtures(for driver: any ViewStateDriver) async throws -> (ViewSwitchFixture, ViewSwitchFixture) {
+    func fixtures(for driver: any ViewStateDriver) async throws -> (ViewSwitchFixture, ViewSwitchFixture) {
         let kind = try ViewSwitchFixtures.kind(named: driver.kind)
         let fixture = try await ViewSwitchFixtures.build(kind, in: project)
         try driver.prepare(fixture)
@@ -1109,21 +1109,21 @@ final class ViewSwitchViewStateTests: XCTestCase {
     }
 
     /// A store over the test's folder with the project read, as a project open reads it (VS S1).
-    private func loadedStore() -> ViewMemoryStore {
+    func loadedStore() -> ViewMemoryStore {
         let store = ViewMemoryStore(root: storeRoot)
         store.loadProject(at: project)
         store.loadLoose()
         return store
     }
 
-    private func show(_ fixture: ViewSwitchFixture, in harness: ViewSwitchWindowHarness, driver: any ViewStateDriver) async throws {
+    func show(_ fixture: ViewSwitchFixture, in harness: ViewSwitchWindowHarness, driver: any ViewStateDriver) async throws {
         harness.select(fixture.item)
         let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
         XCTAssertTrue(shown, "\(driver.kind) did not show")
         await driver.settle(in: harness)
     }
 
-    private func leave(for other: ViewSwitchFixture, in harness: ViewSwitchWindowHarness, driver: any ViewStateDriver) async throws {
+    func leave(for other: ViewSwitchFixture, in harness: ViewSwitchWindowHarness, driver: any ViewStateDriver) async throws {
         harness.select(other.item)
         let left = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { !driver.isShown(in: harness) }
         XCTAssertTrue(left, "\(driver.kind) stayed after the switch to \(other.kind.name)")
