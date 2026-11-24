@@ -6,7 +6,7 @@ caption: The Human Mapping and Variants (with results) demo project just opened,
   left, an empty viewport in the centre, and the Inspector on the right.
 viewport_class: none
 app_state:
-  fixture: /Users/dho/Desktop/lge-docs/LGE Empty Demo.lungfish
+  fixture: ~/Desktop/lge-docs/LGE Empty Demo.lungfish
   open_files: []
   window_size:
   - 1366
