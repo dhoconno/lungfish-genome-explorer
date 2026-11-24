@@ -3,7 +3,7 @@ title: BLAST Verification
 chapter_id: 06-classification/06-blast-verification
 audience: bench-scientist
 prereqs: [06-classification/02-running-kraken2]
-estimated_reading_min: 27
+estimated_reading_min: 28
 task: Send a sample of a classifier's reads to NCBI BLAST and read the verdict it comes back with.
 tags: [classification, blast, verification]
 tools: [blast]
@@ -23,7 +23,7 @@ glossary_refs: [accession, bit-score, blast, bundle, clade, contig, e-value, esv
 features_refs: [classify.blast-verify, results.table-row-commands]
 fixtures_refs: [kraken-protocol-cornea]
 brand_reviewed: true
-lead_approved: true
+lead_approved: false
 ---
 
 ## What it is
@@ -50,7 +50,9 @@ For this example, open Pathogen Detection with **Help > Demo Projects…**. It h
 
 Open the finished classification in its [viewport](../../GLOSSARY.md#viewport), the panel that shows one result. If you only have a [FASTQ](../../GLOSSARY.md#fastq) file, a text file of reads, classify those reads first. CZ ID is a web service for metagenomics, the study of genetic material from a mixture of organisms. Imported CZ ID results lack the read identifiers LGE needs to send a search.
 
-You can start without a plugin pack, an optional set of tools LGE installs. A verdict needs one optional database download, NCBI Taxonomy, NCBI's catalog of named groups. LGE uses it to find the species of the row you verify, so that a record of another species whose name holds the row's name does not count for the row. Install it in the **Databases** tab of **Tools > Plugin Manager…**, the window that installs tools and databases. Without it, or when your copy does not list the row's taxon, LGE gives no verdict. The result reads **Not judged** and lists each read's best match with no counts for or against.
+You can start without a plugin pack, an optional set of tools LGE installs. A verdict needs one optional database download, NCBI Taxonomy, NCBI's catalog of named groups. LGE uses it to find the species of the row you verify, so that a record of another species whose name holds the row's name does not count for the row. Install it in the **Databases** tab of **Tools > Plugin Manager…**, the window that installs tools and databases. See [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab).
+
+Without it, or when your copy does not list the row's taxon, LGE gives no verdict if at least one read has a close match. The result then reads **Not judged** and lists each read's best match with no counts for or against. If no read has a close match, the result reads **Inconclusive**, as it does with NCBI Taxonomy installed.
 
 The search runs at NCBI. LGE sends each sampled read's sequence and identifier, its own tool name, and a contact address. LGE uses the identifier as stored in the reads file, dropping a trailing `/1` or `/2`. The identifier can include the run accession or the names of the sequencer and its flow cell, where sequencing takes place. LGE sends no separate sample or project details or other parts of the file.
 
@@ -110,7 +112,7 @@ What LGE sends depends on the viewport. A [fragment](../../GLOSSARY.md#fragment)
 | [Novel Virus Diagnostics](09-novel-virus-detection.md) | The selected contig, judged against the taxon named by NVD's adjusted tax ID | A sheet titled **Run BLAST at NCBI?** |
 | [12S Amplicon Metabarcoding](10-twelve-s-metabarcoding.md) | Unresolved sequences from the Unresolved view | A sheet titled **Run BLAST at NCBI?** |
 
-The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsViritu, TaxTriage, NAO-MGS, and NVD find a row's species in NCBI Taxonomy, the download that [Before you start](#before-you-start) describes, as Kraken 2 does. Without it, or when its copy does not hold the row's species, LGE gives no verdict. The summary bar shows **Not judged**, and the line under the summary says why.
+The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsViritu, TaxTriage, NAO-MGS, and NVD find a row's species in NCBI Taxonomy, the download that [Before you start](#before-you-start) describes, as Kraken 2 does. Without it, or when its copy does not hold the row's species, LGE gives no verdict if at least one read has a close match, as Before you start explains. The summary bar then shows **Not judged**, and the line under the summary says why.
 
 ## Settings
 
@@ -232,7 +234,7 @@ Divide the supporting count by the sum of the supporting and contradicting count
 
 The ten symbols split submitted reads into rounded tenths. With 20 reads, each symbol represents two. A filled circle means supporting, a diamond means contradicting, and a hollow circle means neither.
 
-Beside the verdict, `<n> also match other records equally` counts supporting reads tied outside the clade. LGE judges a read by organism names alone if its best record has no taxonomy ID. If LGE cannot look up the row's species in NCBI Taxonomy, or the row has no tax ID, it gives no verdict and the summary bar shows **Not judged**. When LGE judges a read by names alone, the bar adds a read to `<n> with conflicting organisms` if the five records have more than one first word across their organism names.
+Beside the verdict, `<n> also match other records equally` counts supporting reads tied outside the clade. LGE judges a read by organism names alone if its best record has no taxonomy ID. If LGE cannot look up the row's species in NCBI Taxonomy, or the row has no tax ID, it gives no verdict and the summary bar shows **Not judged** when at least one read is Verified. With none, the bar shows **Inconclusive**. When LGE judges a read by names alone, the bar adds a read to `<n> with conflicting organisms` if the five records have more than one first word across their organism names.
 
 If the drawer says `NCBI searched <database>, not the <database> this search asked for.`, record the database NCBI actually used when you compare or report results. A line starting with `Collected` gives the time since the first send, the number of sends, and the request ID that answered.
 
@@ -295,7 +297,7 @@ Replace `<timestamp>` with the rest of the Viral result's folder name. The first
 
 `--kraken-output` names the per-read file used to choose mates by k-mer count. `--source` names the reads and can repeat. It accepts a `.lungfishfastq` bundle, whose files have assigned roles, or loose files in this order, R1, R2, then merged or single reads. `--format json` prints JSON, a structured text format other programs can read. Omit it for a readable summary that counts how many reads went as mate 2 and gives the BLAST verdict on a line labeled Confidence.
 
-The command reads the NCBI Taxonomy you have installed and never downloads it. Without it, or when it does not list the taxon, the Confidence line reads `Not judged`, the summary gives a line that starts `Verification: NOT JUDGED`, and the JSON has `"confidence" : "notJudged"` and sets `supporting` and `contradicting` to `null`, JSON's word for no value.
+The command reads the NCBI Taxonomy you have installed and never downloads it. Without it, or when it does not list the taxon, and at least one read is Verified, the Confidence line reads `Not judged`, the summary gives a line that starts `Verification: NOT JUDGED`, and the JSON has `"confidence" : "notJudged"` and sets `supporting` and `contradicting` to `null`, JSON's word for no value. With no Verified read the Confidence line reads `Inconclusive` and the summary line starts `Verification: INCONCLUSIVE`, as with NCBI Taxonomy installed.
 
 The command draws reads assigned to the named taxon. Add `--include-children` to include taxa below it. Here all 886,221 pairs were assigned to 10298 itself. `--seed` takes a whole number that sets the random draw. The default is 0, the same seed LGE uses in the window.
 
