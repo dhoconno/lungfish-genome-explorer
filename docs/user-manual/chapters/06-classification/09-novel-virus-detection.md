@@ -26,7 +26,7 @@ shots:
 illustrations:
   - id: contig-alignment-length
     brief: "Draw two stacked bars of equal width on a Cream background to compare the share of each contig in one BLAST alignment. Outline each bar in Warm Grey and fill the approximate aligned share in Creamsicle, with no specific position implied. Use Deep Ink for the labels. Label the upper bar NODE_1_length_500_cov_10.0 with Length of 500 bases and Aln Length of 498 bases. Label the lower bar Hypothetical contig with Length of 5,000 bases and Aln Length of 400 bases."
-glossary_refs: [nvd, contig, blast, e-value, percent-identity, bit-score, accession, taxon, read, fastq, bam, bundle, provenance, checksum, reads-per-billion, inspector, operations-panel, pileup, unique-reads, primary-alignment, mate, viewport, tsv, relative-abundance, fasta, csv, secondary-alignment, working-directory, sample-metadata, pipeline, mapper, command-line-flag, reference-bundle]
+glossary_refs: [nvd, contig, blast, e-value, percent-identity, bit-score, accession, taxon, read, fastq, bam, bundle, provenance, checksum, reads-per-billion, inspector, operations-panel, pileup, unique-reads, primary-alignment, mate, viewport, tsv, relative-abundance, fasta, csv, secondary-alignment, working-directory, sample-metadata, pipeline, mapper, command-line-flag, reference-bundle, k-mer, taxonomic-rank]
 features_refs: [import.nvd]
 fixtures_refs: [nvd-demo]
 brand_reviewed: true
@@ -68,7 +68,7 @@ LGE looks in two locations for optional files and copies the files it finds into
 
 The demo has the table and simulated contig FASTA files, so you can verify a match. To count **Unique Reads**, view mapped reads, or extract reads, use a run with the sample's BAM file. A plugin pack is an add-on that supplies tools. This import needs no plugin pack and the demo import can take well under a second.
 
-NCBI Taxonomy is NCBI's catalog of named groups of organisms. It is an optional download in the **Databases** tab of the **Plugin Manager**, the window where you install plugin packs and databases. Choose **Tools > Plugin Manager…** (Cmd-Shift-B) to open it. Without NCBI Taxonomy, LGE cannot judge the BLAST result in the last verification step.
+NCBI Taxonomy is NCBI's catalog of named groups of organisms. It is an optional download in the **Databases** tab of the **Plugin Manager**, the window where you install plugin packs and databases. Choose **Tools > Plugin Manager…** (Cmd-Shift-B) to open it. Without NCBI Taxonomy, LGE cannot judge the BLAST result in the last verification step if the contig has a close match. With no close match the result reads **Inconclusive**, with NCBI Taxonomy or without it. See [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab).
 
 ## Procedure
 
@@ -108,9 +108,9 @@ Four summary cards repeat the preview counts under **Experiment**, **Samples**, 
 
     <!-- SHOT: nvd-result-viewport -->
 
-    The assembler, the program that joined the reads, supplies the full name. In this example, `NODE_2` is the contig number and `length_300` is its length in bases. `cov_5.0` is the assembler's coverage figure for the contig. A k-mer is a short stretch of sequence of a fixed length. In names of this form, the coverage figure usually counts how often those stretches occur in the reads, averaged across the contig. This average k-mer coverage runs lower than the number of reads over each base, so use it to compare contigs from the same run. The outline and detail pane shorten the name to `NODE_2 (300 bp)`, and search also uses the full name.
+    The assembler, the program that joined the reads, supplies the full name. In this example, `NODE_2` is the contig number and `length_300` is its length in bases. `cov_5.0` is the assembler's coverage figure for the contig. A [k-mer](../../GLOSSARY.md#k-mer) is a short stretch of sequence of a fixed length. In names of this form, the coverage figure usually counts how often those stretches occur in the reads, averaged across the contig. This average k-mer coverage runs lower than the number of reads over each base, so use it to compare contigs from the same run. The outline and detail pane shorten the name to `NODE_2 (300 bp)`, and search also uses the full name.
 
-2. Select a contig row to see its details. It shows the contig name, sample, organism and rank, the level of the organism's name, such as species or genus. The six badges, small labeled values, are **Identity**, **E-value**, **Bit Score**, **Mapped Reads**, **RPB**, and **Length**. Mapped reads are reads placed back on the contig. Reads per billion (RPB) rescales the mapped count by how deeply the sample was sequenced.
+2. Select a contig row to see its details. It shows the contig name, sample, organism and [rank](../../GLOSSARY.md#taxonomic-rank), the level of the organism's name, such as species or genus. The six badges, small labeled values, are **Identity**, **E-value**, **Bit Score**, **Mapped Reads**, **RPB**, and **Length**. Mapped reads are reads placed back on the contig. Reads per billion (RPB) rescales the mapped count by how deeply the sample was sequenced.
 
     **Contig Alignment** names the best match and stacks the reads mapped back to the contig from the sample's BAM file at their aligned positions. Expect the heading and best match above an empty read view in the demo.
 
@@ -118,15 +118,15 @@ Four summary cards repeat the preview counts under **Experiment**, **Samples**, 
 
 To check a match with a fresh BLAST search, LGE uses the contig's sequence from the sample's FASTA file. All four simulated contigs in the demo use sequence from the SARS-CoV-2 reference, a sequence used for comparison. SampleA's `NODE_1_length_500_cov_10.0` tests a row whose reported match and sequence refer to the same virus. The other three demo contigs hold SARS-CoV-2 sequence under rows that name HIV-1, a herpesvirus, or a norovirus.
 
-With NCBI Taxonomy installed, verifying one of those three gives **Unsupported** or **Inconclusive**, never support for the organism the row names, because NCBI's best matches are SARS-CoV-2. The simulated files produce those results.
+With NCBI Taxonomy installed, verifying one of those three gives **Unsupported** or **Inconclusive**, never support for the organism the row names, because each holds SARS-CoV-2 sequence. The simulated files produce those results.
 
 1. Select one contig row or one of its expanded matches. For the demo, use SampleA's `NODE_1_length_500_cov_10.0`. A [taxon](../../GLOSSARY.md#taxon) is a named group of organisms. The **By Taxon** headings label those groups, so selecting one leaves verification grayed.
 
 2. Click **Verify with BLAST…** in the action bar at the bottom of the window. If the button is grayed, point to it to see the reason in its tooltip, the note shown beside the pointer.
 
-3. Confirm in the **Run BLAST at NCBI?** sheet. LGE submits the contig sequence to NCBI and looks for a copy of NCBI Taxonomy that you have already installed. If it finds one, LGE judges the result against the species of the organism in the selected row's **Classification** cell, or against the organism itself when the row names a group above species. The same rule applies if you select a lower-ranked hit.
+3. Confirm in the **Run BLAST at NCBI?** sheet. LGE submits the contig sequence to NCBI and looks for a copy of NCBI Taxonomy that you have already installed. If it finds one, LGE judges the result against the species of the organism in the selected row's **Classification** cell, or against the organism itself when the row names a group above species. The same rule applies if you select one of the contig's expanded matches.
 
-4. Read the verdict for the contig's single search in the **BLAST Results** drawer at the bottom of the window. If the badge reads **Not judged**, install NCBI Taxonomy in the **Databases** tab of the **Plugin Manager** and run **Verify with BLAST…** again. For what the verdict means, see the [BLAST Verification](06-blast-verification.md#the-summary-bar-and-the-verdict) chapter.
+4. Read the verdict for the contig's single search in the **BLAST Results** drawer at the bottom of the window. If the badge reads **Not judged**, install NCBI Taxonomy in the **Databases** tab of the **Plugin Manager**, or update it if your copy does not list the organism in the row's **Classification** cell, and run **Verify with BLAST…** again. For what the verdict means, see the [BLAST Verification](06-blast-verification.md#the-summary-bar-and-the-verdict) chapter.
 
     <!-- SHOT: nvd-blast-drawer -->
 
