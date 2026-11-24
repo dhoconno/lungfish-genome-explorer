@@ -307,6 +307,46 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertEqual(extractAlertMessages(in: viewer), [unavailable, unavailable], "the alerts while it loads")
     }
 
+    /// BIO SF-1 of VS-MAP-2. The cue does not outlive its row: a clear outside the restore, as a pick of a row with no
+    /// evidence to load makes it (its install guard clears the context and starts no task), ends the cue everywhere.
+    func testTheCueGoesWhenTheContextIsClearedOutsideTheRestore() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        pick("chr2", in: viewport)
+        viewport.testEmbeddedViewerController.zoomIn() // a user event handler, which marks the view changed
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(mapping: first, store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertEqual(viewer.alignmentEvidenceCue, ViewMemoryWords.alignmentEvidenceCue, "the cue before the clear")
+        viewport.clearAlignmentActionContext()
+        XCTAssertNil(viewer.alignmentEvidenceCue, "a clear outside the restore ends the cue")
+        XCTAssertNil(viewer.viewerView.consensusRowCue, "beside the consensus row's label too")
+        XCTAssertEqual(
+            viewport.consensusScopeState().unavailableMessage,
+            AlignmentScientificActionError.contextUnavailable.localizedDescription, "the Inspector's line falls back")
+    }
+
+    /// UX SF-1 of VS-MAP-2. Focused mode hides the list, and the cue still shows there, so its words name the list
+    /// (row 7 of the words table). The test reads the constant, never the text.
+    func testAFocusedRestoreShowsTheCueWhileTheListIsHidden() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        pick("chr2", in: viewport)
+        viewport.enterFocusedDetailMode()
+        viewport.testEmbeddedViewerController.zoomIn()
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(mapping: first, store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertTrue(viewport.testIsFocusedDetailMode, "the focused mode as left, with the list hidden")
+        XCTAssertEqual(selectedContig(in: viewport), "chr2", "the contig as left")
+        XCTAssertEqual(viewer.alignmentEvidenceCue, ViewMemoryWords.alignmentEvidenceCue, "the cue in focused mode")
+        XCTAssertEqual(viewer.viewerView.consensusRowCue, ViewMemoryWords.alignmentEvidenceCue, "beside the label")
+    }
+
     /// A restored record of a reference with no alignment track has no evidence to load, so it shows no cue.
     func testARestoredRecordWithNoAlignmentTrackShowsNoCue() async throws {
         let store = makeStore()
@@ -376,6 +416,54 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertEqual(viewer.viewerView.excludeFlagsSetting, 0xD04)
         XCTAssertNil(viewport.readFilterLine, "filters not restored show no filter line")
         XCTAssertEqual(resetLine(in: viewer), ViewMemoryWords.dataChanged([.filters]))
+    }
+
+    /// SWIFT-EVIDENCE-HASH, VS S4 (SWIFT review of VS-MAP-2, row 10). The Inspector's block sets its fields inside the
+    /// restore and its `.onChange` handlers send them back one SwiftUI pass later, through this same call and outside
+    /// the no-hash window. That echo starts no evidence hash and leaves the cue standing. A person's change of a
+    /// filter still starts the context as before.
+    func testTheBlocksEchoOfRestoredFiltersStartsNoEvidenceHashAndKeepsTheCue() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        pick("chr2", in: viewport)
+        viewport.applyEmbeddedReadDisplaySettings(Self.readFilters)
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        try writeAlignmentFiles(forMapping: first)
+        viewport = try await open(mapping: first, store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertEqual(viewer.alignmentEvidenceCue, ViewMemoryWords.alignmentEvidenceCue, "the restored row waits for its click")
+
+        viewport.applyEmbeddedReadDisplaySettings(Self.readFilters) // the block's handlers, one pass after the restore
+        XCTAssertNil(viewport.alignmentActionContextTask, "the block's echo of the restored filters starts no evidence hash")
+        XCTAssertEqual(viewer.alignmentEvidenceCue, ViewMemoryWords.alignmentEvidenceCue, "and the row still says how to load its evidence")
+
+        viewport.applyEmbeddedReadDisplaySettings([NotificationUserInfoKey.minMapQ: 40]) // a person's change
+        XCTAssertNotNil(viewport.alignmentActionContextTask, "a person's change of a filter starts the context as before")
+        await viewport.testAwaitAlignmentActionContext()
+    }
+
+    /// UX SF-2 of VS-MAP-2 (Deviation 2, ruled by BIO R5 and UX ruling 3). Restored filters that only show more reads
+    /// draw word 5c, and a confidence alone draws 5a, so `lineForm` cannot return 5a for every kept change.
+    func testRestoredFiltersThatOnlyShowMoreReadsDrawWord5c() async throws {
+        let cases: [(String, [AnyHashable: Any], ViewMemoryFilterLineForm)] = [
+            ("Shows", [NotificationUserInfoKey.excludeFlags: UInt16(0x904)], .changesValues),
+            ("Hides", [NotificationUserInfoKey.minMapQ: 30], .hiddenWithoutCount(kind: "Read", noun: "reads")),
+        ]
+        for (name, filters, form) in cases {
+            let store = makeStore()
+            let first = try bundle(name, Self.two)
+            var viewport = try await open(mapping: first, store: store)
+            pick("chr2", in: viewport)
+            viewport.applyEmbeddedReadDisplaySettings(filters)
+            viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+            viewport = try await open(mapping: first, store: store)
+            let line = try XCTUnwrap(viewport.readFilterLine, "\(name): restored filters show a line")
+            XCTAssertEqual(line.currentForm, form, "\(name): the line's form")
+            XCTAssertEqual(line.displayedText, form.text, "\(name): the line's words")
+        }
     }
 
     /// SWIFT SF-3. A change to the list alone sets no pending save. The Inspector's reload of the same bundle ends the
@@ -505,6 +593,16 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         viewport = try await open(reference: first, store: store)
         drawer = try loadedDrawer(in: viewport)
         XCTAssertEqual(drawer.activeTab, .samples, "the tab as left")
+    }
+
+    /// The viewer's drawer outlives its bundle, so the drawer an earlier bundle left is not a person's change at the
+    /// next open (VS A2, SWIFT review of VS-MAP-2).
+    func testADrawerTheLastBundleLeftIsNotAPersonsChangeAtTheNextOpen() {
+        let display = ReferenceViewerDisplay(.default)
+        var opening = ReferenceViewerMemory(display: display, locus: nil)
+        opening.drawer = ReferenceDrawerMemory(tab: 0, row: ReferenceDrawerRow(Self.drawerRows[1]))
+        let settled = ReferenceViewerMemory(display: display, locus: nil)
+        XCTAssertTrue(settled.sameChoices(as: opening), "the drawer's own reload is not a person's change")
     }
 
     // MARK: - Support

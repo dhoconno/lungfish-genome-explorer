@@ -532,6 +532,50 @@ extension ReadConfidenceAcrossBundlesTests {
         XCTAssertEqual(readStyle.minMapQ, 30, "the Inspector and the viewport agree")
         XCTAssertEqual(filterLineText(viewer), Self.word5a, "the viewport says the carried filter hides reads")
     }
+
+    /// BIO SF-3 of VS-MAP-2. The changed-key side of "the URL carry and the store never disagree", with the real block:
+    /// a confidence carried through another kind to a bundle whose data changed is dropped from the block and the
+    /// viewport alike, no filter line shows, and word 2 names the filters.
+    func testAChangedKeyDropsTheCarriedConfidenceFromTheBlockAndTheViewport() async throws {
+        let rows = try await twoReferenceRows()
+        let kind = try XCTUnwrap(ViewSwitchKinds.all.first { $0.name == "Kraken2" })
+        let otherRoot = try SafetyNetFiles.makeDirectory(root.appendingPathComponent("other", isDirectory: true))
+        let other = try await XCTUnwrap(ViewSwitchKinds.row(of: kind)).build(
+            RoutingRowContext(root: otherRoot, paths: SafetyNetPathRenderer(root: otherRoot)))
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: ViewMemoryStore(root: root.appendingPathComponent("view-memory", isDirectory: true)))
+        let viewer = harness.split.viewerController!
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+        let bundle = try await open(rows.first, in: harness)
+        readStyle.minMapQ = 30
+        readStyle.onSettingsChanged?()
+
+        harness.select(other.item)
+        await harness.split.bundleOpenTask?.value
+        try shortenEverySequence(of: bundle) // the data key changes, as the reference driver's `changeBundle` does
+        _ = try await open(rows.first, in: harness)
+        XCTAssertEqual(readStyle.minMapQ, 0, "a changed bundle drops the carried confidence from the block")
+        XCTAssertEqual(viewportConfidence(viewer), 0, "and from the viewport")
+        XCTAssertNil(filterLineText(viewer), "filters not restored show no filter line")
+        let embedded = viewer.referenceBundleViewportController?.testEmbeddedViewerController
+        let resetLine = embedded?.view.subviews.compactMap { $0 as? ViewMemoryResetLineView }.first?.words
+        XCTAssertEqual(resetLine, ViewMemoryWords.dataChanged([.place, .filters]), "word 2 names the filters")
+    }
+
+    /// Writes every sequence of `bundle` with a shorter length, so the bundle's data key changes.
+    private func shortenEverySequence(of bundle: URL) throws {
+        let manifest = try BundleManifest.load(from: bundle)
+        let genome = try XCTUnwrap(manifest.genome)
+        let shorter = genome.chromosomes.map {
+            ChromosomeInfo(name: $0.name, length: 20_000, offset: $0.offset, lineBases: $0.lineBases, lineWidth: $0.lineWidth)
+        }
+        try BundleManifest(
+            name: manifest.name, identifier: manifest.identifier, source: manifest.source,
+            genome: GenomeInfo(path: genome.path, indexPath: genome.indexPath, totalLength: 20_000, chromosomes: shorter),
+            variants: manifest.variants, alignments: manifest.alignments
+        ).save(to: bundle)
+    }
 }
 
 /// The six consensus settings as one value, so a test reads and compares them as the block and the viewport hold them.

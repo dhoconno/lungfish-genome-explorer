@@ -84,9 +84,10 @@ extension ReadTimeWriteTests {
 
     // MARK: - Helpers
 
-    /// Opens the reference and the mapping result in turn as VS-REF's helper does, picks chr2 and clicks Focus as a
-    /// person does, and leaves with no viewer change, so only the leave keeps the list. Then requires each item's list
-    /// and mode in the store and the project's digest unchanged.
+    /// Opens the reference and the mapping result in turn as VS-REF's helper does, picks chr2, clicks Focus, sets the
+    /// read filters and the drawer as a person does, and leaves with no viewer change, so only the leave keeps the list.
+    /// Then requires each item's list, mode, filters and drawer in the store and the project's digest unchanged after
+    /// the switch and the quit's flush.
     private func assertListChangesWriteNothing(into fixture: ReferenceProject, _ label: String) async throws {
         let store = makeViewMemoryStore()
         store.loadProject(at: fixture.project)
@@ -120,10 +121,32 @@ extension ReadTimeWriteTests {
             let row = try XCTUnwrap(names.firstIndex(of: "chr2"), "\(item.lastPathComponent) lists no chr2 in \(label).")
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) // a person's pick
             viewport.focusButton.performClick(nil)
+            // The read filters (VS-MAP-2 item 2) and the drawer (item 1) as a person sets them: a drawer row in the
+            // reference and the drawer's Samples tab in the mapping result (BIO SF-2, UX SF-3).
+            viewport.applyEmbeddedReadDisplaySettings([
+                NotificationUserInfoKey.minMapQ: 30, NotificationUserInfoKey.excludeFlags: UInt16(0x904),
+            ])
+            if !viewport.isEmbeddedAnnotationDrawerOpen { viewport.toggleEmbeddedAnnotationDrawer() }
+            let drawer = try XCTUnwrap(viewer.annotationDrawerView, "The drawer did not open in \(label).")
+            drawer.setAnnotations([AnnotationSearchResult(
+                name: "geneA", chromosome: "chr2", start: 300, end: 400, trackId: "genes", annotationRowId: 2)])
+            if isReference {
+                drawer.tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false) // a person's pick
+            } else {
+                drawer.switchToTab(.samples) // a person's tab
+            }
             viewer.clearBundleDisplay()
-            let kept = keptReferenceView(of: item, in: store)?.viewport
+            let view = keptReferenceView(of: item, in: store)
+            let kept = view?.viewport
             XCTAssertEqual(kept?.focused, true, "\(item.lastPathComponent) kept no Focus in \(label).")
             XCTAssertEqual(kept?.choices.sequences, ["chr2"], "\(item.lastPathComponent) kept no pick in \(label).")
+            XCTAssertEqual(kept?.reads?.minMapQ, 30, "\(item.lastPathComponent) kept no read filter in \(label).")
+            XCTAssertEqual(kept?.reads?.excludeFlags, 0x904, "\(item.lastPathComponent) kept no flags in \(label).")
+            let tab: AnnotationTableDrawerView.DrawerTab = isReference ? .annotations : .samples
+            XCTAssertEqual(view?.drawer?.tab, tab.rawValue, "\(item.lastPathComponent) kept no drawer tab in \(label).")
+            XCTAssertEqual(
+                view?.drawer?.row?.name, isReference ? "geneA" : nil,
+                "\(item.lastPathComponent) kept no drawer row in \(label).")
         }
         store.flushSynchronously()
         XCTAssertEqual(
