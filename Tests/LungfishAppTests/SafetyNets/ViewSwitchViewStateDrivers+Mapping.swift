@@ -443,7 +443,91 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertEqual(selected(viewport), "chr2", "\(kind): the next visit shows the pick")
     }
 
+    /// VS-MAP-2 item 1 (VS B4, BIO R1). The drawer's row comes back by its identity once the drawer's rows load, never a
+    /// row that shares its name or its start, after a switch away and back and after a relaunch, and Delete Annotation
+    /// then acts on that row only (it reads `selectedAnnotationResults`).
+    func testTheDrawerKeepsItsRowByIdentityAndDeleteActsOnItOnly() async throws {
+        let storeRoot = root.appendingPathComponent("view-memory-drawer", isDirectory: true)
+        let first = try bundle("First", Self.two)
+        let kept = [ReferenceDrawerRow(Self.drawerRows[1])]
+        var viewport = try await open(reference: first, store: ViewMemoryStore(root: storeRoot))
+        pick("chr2", in: viewport)
+        var drawer = try loadedDrawer(in: viewport)
+        drawer.tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false) // a person's pick
+        XCTAssertEqual(drawer.keptViewMemory?.row, kept.first, "the drawer holds its row by identity")
+        let store = viewport.testEmbeddedViewerController.viewMemoryStore
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(reference: first, store: store)
+        drawer = try openedDrawer(in: viewport)
+        XCTAssertTrue(drawer.selectedAnnotationResults().isEmpty, "no row is selected before the drawer's rows load")
+        drawer.setAnnotations(Self.drawerRows)
+        XCTAssertEqual(drawer.selectedAnnotationResults().map(ReferenceDrawerRow.init), kept, "Delete acts on the kept row")
+        XCTAssertNil(resetLine(in: viewport.testEmbeddedViewerController), "nothing was lost")
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+        store.flushSynchronously()
+
+        viewport = try await open(reference: first, store: ViewMemoryStore(root: storeRoot))
+        drawer = try loadedDrawer(in: viewport)
+        XCTAssertEqual(drawer.selectedAnnotationResults().map(ReferenceDrawerRow.init), kept, "the row after a relaunch")
+    }
+
+    /// A kept drawer row that no longer matches in every part is dropped, no other row stands in for it, and on an
+    /// equal data key no line says the data changed (LESSONS 11).
+    func testAGoneDrawerRowIsDroppedAndNoOtherRowStandsInForIt() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(reference: first, store: store)
+        pick("chr2", in: viewport)
+        var drawer = try loadedDrawer(in: viewport)
+        drawer.tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(reference: first, store: store)
+        drawer = try openedDrawer(in: viewport)
+        var moved = Self.drawerRows
+        moved[1] = AnnotationSearchResult(name: "geneA", chromosome: "chr2", start: 350, end: 450, trackId: "genes", annotationRowId: 2)
+        drawer.setAnnotations(moved)
+        XCTAssertTrue(drawer.selectedAnnotationResults().isEmpty, "a moved row is not the kept row")
+        XCTAssertNil(resetLine(in: viewport.testEmbeddedViewerController), "an equal data key says nothing")
+    }
+
+    /// The drawer's tab is presentation and comes back with its rows (VS-MAP-2 item 1).
+    func testTheDrawerKeepsItsTab() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(reference: first, store: store)
+        var drawer = try loadedDrawer(in: viewport)
+        drawer.switchToTab(.samples)
+        XCTAssertEqual(drawer.keptViewMemory?.tab, AnnotationTableDrawerView.DrawerTab.samples.rawValue)
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(reference: first, store: store)
+        drawer = try loadedDrawer(in: viewport)
+        XCTAssertEqual(drawer.activeTab, .samples, "the tab as left")
+    }
+
     // MARK: - Support
+
+    private static let drawerRows: [AnnotationSearchResult] = [
+        AnnotationSearchResult(name: "geneA", chromosome: "chr2", start: 100, end: 200, trackId: "genes", annotationRowId: 1),
+        AnnotationSearchResult(name: "geneA", chromosome: "chr2", start: 300, end: 400, trackId: "genes", annotationRowId: 2),
+        AnnotationSearchResult(name: "geneB", chromosome: "chr2", start: 300, end: 400, trackId: "genes", annotationRowId: 3),
+    ]
+
+    /// The embedded viewer's drawer, opened as View > Show Drawer opens it.
+    private func openedDrawer(in viewport: ReferenceBundleViewportController) throws -> AnnotationTableDrawerView {
+        if !viewport.isEmbeddedAnnotationDrawerOpen { viewport.toggleEmbeddedAnnotationDrawer() }
+        return try XCTUnwrap(viewport.testEmbeddedViewerController.annotationDrawerView, "the drawer opens")
+    }
+
+    /// The drawer, opened, with its rows loaded as the in-memory path loads them.
+    private func loadedDrawer(in viewport: ReferenceBundleViewportController) throws -> AnnotationTableDrawerView {
+        let drawer = try openedDrawer(in: viewport)
+        drawer.setAnnotations(Self.drawerRows)
+        XCTAssertEqual(drawer.displayedAnnotations.count, Self.drawerRows.count, "the drawer shows its rows")
+        return drawer
+    }
 
     /// A confidence of 30 and duplicates shown, as the Inspector's block sends them.
     private static let readFilters: [AnyHashable: Any] = [
