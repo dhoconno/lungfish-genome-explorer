@@ -55,6 +55,15 @@ final class DemultiplexBothEndsOverlapTests: XCTestCase {
         XCTAssertEqual(config(sourcePlatform: .oxfordNanopore).effectiveMinimumOverlap, 4)
     }
 
+    /// A two-barcode kit at Both Ends keeps the base's overlap: the platform's 5 capped at the barcode length less 4, and
+    /// the command's 3 as it is, so no recorded `--overlap` moves (BIO 2, ruling BIO-DEMUX items 1 and 2). The lane's
+    /// first getter gave 8 for each of these.
+    func testTwoBarcodesAtBothEndsKeepTheBasesOverlap() {
+        XCTAssertEqual(config(minimumOverlap: 5).effectiveMinimumOverlap, 4)
+        XCTAssertEqual(config(minimumOverlap: 3).effectiveMinimumOverlap, 3)
+        XCTAssertEqual(config(minimumOverlap: 5, sourcePlatform: .illumina).effectiveMinimumOverlap, 4)
+    }
+
     /// One location or one barcode is not this row, and keeps the overlap the base gave.
     func testOneEndOrOneBarcodeKeepsTheBasesOverlap() {
         XCTAssertEqual(config(location: .fivePrime).effectiveMinimumOverlap, 4)
