@@ -48,6 +48,12 @@ enum FASTQStatisticsDisplayRules {
         return placeholders ? statistics.withoutQualities : statistics
     }
 
+    /// `statistics` as a view shows them for a plain bundle, which has no derived manifest to hold a mark: the reads
+    /// themselves are asked (lane FLUIDIGM-UNLINKED, ruling BIO-FLUIDIGM-UNLINKED item 4).
+    static func statisticsToShow(_ statistics: FASTQDatasetStatistics, readsAt sourceURL: URL) -> FASTQDatasetStatistics {
+        FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: sourceURL) ? statistics.withoutQualities : statistics
+    }
+
     /// Whether the reads carry no quality scores at all, as FASTA records and bridged reads do (ONT-BIO Backlog 3).
     /// A record with a mean Q, Q20 or Q30 above 0 has scores whichever producer built it, and `seqkit stats -a -T`
     /// gives those three numbers with no score histogram, so the empty histogram alone does not say the reads have no

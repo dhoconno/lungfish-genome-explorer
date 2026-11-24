@@ -339,7 +339,7 @@ extension MainSplitViewController {
         if let cachedStats = cachedStatisticsMeta?.computedStatistics.flatMap({ $0.isMeasured ? $0 : nil }) ?? sessionStatistics {
             mainSplitLogger.info("loadFASTQDatasetInBackground: Using cached statistics (\(cachedStats.readCount) reads)")
             let opened = viewerController.displayFASTQDataset(
-                statistics: FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: standardizedSourceURL) ? cachedStats.withoutQualities : cachedStats,
+                statistics: FASTQStatisticsDisplayRules.statisticsToShow(cachedStats, readsAt: standardizedSourceURL),
                 records: [],
                 fastqURL: fastqURL,
                 sraRunInfo: displayMeta?.sraRunInfo,
@@ -388,7 +388,7 @@ extension MainSplitViewController {
                         self.fastqLoadTask = nil
                         viewerController.hideProgress()
                         viewerController.displayFASTQDataset(
-                            statistics: FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: standardizedSourceURL) ? statistics.withoutQualities : statistics,
+                            statistics: FASTQStatisticsDisplayRules.statisticsToShow(statistics, readsAt: standardizedSourceURL),
                             records: [],
                             fastqURL: fastqURL,
                             sraRunInfo: sraRunInfo,
