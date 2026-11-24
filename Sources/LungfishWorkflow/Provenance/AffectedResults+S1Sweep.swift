@@ -42,8 +42,9 @@ extension AffectedResults {
             sentence: "For a TaxTriage row that sums several strains, the version that made this result used one "
                 + "strain's references only for Unique Reads, Extract Reads and BLAST Verify.",
             whatToDo: "Open the result once in a project you can edit, or run lungfish-cli build-db taxtriage "
-                + "<result folder> --force, which counts it again while its report files are in the result folder, "
-                + "and if they are gone, run TaxTriage again.",
+                + "<result folder> --force. Either counts it again, but only while its report files are still in the "
+                + "result folder. If they are gone, run TaxTriage again. This note can stay after the result is counted "
+                + "again, because the result's record still names the version that made it.",
             fixCommit: "393d2bf2f"
         ),
         // COUNTS (8183187a1) keys each mate on its whole pair. The import writes Unique Reads into the result's NAO-MGS
