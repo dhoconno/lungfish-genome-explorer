@@ -6,6 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishKit
+import LungfishWorkflow
 import os.log
 
 private let viewMemoryLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerViewMemory")
@@ -18,13 +19,81 @@ private let viewMemoryLogger = Logger(subsystem: LogSubsystem.app, category: "Vi
 /// restore on any data key. The locus is VS B2: it restores only to a sequence of the same name and length, clamped,
 /// and is dropped otherwise with "your place". The count filters (the annotation and variant filter texts, the visible
 /// types, the hidden variant tracks and the sample display) are VS B6 and are not kept, since the viewer shows them only
-/// in the Inspector. The explicit region (VS B3) and the selected record (VS B4) are the viewport's (VS-MAP).
+/// in the Inspector. The explicit region (VS B3) is not kept yet. The viewport's list and mode ride in `viewport`
+/// (VS-MAP), so the item keeps one record with one writer, the viewer's visit.
 struct ReferenceViewerMemory: ViewMemoryState {
     static let kind = SurfaceKind.bundle(.reference).description
     static let schemaVersion = 1
 
     var display: ReferenceViewerDisplay
     var locus: ViewMemoryLocus?
+    /// The list and mode of the viewport that shows the viewer, nil for a record an older build kept.
+    var viewport: ReferenceViewportMemory? = nil
+
+    var selectionCount: Int {
+        guard let table = viewport?.table else { return 0 }
+        return table.selectionTooLarge ? Int.max : table.selectedIdentities.count
+    }
+
+    func withoutSelection() -> ReferenceViewerMemory {
+        var view = self
+        view.viewport?.table.selectedIdentities = []
+        view.viewport?.table.selectionTooLarge = false
+        return view
+    }
+
+    /// The view as the store holds it for a visit that started at `start`. A selection equal to the start's is the
+    /// row the list opened on, not a person's pick, so none is held and a renamed or gone first row costs only
+    /// "your place" (VS B4).
+    func held(from start: ReferenceViewerMemory) -> ReferenceViewerMemory {
+        viewport?.table.selectedIdentities == start.viewport?.table.selectedIdentities ? withoutSelection() : self
+    }
+
+    /// Whether a person changed nothing between the two views. The mapping list's own row refresh gives its rows new
+    /// identities and moves its scroll, so the list compares by what a person picks there (VS A2).
+    func sameChoices(as other: ReferenceViewerMemory) -> Bool {
+        display == other.display && locus == other.locus && viewport?.choices == other.viewport?.choices
+    }
+}
+
+/// The viewport's own view (VS-MAP): list or focused mode, which is presentation and restores on any data key, and the
+/// list through the table part, whose sort always restores, whose column filters and search text restore only on an
+/// equal data key (VS B6), and whose selection restores by row identity only (VS B4). The list is the sequence table
+/// of a reference (k08) or the contig table of a mapping result (k22), whose row identity holds the sample and track.
+struct ReferenceViewportMemory: Codable, Sendable, Equatable {
+    var focused: Bool
+    var table: BatchTableMemory
+
+    /// What a person picks: the mode, the sort, the filters and the selected sequences by name.
+    struct Choices: Equatable {
+        let focused: Bool
+        let sort: BatchTableMemory.Sort?
+        let columnFilters: ColumnFilterSet
+        let filterText: String
+        let sequences: [String]
+    }
+
+    var choices: Choices {
+        Choices(
+            focused: focused, sort: table.sort, columnFilters: table.columnFilters, filterText: table.filterText,
+            sequences: table.selectedIdentities.map { $0.split(separator: "\u{1F}").last.map(String.init) ?? $0 })
+    }
+}
+
+/// The viewport that shows the viewer, which the viewer's visit asks for its list and mode (VS-MAP).
+@MainActor
+protocol ReferenceViewportMemoryOwner: AnyObject {
+    /// Whether the viewport's rows are those of `bundleURL`, so a list filled for another document is never kept.
+    func viewportShows(_ bundleURL: URL) -> Bool
+    func captureViewportMemory() -> ReferenceViewportMemory?
+    /// Applies the kept list and mode as a person's picks would, and starts nothing (VS S4).
+    func restoreViewportMemory(_ memory: ReferenceViewportMemory, dataChanged: Bool) -> ViewMemoryLoss
+    /// Whether the viewport's own row refresh still runs, after which the list restores.
+    var viewMemoryRowsArePending: Bool { get }
+    /// The selection the list makes by itself, which is never a person's change: its first displayed row, or none
+    /// while it shows none or shows All Alignments.
+    var viewMemoryOwnSelection: [String] { get }
+    func viewMemoryRowsSettled() async
 }
 
 /// The presentation fields of a reference view, the only fields an older bundle's `.viewstate.json` gives as a starting
@@ -138,6 +207,13 @@ final class ReferenceViewerMemorySession {
     /// A person changed the view, or reset it, before the restore ran. The restore must neither lose nor undo that.
     var changedBeforeApply = false
     var resetBeforeApply = false
+    /// The viewport's list and mode as last read while it showed this bundle (VS-MAP).
+    var viewport: ReferenceViewportMemory?
+    /// The restore waits for, or has waited for, the viewport's own row refresh.
+    var awaitingRows = false
+    var rowsSettled = false
+    /// The restore is applying the viewport's list now, so a restored row installs no action context.
+    var restoringViewport = false
     /// The line that says what was not kept (VS U2), removed when the visit ends.
     var line: ViewMemoryResetLineView?
 
@@ -161,6 +237,7 @@ extension ViewerViewController {
             at: url, mode: .sequence(name: sequenceName, restoreViewState: true), manifest: request.manifest,
             bundle: bundle)
         let session = ReferenceViewerMemorySession(store: viewMemoryStore, bundleURL: url, opening: captureViewerMemory())
+        session.viewport = session.opening.viewport
         viewMemory = session
         observeViewMemoryEnds()
         let store = viewMemoryStore
@@ -202,8 +279,35 @@ extension ViewerViewController {
         applyViewMemoryIfReady(session)
     }
 
+    /// The viewport that shows this viewer, nil for a viewer of its own (VS-MAP).
+    var viewMemoryViewport: (any ReferenceViewportMemoryOwner)? {
+        var next = parent
+        while let controller = next {
+            if let owner = controller as? any ReferenceViewportMemoryOwner { return owner }
+            next = controller.parent
+        }
+        return nil
+    }
+
+    /// Whether the restore is applying the viewport's list now, so a restored row installs no alignment action context
+    /// until the person picks it (SWIFT-EVIDENCE-HASH).
+    var isRestoringViewportMemory: Bool { viewMemory?.restoringViewport ?? false }
+
     private func applyViewMemoryIfReady(_ session: ReferenceViewerMemorySession) {
         guard session.settled, !session.applied, let read = session.read else { return }
+        // The mapping list's own row refresh replaces its rows, so the list restores when it ends (VS S4). It waits for
+        // the refresh that runs and starts none.
+        if !session.rowsSettled, let owner = viewMemoryViewport, owner.viewMemoryRowsArePending {
+            guard !session.awaitingRows else { return }
+            session.awaitingRows = true
+            Task { @MainActor [weak self, weak owner] in
+                await owner?.viewMemoryRowsSettled()
+                session.rowsSettled = true
+                guard let self, self.viewMemory === session else { return }
+                self.applyViewMemoryIfReady(session)
+            }
+            return
+        }
         session.applied = true
         // A late restore applies only while the view is as the open left it, so a change made before it stays (VS A2).
         if session.resetBeforeApply {
@@ -212,14 +316,34 @@ extension ViewerViewController {
             if session.changedBeforeApply { keepViewMemory() }
             return
         }
-        guard captureViewerMemory() == session.opening else {
+        let settledView = captureViewerMemory()
+        var opening = session.opening
+        // The list's own row refresh replaces its rows and selects its first row again, or none while it shows none
+        // or shows All Alignments (`refreshSelection`, `clearMappingSelectionAfterAllRebuild`), so that selection is
+        // the list's own and not a person's pick (VS A2). Any other selection, and the mode, the sort, the filters and
+        // the place, still compare with the open's.
+        if let own = viewMemoryViewport?.viewMemoryOwnSelection, settledView.viewport?.table.selectedIdentities == own {
+            opening.viewport?.table.selectedIdentities = own
+        }
+        guard settledView.sameChoices(as: opening) else {
             // A person changed the view first. It stays, and the change the debounce could not keep is kept now.
             if session.changedBeforeApply { keepViewMemory() }
             return
         }
+        // The view the visit starts from, with the list's rows as its own refresh left them (VS S3).
+        session.start = settledView
         var words: String?
-        if case .view(let kept, _, _) = read.kept {
-            words = ViewMemoryWords.dataChanged(restoreViewerMemory(kept))
+        if case .view(let kept, let keptDataKey, let selectionDropped) = read.kept {
+            var loss: ViewMemoryLoss = []
+            if let viewport = kept.viewport, let owner = viewMemoryViewport {
+                // The list first, so the kept place finds its sequence on show.
+                let changed = keptDataKey == nil || read.dataKey == nil || keptDataKey != read.dataKey
+                session.restoringViewport = true
+                loss.formUnion(owner.restoreViewportMemory(viewport, dataChanged: changed))
+                session.restoringViewport = false
+            }
+            loss.formUnion(restoreViewerMemory(kept))
+            words = ViewMemoryWords.dataChanged(loss) ?? (selectionDropped ? ViewMemoryWords.selectionTooLarge : nil)
             announceViewMemory()
         } else if let olderFile = read.olderFile {
             // An older bundle's look is a starting view, never a person's choice (VS S3).
@@ -231,13 +355,22 @@ extension ViewerViewController {
         if let words { showViewMemoryLine(words, in: session) }
     }
 
-    /// The view as it stands: the display settings, and the locus with its sequence's length.
+    /// The view as it stands: the display settings, the locus with its sequence's length, and the viewport's list and
+    /// mode while the viewport shows this visit's bundle, else as it last showed it, so a route that fills the
+    /// viewport with another document first never keeps that document's rows for this one.
     func captureViewerMemory() -> ReferenceViewerMemory {
-        ReferenceViewerMemory(
+        var viewport = viewMemory?.viewport
+        if let bundleURL = viewMemory?.bundleURL ?? currentBundleURL, let owner = viewMemoryViewport,
+           owner.viewportShows(bundleURL), let shown = owner.captureViewportMemory() {
+            viewport = shown
+            viewMemory?.viewport = shown
+        }
+        return ReferenceViewerMemory(
             display: ReferenceViewerDisplay(capturedViewState()),
             locus: referenceFrame.map {
                 ViewMemoryLocus(sequenceName: $0.chromosome, sequenceLength: $0.sequenceLength, start: $0.start, end: $0.end)
-            })
+            },
+            viewport: viewport)
     }
 
     /// Applies a kept view. The display settings restore on any data key. The locus restores, clamped, on the sequence
@@ -310,7 +443,16 @@ extension ViewerViewController {
         }
         guard let read = session.read, let key = read.key else { return }
         session.store.keep(
-            captureViewerMemory(), startingView: session.start, for: key, dataKey: read.dataKey, folder: read.item.folder)
+            captureViewerMemory().held(from: session.start), startingView: session.start.withoutSelection(), for: key,
+            dataKey: read.dataKey, folder: read.item.folder)
+    }
+
+    /// Keeps the view as it stands now, a pending change and a change to the viewport's list alike. The viewport calls
+    /// it before the surface host removes it (VS-REF SWIFT SF-1), and the window close and the quit call it. The store
+    /// keeps nothing equal to the starting view (VS S3), and the visit stays, so a later change is still kept.
+    func keepViewMemoryNow() {
+        saveCurrentViewState()
+        keepViewMemory()
     }
 
     /// Ends the visit: keeps a pending change, then removes the line (VS U2).
@@ -349,7 +491,7 @@ extension ViewerViewController {
 
     @objc private func viewMemoryWillEnd(_ notification: Notification) {
         if let window = notification.object as? NSWindow, window !== view.window { return }
-        saveCurrentViewState()
+        keepViewMemoryNow()
         if notification.name == NSApplication.willTerminateNotification {
             viewMemory?.store.flushSynchronously()
         }

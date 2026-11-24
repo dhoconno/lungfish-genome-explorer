@@ -39,5 +39,10 @@ final class ReferenceBundleSurface: ResultViewport {
         controller = try expectInput(input, as: ReferenceBundleViewportController.self)
     }
 
-    func willDeactivate(replacedBy next: SurfaceKind?) { controller?.stopWorkForRemoval() }
+    /// Keeps the view before the viewport goes, so a change made inside the viewer's half second debounce, or to the
+    /// list, reaches the view memory store (VS-REF SWIFT SF-1), then stops the viewport's work.
+    func willDeactivate(replacedBy next: SurfaceKind?) {
+        controller?.embeddedViewerController.keepViewMemoryNow()
+        controller?.stopWorkForRemoval()
+    }
 }

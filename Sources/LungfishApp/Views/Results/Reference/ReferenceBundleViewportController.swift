@@ -1546,6 +1546,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     private func scheduleAlignmentActionContext(_ seed: AlignmentActionContextSeed) {
         clearAlignmentActionContext()
+        if embeddedViewerController.isRestoringViewportMemory { return } // no hash until a pick (SWIFT-EVIDENCE-HASH)
         let generation = alignmentActionContextGeneration
         alignmentActionContextTask = Task { @MainActor [weak self] in
             do {
