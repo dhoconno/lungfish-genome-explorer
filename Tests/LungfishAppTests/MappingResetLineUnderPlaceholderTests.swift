@@ -169,6 +169,120 @@ final class MappingResetLineUnderPlaceholderTests: XCTestCase {
         assertInside(line, window)
     }
 
+    // MARK: - The hosted line's lifetime (pins: green at the fix, as the base's removals also pass)
+
+    /// A leave with no contig on show, the state the open at C is in, takes the hosted line away. The visit's end leaves
+    /// nothing in the viewport, and the viewer hangs from the top of the detail area by its one top pin again
+    /// (SWIFT SF-2, BIO SF-1, UX SF-1).
+    func testALeaveWithNoContigOnShowTakesTheHostedLineAway() async throws {
+        let (viewport, window) = try await reopenAfterADittoCopy()
+        let viewer = viewport.testEmbeddedViewerController
+        let session = try XCTUnwrap(viewer.viewMemory, "the visit is on")
+        XCTAssertTrue(viewer.view.isHidden, "the placeholder shows in place of the embedded viewer")
+        XCTAssertEqual(resetLines(in: viewport.view).count, 1, "the visit made one line")
+        XCTAssertNotNil(session.line, "and the visit holds it")
+
+        viewer.clearBundleDisplay() // a bundle change and the viewport's clearing end the visit this way
+        XCTAssertNil(viewer.viewMemory, "the visit ended")
+        XCTAssertNil(session.line, "and let its line go")
+        assertTheViewerHangsFromTheDetailAreasTop(viewport, window)
+    }
+
+    /// A leave after a contig click takes the hosted line away from above the shown viewer, and the viewer's top is the
+    /// detail area's top again.
+    func testALeaveAfterAContigClickTakesTheHostedLineAway() async throws {
+        let (viewport, window) = try await reopenAfterADittoCopy()
+        let viewer = viewport.testEmbeddedViewerController
+        let session = try XCTUnwrap(viewer.viewMemory, "the visit is on")
+        pick("chr2", in: viewport)
+        await viewport.testAwaitAlignmentActionContext()
+        layOut(window)
+        XCTAssertFalse(viewer.view.isHidden, "the click shows the embedded viewer")
+        XCTAssertEqual(resetLines(in: viewport.view).count, 1, "the visit's one line shows above it")
+
+        viewer.clearBundleDisplay()
+        XCTAssertNil(viewer.viewMemory, "the visit ended")
+        XCTAssertNil(session.line, "and let its line go")
+        assertTheViewerHangsFromTheDetailAreasTop(viewport, window)
+        assertNoGapAboveTheViewer(viewport)
+    }
+
+    /// Reset View takes the hosted line away and leaves the visit on, so a later show hangs a line again and the
+    /// visit's end takes that one away. The viewer has its one top pin at each step.
+    func testResetViewTakesTheHostedLineAwayAndTheViewerKeepsOneTop() async throws {
+        let (viewport, window) = try await reopenAfterADittoCopy()
+        let viewer = viewport.testEmbeddedViewerController
+        let session = try XCTUnwrap(viewer.viewMemory, "the visit is on")
+        pick("chr2", in: viewport)
+        await viewport.testAwaitAlignmentActionContext()
+        layOut(window)
+        XCTAssertEqual(resetLines(in: viewport.view).count, 1, "the visit made one line")
+
+        viewer.resetBundleViewToDefaults()
+        XCTAssertNil(session.line, "Reset View let the line go")
+        assertTheViewerHangsFromTheDetailAreasTop(viewport, window)
+        assertNoGapAboveTheViewer(viewport)
+        XCTAssertTrue(viewer.viewMemory === session, "Reset View leaves the visit on")
+
+        viewer.showViewMemoryLine(ViewMemoryWords.viewReset, in: session)
+        layOut(window)
+        XCTAssertEqual(resetLines(in: viewport.view).count, 1, "a later show hangs a line again")
+        viewer.leaveViewMemory()
+        XCTAssertNil(session.line, "and the visit's end lets that one go")
+        assertTheViewerHangsFromTheDetailAreasTop(viewport, window)
+        assertNoGapAboveTheViewer(viewport)
+    }
+
+    /// The next show replaces the hosted line: one line shows, the new one, and the viewer hangs from it. The old line
+    /// is gone from the viewport, so a visit never shows two.
+    func testTheNextShowReplacesTheHostedLineSoItShowsOnce() async throws {
+        let (viewport, window) = try await reopenAfterADittoCopy()
+        let viewer = viewport.testEmbeddedViewerController
+        let session = try XCTUnwrap(viewer.viewMemory, "the visit is on")
+        let first = try XCTUnwrap(session.line, "the visit made its line")
+        let words = try XCTUnwrap(ViewMemoryWords.dataChanged(.selection))
+
+        viewer.showViewMemoryLine(words, in: session)
+        layOut(window)
+        let lines = resetLines(in: viewport.view)
+        XCTAssertEqual(lines.count, 1, "the next show removed the line before it, so one line shows")
+        XCTAssertNil(first.superview, "the old line left the viewport")
+        let line = try XCTUnwrap(lines.first)
+        XCTAssertFalse(line === first, "the line that stays is the new one")
+        XCTAssertEqual(line.words, words)
+        XCTAssertTrue(session.line === line, "and the visit holds it")
+        XCTAssertFalse(line.isHiddenOrHasHiddenAncestor, "it shows with the placeholder")
+        let pins = viewerTopPins(in: viewport)
+        XCTAssertEqual(pins.count, 1, "the viewer has the one top pin")
+        XCTAssertTrue(
+            pins.first?.secondItem === line && pins.first?.secondAttribute == .bottom, "and it hangs from the new line")
+
+        viewer.leaveViewMemory()
+        XCTAssertNil(session.line, "the visit's end lets the new line go")
+        assertTheViewerHangsFromTheDetailAreasTop(viewport, window)
+    }
+
+    // MARK: - The line and the placeholder words
+
+    /// With no contig on show the placeholder words sit in the middle of the detail area and the line hangs from its
+    /// top, so in window coordinates the line's frame meets the frame of the words in no part (UX SF-3). A pin: a
+    /// later layout change that anchors the words to the top would fail here.
+    func testTheResetLineMeetsNoPlaceholderWordsWithNoContigOnShow() async throws {
+        let (viewport, _) = try await reopenAfterADittoCopy()
+        XCTAssertNil(viewport.testSelectedContigName, "no contig is on show")
+        XCTAssertFalse(viewport.testDetailPlaceholderMessage.isEmpty, "the placeholder has its words")
+        let words = try XCTUnwrap(
+            allSubviews(of: viewport.view).first(where: {
+                $0.accessibilityIdentifier() == "reference-bundle-detail-placeholder"
+            }), "the placeholder words are in the viewport")
+        XCTAssertFalse(words.isHiddenOrHasHiddenAncestor, "the placeholder words show")
+        let line = try XCTUnwrap(resetLines(in: viewport.view).first, "the visit made its line")
+        XCTAssertFalse(line.isHiddenOrHasHiddenAncestor, "and the line shows")
+        XCTAssertFalse(words.convert(words.bounds, to: nil).isEmpty, "the words have a frame in the window")
+        XCTAssertFalse(line.convert(line.bounds, to: nil).isEmpty, "and so does the line")
+        XCTAssertFalse(meetsInWindow(line, words), "the line covers the placeholder words")
+    }
+
     // MARK: - Visits
 
     /// Visit 1 picks chr2 and zooms. The walk's ditto copy then takes the result folder's path, and visit 2 opens the
@@ -260,6 +374,53 @@ final class MappingResetLineUnderPlaceholderTests: XCTestCase {
     private func bottom(of view: NSView, in root: NSView) -> CGFloat {
         let frame = root.convert(view.bounds, from: view)
         return root.isFlipped ? frame.maxY : root.bounds.maxY - frame.minY
+    }
+
+    /// Whether two views overlap by area in window coordinates. Views that only share an edge do not meet.
+    private func meetsInWindow(_ a: NSView, _ b: NSView) -> Bool {
+        let overlap = a.convert(a.bounds, to: nil).intersection(b.convert(b.bounds, to: nil))
+        return !overlap.isNull && overlap.width > 0.5 && overlap.height > 0.5
+    }
+
+    private func allSubviews(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { allSubviews(of: $0) }
+    }
+
+    /// The constraints of the detail area whose first item is the embedded viewer's view and whose first attribute is
+    /// its top. The viewer hangs from the view above it by exactly one of them.
+    private func viewerTopPins(in viewport: ReferenceBundleViewportController) -> [NSLayoutConstraint] {
+        let viewerView: NSView = viewport.testEmbeddedViewerController.view
+        return viewport.detailContentContainer.constraints.filter {
+            $0.firstItem === viewerView && $0.firstAttribute == .top
+        }
+    }
+
+    /// No reset line is left in the viewport, and the embedded viewer hangs from the top of the detail area by its one
+    /// top pin, so a removal that skipped the restack, or left a second pin, fails here.
+    private func assertTheViewerHangsFromTheDetailAreasTop(
+        _ viewport: ReferenceBundleViewportController, _ window: NSWindow,
+        file: StaticString = #filePath, line sourceLine: UInt = #line
+    ) {
+        layOut(window)
+        XCTAssertTrue(
+            resetLines(in: viewport.view).isEmpty, "a reset line is left in the viewport", file: file, line: sourceLine)
+        let pins = viewerTopPins(in: viewport)
+        XCTAssertEqual(pins.count, 1, "the viewer has the one top pin", file: file, line: sourceLine)
+        XCTAssertTrue(
+            pins.first?.secondItem === viewport.detailContentContainer && pins.first?.secondAttribute == .top,
+            "the viewer hangs from the top of the detail area", file: file, line: sourceLine)
+    }
+
+    /// The shown viewer's top is the detail area's top: no gap and no line above it.
+    private func assertNoGapAboveTheViewer(
+        _ viewport: ReferenceBundleViewportController, file: StaticString = #filePath, line sourceLine: UInt = #line
+    ) {
+        XCTAssertFalse(
+            viewport.testEmbeddedViewerController.view.isHidden, "the viewer shows", file: file, line: sourceLine)
+        XCTAssertEqual(
+            top(of: viewport.testEmbeddedViewerController.view, in: viewport.view),
+            top(of: viewport.detailContentContainer, in: viewport.view),
+            accuracy: 0.5, "no gap above the viewer", file: file, line: sourceLine)
     }
 
     // MARK: - Support
