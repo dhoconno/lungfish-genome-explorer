@@ -96,11 +96,17 @@ extension InspectorViewModel {
         let url = url?.standardizedFileURL
         if let visit = viewMemoryVisit, visit.url == url { return }
         viewMemoryVisit = nil
-        guard let url else { return }
         applyingViewMemory = true
         personTab = nil
         shownSamplesExpanded = true
         shownReadStyleSubsection = .alignment
+        guard let url else {
+            // An item with no view of its own (a project sequence, a multi-selection, no selection): the item before
+            // keeps nothing picked now, and its kept tab is not shown on this content (VS-INSP SWIFT B1).
+            windowStateTab = nil
+            applyingViewMemory = false
+            return
+        }
         setAppTab(windowStateTab ?? .bundle)
         windowStateTab = nil
         reconcileSelectedTab()

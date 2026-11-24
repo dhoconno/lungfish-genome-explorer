@@ -30,6 +30,7 @@ extension InspectorViewController {
             activeContentSelectionIdentity = nil
             selectedFASTQMetadataTargetBundleURLs = []
             clearTransientSelectionState()
+            beginViewMemoryVisit(for: nil) // nothing shows, so no item keeps a pick made now (VS U7)
             return
         }
 

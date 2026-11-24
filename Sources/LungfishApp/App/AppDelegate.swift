@@ -2315,8 +2315,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         if type == .lungfishProject {
-            // A project is opened into at most one window by an open request:
-            // bring forward the window that has it (or is opening it).
+            // A project opens in one window at most, so bring forward the window that has it or is opening it.
             if let existing = controllerShowingOrOpening(projectURL: url) {
                 welcomeWindowController?.close()
                 welcomeWindowController = nil
@@ -2348,6 +2347,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return true
         }
         split.invalidatePendingSelectionDebounce(reason: "external document open")
+        split.inspectorController.beginViewMemoryVisit(for: url)
         switch type {
         case .lungfishReferenceBundle:
             split.displayReferenceBundleViewportFromSidebar(at: url)

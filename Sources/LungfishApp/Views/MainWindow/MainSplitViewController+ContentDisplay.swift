@@ -28,6 +28,7 @@ extension MainSplitViewController {
         }
         if let documentID = item.userInfo["documentID"].flatMap(UUID.init(uuidString:)),
            let document = projectSession.documents.first(where: { $0.id == documentID && $0.projectSequenceID != nil }) {
+            inspectorController.beginViewMemoryVisit(for: nil) // a project sequence keeps no view of its own (VS U7)
             loadProjectDocument(document)
             return
         }
@@ -56,6 +57,7 @@ extension MainSplitViewController {
 
         // Batch group items: route directly to the batch aggregated viewer
         if item.type == .batchGroup, let batchURL = item.url {
+            inspectorController.beginViewMemoryVisit(for: batchURL)
             displayBatchGroup(at: batchURL)
             return
         }
@@ -80,10 +82,8 @@ extension MainSplitViewController {
             return
         }
 
-        // Generic analysis results in Analyses/ folder — try to detect tool type
-        // from directory name and dispatch to the appropriate viewer.
-        // Classifier results route through the ClassifierDatabaseRouter; non-classifier
-        // results are dispatched by prefix or analysis-metadata.json.
+        // Generic analysis results in Analyses/ take their tool from the folder name. Classifier results route through
+        // the ClassifierDatabaseRouter, and the rest by prefix or analysis-metadata.json.
         if item.type == .analysisResult, let url = item.url {
             if ClassifierDatabaseRouter.route(for: url) != nil {
                 routeClassifierDisplay(url: url)
