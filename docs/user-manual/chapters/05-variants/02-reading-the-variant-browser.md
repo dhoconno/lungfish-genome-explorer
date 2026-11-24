@@ -44,7 +44,7 @@ A [variant caller](../../GLOSSARY.md#variant-caller) compares aligned reads agai
 
 The table lives in the [table drawer](../../GLOSSARY.md#table-drawer), a panel that slides out from the bottom edge of the [viewport](../../GLOSSARY.md#viewport), the main display area of the LGE window. The drawer opens by itself when a bundle has a variant track. **View > Show Drawer** (Control-Command-B) opens and closes it, and you can drag its top edge to resize it. Its **Variants** tab holds the table, **Annotations** lists a bundle's features such as genes, and **Samples** lists its sample columns, the VCF columns that hold each sample's [genotypes](../../GLOSSARY.md#genotype), the alleles it carries at a position.
 
-Above the table sit a row of controls and a strip of filter chips, one-click buttons that each keep only the rows passing one test. **Calls** and **Genotypes** switch between one row per variant and one row per sample, **Region** and **Genome** between the stretch the viewport shows and the whole reference, and a pull-down reading **Auto**, **Haploid**, or **Diploid** tells the frequency chips how many copies of each chromosome the organism carries. **Presets** adds a second row of chips and **Profiles** saves combinations of chips. **Query Builder...** opens a sheet, a dialog attached to the top of the window, where you build a query, a set of filter rules, one rule at a time. **Clear** drops every filter, an Export button writes the rows to a file, and a gear button chooses which columns show.
+Above the table sit a row of controls and a strip of filter chips, one-click buttons that each keep only the rows passing one test. **Calls** and **Genotypes** switch between one row per variant and one row per sample, **Region** and **Genome** between the stretch the viewport shows and the whole reference, and a pull-down reading **Auto**, **Haploid**, or **Diploid** tells the frequency chips how many copies of each chromosome the organism carries. **Presets** adds chips for the values of `INFO` keys to the right end of the strip, and **Profiles** saves combinations of chips. **Query Builder...** opens a sheet, a dialog attached to the top of the window, where you build a query, a set of filter rules, one rule at a time. **Clear** drops the chip and Query Builder filters, an Export button writes the rows to a file, and a gear button chooses which columns show.
 
 Sorting, filtering, and hiding columns change only what you see and never touch the VCF on disk, the third of the [three kinds of filter](../01-foundations/05-variants-and-vcf.md#three-kinds-of-filter), after a caller's `FILTER` flag and the thresholds LGE applies when it calls. A filtered subset written as a new VCF comes from the command line, covered at the end of this chapter. Writing `FILTER` flags into a call set takes a [hard filter](../../GLOSSARY.md#hard-filter), a fixed set of arithmetic tests such as the list that GATK, the toolkit behind LGE's human germline calls, publishes, which [Filtering, Selecting, and Metrics](../06-human-germline-variants/03-filtering-selecting-and-metrics.md) covers.
 
@@ -68,7 +68,7 @@ Nothing needs installing.
 
 Click the `minimap2-` mapping result under **Analyses** in the [sidebar](../../GLOSSARY.md#sidebar), the list of folders and results at the left of the window. The viewport opens with the reference bundle inside the mapping result in its lower pane, and the table drawer opens along the bottom of that pane. Click the drawer's **Variants** tab. Every track in the bundle loads into the one table at once, and the **Variant Track** column names the track each row came from. The drawer reports its row count at the right end of the tab row.
 
-The with-results project's benchmark track adds 961 rows, and the counts in this chapter are for the two callers alone. To hide the benchmark, open the [Inspector](../../GLOSSARY.md#inspector), the pane at the right of the window, click its **View** tab, click **Annotations** under **View Settings**, and clear the checkbox of `HG002.chr20.10.0-10.5Mb.benchmark.vcf` under **Variant Tracks**.
+The with-results project's benchmark track adds 961 rows, and most counts in this chapter are for the two callers alone. To hide the benchmark, open the [Inspector](../../GLOSSARY.md#inspector), the pane at the right of the window, click its **View** tab, click **Annotations** under **View Settings**, and clear the checkbox of `HG002.chr20.10.0-10.5Mb.benchmark.vcf` under **Variant Tracks**.
 
 If the drawer does not open, or its Variants tab is empty, the variant calling has not finished. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), the window that lists running jobs, which opens with **Operations > Show Operations Panel** (Cmd-Shift-P), and wait for its row to end with "Created variant track" and the track's name.
 
@@ -78,14 +78,14 @@ The screenshot below shows the table with its columns cut down.
 
 ### Read the columns
 
-Fifteen fixed columns run across the table, after an unlabeled column holding a star. Click a row's star to bookmark it, and the star fills yellow and the `Bookmarked` chip appears. Seven of the fifteen are the VCF's own standard columns, `Type` and `Samples` are worked out from each record, and the rest are added by LGE.
+Fifteen fixed columns run across the table, after an unlabeled column holding a star. Click a row's star to bookmark it, and the star fills yellow. The `Bookmarked` chip joins the strip the next time LGE redraws it, such as after you switch to another tab and back. Seven of the fifteen are the VCF's own standard columns, `Type` and `Samples` are worked out from each record, and the rest are added by LGE.
 
 | Column | Where it comes from | What it holds |
 |---|---|---|
 | `Variant Track` | Added by LGE | The track the row came from |
 | `Caller Settings` | Added by LGE | The settings recorded for that track's caller run, or "Not recorded" |
 | `ID` | From the VCF | The `ID` field, or `<chrom>_<position>` such as `chr20_10.0-10.5Mb_2078` when the caller gave no name |
-| `Type` | Worked out | Either a single-base substitution, an [SNV](../../GLOSSARY.md#snv), or an insertion or deletion, an [indel](../../GLOSSARY.md#indel) |
+| `Type` | Worked out | The kind of change, `SNP` for a single-base substitution, an [SNV](../../GLOSSARY.md#snv), `INS` for an insertion, or `DEL` for a deletion, the two kinds of [indel](../../GLOSSARY.md#indel). Other files can also give `MNP` for several neighboring bases changed at once, `COMPLEX` for an allele written as a symbol such as `<DEL>` instead of bases, and `REF` for a record with no alternate allele |
 | `Chrom` | From the VCF | The reference sequence name, `chr20_10.0-10.5Mb` here |
 | `Position` | From the VCF | The coordinate of the change, counting the first base as 1 |
 | `Ref` | From the VCF | The [reference allele](../../GLOSSARY.md#ref-alt), the base or bases already in the reference |
@@ -93,7 +93,7 @@ Fifteen fixed columns run across the table, after an unlabeled column holding a 
 | `Quality` | From the VCF | The caller's [`QUAL`](../../GLOSSARY.md#qual) score, its [Phred-scaled](../../GLOSSARY.md#phred-score) confidence that a variant exists here |
 | `Filter` | From the VCF | The caller's own [pass or fail label](../../GLOSSARY.md#filter) for the row |
 | `Samples` | Worked out | How many sample columns hold a call at that position |
-| `Source` | Added by LGE | The track name again for a variant row, and the file name for an annotation feature |
+| `Source` | Added by LGE | The track name again |
 | `Gene / Protein` | Added by LGE | The gene or protein the change falls in, where an annotation supplies one |
 | `Consequence` | Added by LGE | A predicted [protein effect](../../GLOSSARY.md#consequence) such as `missense_variant`, where an annotation supplies one |
 | `AA Change` | Added by LGE | The amino-acid substitution, where an annotation supplies one |
@@ -118,7 +118,7 @@ Right-click a row for a menu that copies its ID, coordinates, alleles, or the wh
 
 ### Filter with the preset chips
 
-Above the table, a strip of chips is open whenever the Variants tab is. Each chip is a saved filter rule this manual calls a [smart-filter token](../../GLOSSARY.md#smart-filter-token), grouped into four sections, and most carry a compact count of the variants they match. **Presets** adds a second row of chips for the values of `INFO` keys that take few distinct values. The screenshot below shows the strip with the unusable chips dimmed.
+Above the table, a strip of chips is open whenever the Variants tab is. Each chip is a saved filter rule this manual calls a [smart-filter token](../../GLOSSARY.md#smart-filter-token), grouped into four sections, and most carry a compact count of the variants they match. The counts add up every loaded track, the ones you have hidden included, so a chip can count more rows than the table shows. **Presets** adds chips for the values of `INFO` keys that take few distinct values to the right end of the same strip, which scrolls sideways when it is wider than the window. The screenshot below shows the strip with the unusable chips dimmed.
 
 <!-- SHOT: variants-preset-chips -->
 
@@ -218,17 +218,17 @@ Position 2,078 is too far from 250,527 to share a view, so go to `chr20_10.0-10.
 
 ## Settings
 
-Seven controls sit in the drawer toolbar on the Variants tab, beside the **All** and **None** buttons that switch every variant-type chip on or off. The Query Builder sheet adds three fields, and the Sample Groups sheet one. None of them has a command-line equivalent, and the command line's `--filter` flag follows its own typing rules, which accept tests on one sample's genotype only, as the last section sets out.
+Seven controls sit in the drawer toolbar on the Variants tab, beside the **All** and **None** buttons that switch every variant-type chip on or off. The Query Builder sheet adds three fields, and the Sample Groups sheet one. Only the Query Builder has a command-line counterpart, the `--filter` flag of `variants query`, and that flag follows its own typing rules, which accept only tests on samples, such as one sample's genotype, a count across samples, or a comparison between two samples, as the last section sets out.
 
 **Calls / Genotypes.** Switches the table between one row per variant and one row per sample genotype at each variant. The default is Calls, the right view for a track with one sample or none, as the two fixture callers have. Switch to Genotypes when a VCF holds several samples and you want their calls side by side. This setting has no command-line flag.
 
 **Region / Genome.** Decides whether the table lists only variants inside the stretch the viewport shows or queries the whole reference. The default is Region, which keeps the table in step with what you are looking at and each query small. Switch to Genome when counting or filtering across the whole reference, which every count in this chapter assumes. This setting has no command-line flag.
 
-**Presets.** Shows or hides a second row of chips, one for each value of an `INFO` key that takes few distinct values, beside the smart-filter chips that are always on screen. The default is hidden with no chip applied, so the table starts with every row of every loaded track. Open it to filter on one such value, and expect the button to hide when the window is too narrow or the tracks declare no `INFO` keys. This setting has no command-line flag.
+**Presets.** Shows or hides extra chips at the right end of the strip, one for each value of an `INFO` key that takes few distinct values, beside the smart-filter chips that are always on screen. The default is hidden with no chip applied, so the table starts with every row of every loaded track. Open it to filter on one such value, and expect the button to hide when the window is too narrow or the tracks declare no `INFO` keys. This setting has no command-line flag.
 
 **Profiles.** Applies a saved combination of chips, either one of the built-in `Clinical`, `Research`, `QC`, and `High Confidence` profiles or one you saved with `Save Current as Profile…`. The default is `No Profile`, so no combination is applied. Use it when you apply the same chips often, and remember that a saved [filter profile](../../GLOSSARY.md#filter-profile) stays on this Mac. This setting has no command-line flag.
 
-**Query Builder....** Opens the Variant Query Builder sheet, the fullest way to compose a filter by hand on this tab, where every rule you add must hold. It opens with one blank rule for you to fill in, or with the active filter's rules when its button reads **Edit Query...**. Use it when a chip is not specific enough, such as for a coordinate window or an `INFO` threshold, and expect it to be disabled on a very large variant database. This setting has no command-line flag.
+**Query Builder....** Opens the Variant Query Builder sheet, the fullest way to compose a filter by hand on this tab, where every rule you add must hold. It opens with one blank rule for you to fill in, or with the active filter's rules when its button reads **Edit Query...**. Use it when a chip is not specific enough, such as for a coordinate window or an `INFO` threshold, and expect it to be disabled on a very large variant database. On the command line the nearest counterpart is the `--filter` flag of `variants query`, which accepts only tests on samples.
 
 **Gene List.** Keeps the variants in the genes you name, separated by commas, as a Location rule of the Query Builder. The field starts empty under the gray hint `BRCA1, TP53, EGFR`. Use it when a short list of genes matters more than a coordinate window. This setting has no command-line flag.
 
@@ -300,7 +300,7 @@ lungfish-cli variants query "$BUNDLE" \
 grep -vc '^#' heterozygous.vcf
 ```
 
-The counts in the comments come from this demo project, and the new files land in the folder Terminal is working in, your home folder in a new window. `--limit` caps the export and defaults to 5000 rows, so raise it for a larger track. Two drawer exports have commands of their own. `lungfish-cli variants export bookmarked` writes bookmarked rows as TSV, and the Export button's row records `lungfish-cli bundle export-annotation-table`, which reads a small file the app writes beside the output to learn which rows you selected. Copy that command from the row with **Copy CLI Command** in its right-click menu, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) explains, rather than typing it.
+The counts in the comments come from this demo project, and the new files land in the folder Terminal is working in, your home folder in a new window. `--limit` caps the export and defaults to 5000 rows, so raise it for a larger track. Two drawer exports have commands of their own. `lungfish-cli variants export bookmarked` writes bookmarked rows as TSV, and the Export button's row records `lungfish-cli bundle export-annotation-table`, which reads a small file the app writes beside the output, listing the rows to write. Copy that command from the row with **Copy CLI Command** in its right-click menu, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) explains, rather than typing it.
 
 ## Next
 
