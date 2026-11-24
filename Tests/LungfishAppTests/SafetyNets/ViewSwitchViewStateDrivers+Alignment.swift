@@ -67,11 +67,12 @@ struct AlignmentViewStateDriver: ViewStateDriver {
     }
 
     /// A block is a coordinate selection, so a changed key drops it, never clamped, and the open's own first cell
-    /// shows. The zoom, the colours, the find text and the pane come back (VS B3).
+    /// shows: row 0 and alignment column 0, which the 1-based column reading calls 1-1, as the column header does.
+    /// The zoom, the colours, the find text and the pane come back (VS B3).
     func readingAfterChangedBundle(changed: [String]) -> [String] {
         var reading = changed
         reading[4] = "rows 0"
-        reading[5] = "columns 0-0"
+        reading[5] = "columns 1-1"
         return reading
     }
 
@@ -106,7 +107,9 @@ struct TreeViewStateDriver: ViewStateDriver {
         viewer.toggleSelectedCladeCollapse(nil)
         let tip = try XCTUnwrap(clade.childIDs.first { viewer.nodesByID[$0]?.isTip == true })
         viewer.selectNode(id: tip, center: false)
-        viewer.treeCanvasView.zoom(by: 1.25)
+        // At a zoom of 1.25 the canvas is no taller than the test window's clip view, so a pan down has no room. At 2
+        // it is about 720 points tall.
+        viewer.treeCanvasView.zoom(by: 2)
         viewer.testingSetCanvasScrollOrigin(Self.pan)
         // The clip view takes any origin, and the window's next layout puts one outside the canvas back inside, so the
         // pan must lie inside the canvas's scroll range for the reading to be a place the view can hold.
