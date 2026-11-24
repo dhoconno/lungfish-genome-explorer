@@ -206,7 +206,8 @@ final class ViewportHostViewMemoryTests: XCTestCase {
     /// Reset View takes the view it shows as the start, so a surface whose restore cannot give back its own starting
     /// selection reads unchanged after the reset and the item is off (VS-INSP UX SF-2).
     func testResetViewTakesTheViewItShowsAsTheStart() throws {
-        let (host, parent) = makeHost(store: loadedStore())
+        let store = loadedStore()
+        let (host, parent) = makeHost(store: store)
         defer { _ = parent }
         let surface = try show(host, .init(url: fixture.bundle, ownSelection: ["row-1"], restoreDropsSelection: true))
         XCTAssertFalse(host.viewMemoryDiffersFromStart, "a first visit shows its start")
@@ -216,6 +217,19 @@ final class ViewportHostViewMemoryTests: XCTestCase {
         host.resetViewMemory()
         XCTAssertEqual(surface.filter, "")
         XCTAssertFalse(host.viewMemoryDiffersFromStart, "the reset view is the start")
+
+        // What the re-base is for (VS-INSP fix SWIFT SF-2): a leave after Reset View keeps nothing, and a change made
+        // after it is kept.
+        host.captureActive()
+        let key = try XCTUnwrap(store.key(for: ViewMemoryItem.read(at: fixture.bundle)))
+        guard case .nothing = store.restorable(ViewMemoryTestView.self, for: key, folder: surface.viewMemoryItem?.folder) else {
+            return XCTFail("a leave after Reset View kept the view the reset showed as a person's choice")
+        }
+        surface.filter = "Salmo"
+        host.captureActive()
+        guard case .view(let kept, _, _) = store.restorable(ViewMemoryTestView.self, for: key, folder: surface.viewMemoryItem?.folder)
+        else { return XCTFail("a change made after Reset View was not kept") }
+        XCTAssertEqual(kept.filter, "Salmo")
     }
 
     func testALateRestoreAppliesOnlyWhileTheViewEqualsItsStart() throws {
