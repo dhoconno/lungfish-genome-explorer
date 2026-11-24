@@ -156,8 +156,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
     /// are seen before the window goes. Tests replace it, so no test opens a real sheet.
     static var presentUnkeptFASTQDrawerEditBeforeClose: @MainActor (NSAlert, NSWindow, @escaping @MainActor () -> Void) -> Void = {
         alert, window, close in
-        Task { @MainActor in
-            _ = await alert.beginSheetModal(for: window)
+        alert.beginSheetModal(for: window) { _ in
             close()
         }
     }
