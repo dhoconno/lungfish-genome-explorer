@@ -25,7 +25,7 @@ illustrations: []
 glossary_refs: [accession, bam, bit-score, blast, bundle, fastq, fragment, mate, metagenomics, minibam, nao-mgs, operations-panel, paired-end, pcr-duplicate, percent-identity, provenance, checksum, read, read-pair, taxon, taxonomy-id, unique-reads, viewport, library-prep, tsv, terminal, negative-control, contig, lowest-common-ancestor]
 features_refs: [classify.nao-mgs]
 fixtures_refs: [naomgs]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
@@ -47,7 +47,7 @@ Before acting on a match, check how many reads support it and where they align. 
 
 ## Before you start
 
-LGE needs an open project to save the result. If you see No Project Open, open a project and try again. See [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) for setup.
+LGE needs an open project to save the result. If you see **No Project Open**, open a project and try again. See [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) for setup.
 
 The NAO-MGS wastewater fixture is a practice data set with five samples in one combined table. A demo project is a ready-made example project LGE downloads for you. Download Pathogen Detection through **Help > Demo Projects…**, as shown in the [demo projects guide](../01-foundations/06-the-lungfish-project.md#demo-projects). The file is `virus_hits_final.tsv.gz` in `~/Documents/LGE Demo Projects/Pathogen Detection.lungfish/Practice Data/naomgs` by default. You can also download it from the [Tests/Fixtures/naomgs](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/naomgs) folder.
 
@@ -117,11 +117,11 @@ To focus on particular samples, click **All Samples** or the current count, such
 
 | Column | What it holds |
 |---|---|
-| Sample | The sample the row belongs to |
-| Taxon | The organism name, or `Taxid N` when NCBI's taxonomy names file has no name for that number |
-| Hits | Aligned reads assigned to the taxon in that sample |
-| Unique Reads | Reads left after probable PCR copies are set aside |
-| Refs | Number of distinct reference [accessions](../../GLOSSARY.md#accession), or permanent identifiers of database records, that reads matched. A value of 1 means every hit matched the same record. |
+| **Sample** | The sample the row belongs to |
+| **Taxon** | The organism name, or `Taxid N` when NCBI's taxonomy names file has no name for that number |
+| **Hits** | Aligned reads assigned to the taxon in that sample |
+| **Unique Reads** | Reads left after probable PCR copies are set aside |
+| **Refs** | Number of distinct reference [accessions](../../GLOSSARY.md#accession), or permanent identifiers of database records, that reads matched. A value of 1 means every hit matched the same record. |
 
 For **Unique Reads**, LGE sets aside probable copies within each sample and taxon. A pair is a probable copy when each read shares its reference, start position, strand and length with the read in the same position in another pair. A strand is one of DNA's two complementary chains. A read with no aligned mate is a probable copy if another read with no aligned mate shares those same features.
 
