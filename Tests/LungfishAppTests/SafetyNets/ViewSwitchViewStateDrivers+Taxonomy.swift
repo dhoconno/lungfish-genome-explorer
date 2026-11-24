@@ -252,6 +252,30 @@ struct CzIdViewStateDriver: ViewStateDriver {
         _ = try CzIdDataConverter.convertTaxonReport(at: edited, outputDirectory: bundle)
     }
 
+    /// Imports the report again before the first show with a genus above its species (`genus_tax_id`), so the species
+    /// row sits under a node that can be closed (adopters' lesson 11). The fixture's taxa all sit under the root.
+    static func importWithGenus(at bundle: URL) throws {
+        let report = try String(contentsOf: SafetyNetPaths.fixture("czid/minimal_taxon_report.tsv"), encoding: .utf8)
+        let lines = report.components(separatedBy: "\n").filter { !$0.isEmpty }
+        let header = try XCTUnwrap(lines.first).components(separatedBy: "\t")
+        func line(_ fields: [String], genus: String) -> String {
+            (fields + Array(repeating: "", count: max(0, header.count - fields.count)) + [genus]).joined(separator: "\t")
+        }
+        let species = try XCTUnwrap(lines.last).components(separatedBy: "\t")
+        var genus = species
+        genus[5] = "694002"
+        genus[6] = "Betacoronavirus"
+        genus[7] = "genus"
+        genus[8] = "60"
+        let rows = lines.dropFirst().dropLast().map { line($0.components(separatedBy: "\t"), genus: "") }
+            + [line(genus, genus: ""), line(species, genus: "694002")]
+        let edited = bundle.deletingLastPathComponent().appendingPathComponent("genus-taxon-report.tsv")
+        try (([header.joined(separator: "\t") + "\tgenus_tax_id"] + rows).joined(separator: "\n") + "\n")
+            .write(to: edited, atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: bundle)
+        _ = try CzIdDataConverter.convertTaxonReport(at: edited, outputDirectory: bundle)
+    }
+
     /// The starting view: no filter, the default sort by reads, no row, no zoom, the drawer closed and the divider where
     /// the viewer puts it.
     func readingAfterChangedBundle(changed: [String]) -> [String] {

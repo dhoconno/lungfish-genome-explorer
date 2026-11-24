@@ -669,6 +669,90 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertEqual(pairs.map(\.accession), ["NC_001405.1"], "the assembly both samples hold")
     }
 
+    /// Adopters' lesson 11 for EsViritu: a detection row kept under its assembly comes back selected through a switch,
+    /// and a restore that finds the assembly closed opens it to select the row and loses nothing, since the data key is
+    /// equal. The viewer opens an assembly of two detections on its own, so the second half gives the restore the
+    /// closed assembly directly.
+    func testEsVirituRestoresAKeptDetectionRowUnderItsAssemblyAndOpensAClosedAssemblyToShowIt() async throws {
+        let driver = EsVirituViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        func viewer() -> EsVirituResultViewController? {
+            (harness.split.viewerController.surfaceHost.activeViewport as? EsVirituSurface)?.controller
+        }
+        /// The row of the adenovirus assembly's second detection among the rows the outline shows.
+        func detectionRow() -> Int? {
+            guard let table = viewer()?.detectionTableView else { return nil }
+            return (0..<table.outlineView.numberOfRows).first { row in
+                guard let item = table.outlineView.item(atRow: row) else { return false }
+                return table.selectionIdentity(for: item)?.hasSuffix("\u{1F}NC_001406.1") == true
+            }
+        }
+
+        try await show(fixture, in: harness, driver: driver)
+        let row = try XCTUnwrap(detectionRow(), "the adenovirus assembly opens with its two detections")
+        try XCTUnwrap(viewer()).detectionTableView.outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        let back = try XCTUnwrap(viewer())
+        let outline = back.detectionTableView.outlineView
+        XCTAssertEqual(outline.selectedRowIndexes, detectionRow().map { IndexSet(integer: $0) }, "the kept detection row")
+        XCTAssertNil(harness.resetLineWords, "the data key is equal, so no line says the data changed")
+
+        let kept = back.captureEsVirituViewMemory()
+        let assembly = try XCTUnwrap(detectionRow().flatMap { outline.parent(forItem: outline.item(atRow: $0)) })
+        outline.collapseItem(assembly)
+        XCTAssertNil(detectionRow(), "the closed assembly hides the detection row")
+        XCTAssertEqual(back.applyEsVirituViewMemory(kept, dataChanged: false), [], "an equal data key loses nothing")
+        XCTAssertEqual(
+            outline.selectedRowIndexes, detectionRow().map { IndexSet(integer: $0) },
+            "the restore opens the assembly and selects the kept row"
+        )
+    }
+
+    /// Adopters' lesson 11 for CZ ID, which shows through the taxonomy table: a species row kept under its genus comes
+    /// back selected through a switch, and a restore that finds the genus closed opens it to select the row and loses
+    /// nothing, since the data key is equal. A CZ ID tree is two levels deep and the outline opens the first, so the
+    /// second half gives the restore the closed genus directly.
+    func testCzIdRestoresAKeptSpeciesRowUnderItsGenusAndOpensAClosedGenusToShowIt() async throws {
+        let driver = CzIdViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        try CzIdViewStateDriver.importWithGenus(at: try XCTUnwrap(fixture.item.url))
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        func viewer() -> TaxonomyViewController? {
+            (harness.split.viewerController.surfaceHost.activeViewport as? CzIdSurface)?.controller?.taxonomyViewController
+        }
+        /// The row of the SARS-CoV-2 species among the rows the outline shows.
+        func speciesRow() -> Int? {
+            guard let outline = viewer()?.taxonomyTableView.outlineView else { return nil }
+            return (0..<outline.numberOfRows).first { TaxonomyViewStateControls.taxon(atRow: $0, in: outline)?.taxId == 2_697_049 }
+        }
+
+        try await show(fixture, in: harness, driver: driver)
+        let row = try XCTUnwrap(speciesRow(), "the genus opens with its species")
+        try XCTUnwrap(viewer()).taxonomyTableView.outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        let back = try XCTUnwrap(viewer())
+        let outline = back.taxonomyTableView.outlineView
+        XCTAssertEqual(outline.selectedRowIndexes, speciesRow().map { IndexSet(integer: $0) }, "the kept species row")
+        XCTAssertNil(harness.resetLineWords, "the data key is equal, so no line says the data changed")
+
+        let kept = back.captureTaxonomyViewMemory()
+        let genus = try XCTUnwrap(speciesRow().flatMap { outline.parent(forItem: outline.item(atRow: $0)) })
+        outline.collapseItem(genus)
+        XCTAssertNil(speciesRow(), "the closed genus hides the species row")
+        XCTAssertEqual(back.applyTaxonomyViewMemory(kept, dataChanged: false), [], "an equal data key loses nothing")
+        XCTAssertEqual(
+            outline.selectedRowIndexes, speciesRow().map { IndexSet(integer: $0) },
+            "the restore opens the genus and selects the kept row"
+        )
+    }
+
     /// VS A10 and QA 6: the Kraken2 and EsViritu tables write no column layout to the account's defaults when the route
     /// sets their result, and a moved column comes back after a switch, from view memory.
     func testKraken2AndEsVirituKeepAMovedColumnInViewMemoryAndWriteNoLayoutToTheAccountDefaults() async throws {
