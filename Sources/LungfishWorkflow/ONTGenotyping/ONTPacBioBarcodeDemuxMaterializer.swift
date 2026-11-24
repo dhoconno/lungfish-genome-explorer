@@ -936,6 +936,9 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 toolVersion: cutadaptVersion,
                 toolCommand: request.recordedCommandLine
             )
+            // A sample of reads that carry placeholder scores stores no quality figures and the mark (FLUIDIGM-CHILDREN F7).
+            let placeholderScores = FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: request.inputURL)
+            let measuredStatistics = statisticsCollector.finalize()
             let manifest = FASTQDerivedBundleManifest(
                 name: sampleID,
                 parentBundleRelativePath: ".",
@@ -944,7 +947,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 payload: .full(fastqFilename: fastqURL.lastPathComponent),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: statisticsCollector.finalize(),
+                cachedStatistics: placeholderScores ? measuredStatistics.withoutQualities : measuredStatistics,
                 pairingMode: nil,
                 sequenceFormat: .fastq,
                 provenance: SampleProvenance(
@@ -953,7 +956,8 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                     notes: "Materialized per-sample ONT reads after chunked cutadapt demultiplexing with PacBio barcode pairs from \(request.barcodeDefinitionsURL.lastPathComponent). Source: \(request.inputURL.path)"
                 ),
                 payloadChecksums: PayloadChecksum(checksums: [fastqURL.lastPathComponent: checksum]),
-                materializationState: .materialized(checksum: checksum)
+                materializationState: .materialized(checksum: checksum),
+                qualityScoresArePlaceholders: placeholderScores ? true : nil
             )
             try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
             return SampleOutput(
@@ -1024,6 +1028,8 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 toolVersion: nil,
                 toolCommand: request.recordedCommandLine
             )
+            // A sample of reads that carry placeholder scores stores no quality figures and the mark (FLUIDIGM-CHILDREN F7).
+            let placeholderScores = FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: request.inputURL)
             let manifest = FASTQDerivedBundleManifest(
                 name: sampleID,
                 parentBundleRelativePath: ".",
@@ -1032,7 +1038,7 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                 payload: .full(fastqFilename: fastqURL.lastPathComponent),
                 lineage: [operation],
                 operation: operation,
-                cachedStatistics: sampleResult.statistics,
+                cachedStatistics: placeholderScores ? sampleResult.statistics.withoutQualities : sampleResult.statistics,
                 pairingMode: nil,
                 sequenceFormat: .fastq,
                 provenance: SampleProvenance(
@@ -1041,7 +1047,8 @@ public final class ONTPacBioBarcodeDemuxMaterializer: Sendable {
                     notes: "Original sample ID: \(resolvedAssignment.originalSampleID). Resolved output ID: \(resolvedAssignment.resolvedSampleID). Source row: \(resolvedAssignment.sourceRow). Barcode pair: \(resolvedAssignment.assignment.forwardBarcodeID ?? "unknown") / \(resolvedAssignment.assignment.reverseBarcodeID ?? "unknown"). Materialized per-sample ONT reads with exact PacBio barcode-pair matching from \(request.barcodeDefinitionsURL.lastPathComponent). Source: \(request.inputURL.path)"
                 ),
                 payloadChecksums: PayloadChecksum(checksums: [fastqURL.lastPathComponent: checksum]),
-                materializationState: .materialized(checksum: checksum)
+                materializationState: .materialized(checksum: checksum),
+                qualityScoresArePlaceholders: placeholderScores ? true : nil
             )
             try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
             return ExactMaterializedSample(
