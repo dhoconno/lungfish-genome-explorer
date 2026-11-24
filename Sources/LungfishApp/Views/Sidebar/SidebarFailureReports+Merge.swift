@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishKit
+import LungfishOperations
 
 extension SidebarFailureReports {
     /// "Merge into New Bundle" failed after the person named the bundle (ALERT-C4). A FASTQ merge throws
@@ -14,6 +15,15 @@ extension SidebarFailureReports {
     static func mergeIntoNewBundle(kind: BundleMergeSelectionKind, _ error: any Error) -> FailureReport {
         switch kind {
         case .fastq:
+            // Reads built from sequence counts are refused before any bundle is made (FLUIDIGM-CHILDREN F6).
+            if let bundleName = FASTQBundleMergeService.placeholderScoreRefusal(in: error) {
+                return FailureReport(
+                    failedStep: "Merge the selected FASTQ bundles into a new bundle",
+                    whatHappened: "\(bundleName) holds reads built from sequence counts. Their quality scores were written, not measured, and a merged dataset would show them as measured, so Lungfish does not merge it.",
+                    nextStep: "Leave \(bundleName) out and merge the other bundles, or work with each bundle on its own.",
+                    underlying: error
+                )
+            }
             return FailureReport(
                 failedStep: "Merge the selected FASTQ bundles into a new bundle",
                 whatHappened: "The selected FASTQ bundles were not merged, so no new bundle was added to the project.",

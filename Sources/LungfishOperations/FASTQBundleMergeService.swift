@@ -11,9 +11,12 @@ enum FASTQBundleMergeServiceError: LocalizedError {
     case unsupportedReadComposition(bundleName: String)
     case pairedBundleMissingMate(bundleName: String)
     case toolFailed(String)
+    case placeholderScores(bundleName: String)
 
     var errorDescription: String? {
         switch self {
+        case .placeholderScores(let bundleName):
+            return "\(bundleName) holds reads built from sequence counts. Their quality scores were written, not measured, and a merged dataset would show them as measured, so Lungfish does not merge it."
         case .requiresAtLeastTwoBundles:
             return "Select at least two FASTQ bundles to merge."
         case .noFASTQPayload(let bundleName):
@@ -67,6 +70,13 @@ package enum FASTQBundleMergeService {
         )
     }
 
+    /// The name of the bundle a merge refused because its reads carry placeholder scores, or nil for any other error.
+    /// The error type is internal to LungfishOperations, so the sidebar asks here for the words it shows.
+    package static func placeholderScoreRefusal(in error: any Error) -> String? {
+        guard case FASTQBundleMergeServiceError.placeholderScores(let bundleName) = error else { return nil }
+        return bundleName
+    }
+
     package static func merge(
         sourceBundleURLs: [URL],
         outputDirectory: URL,
@@ -75,6 +85,12 @@ package enum FASTQBundleMergeService {
     ) async throws -> URL {
         guard sourceBundleURLs.count >= 2 else {
             throw FASTQBundleMergeServiceError.requiresAtLeastTwoBundles
+        }
+        // A merge makes a plain bundle with no derived manifest, which no mark can sit on, and the dashboard would measure
+        // the written scores of reads built from counts as Q40, so the merge refuses them (lane FLUIDIGM-CHILDREN F6).
+        for sourceBundleURL in sourceBundleURLs
+        where FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: sourceBundleURL) {
+            throw FASTQBundleMergeServiceError.placeholderScores(bundleName: sourceBundleURL.lastPathComponent)
         }
 
         let runClock = ProvenanceRunClock()
