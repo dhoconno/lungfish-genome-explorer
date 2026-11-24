@@ -72,6 +72,8 @@ final class TaxTriageVisitMemo {
     var pendingSelection: [String]?
     var routedSample: String?
     var samplesBeforeRoute: SamplePickerMemory?
+    /// The rows kept for the picker the route replaced. A capture keeps them while the route's pick stands (VS B9).
+    var selectionBeforeRoute: [String] = []
     /// Reset View ran before the open's first page, so the late restore brings nothing back (VS A2, the reset side).
     var resetBeforeFirstPage = false
 
@@ -140,15 +142,26 @@ extension TaxTriageResultViewController {
         }
     }
 
+    /// The selection a capture keeps now. The rows a restore still waits to select stand in for the table's own only
+    /// while the shown list holds no selection or the grid hides the list, so a marker that no page or list return
+    /// will clear never hides a row the shown list holds.
+    private func keptSelection() -> [String] {
+        let live = selectedPortableIdentities()
+        guard let pending = TaxTriageVisitMemo.memo(for: self).pendingSelection else { return live }
+        return live.isEmpty || batchFlatTableView.isHidden ? pending : live
+    }
+
     /// The view as the viewer's controls hold it now. It reads no file and no store.
     func captureTaxTriageViewMemory() -> TaxTriageViewMemory {
         let memo = TaxTriageVisitMemo.memo(for: self)
         var memory = TaxTriageViewMemory()
+        var routePickStands = false
         if let picker = samplePickerState, !sampleIds.isEmpty {
             var picked = picker.captureViewMemory(allSampleIDs: Set(sampleIds))
             // The route's pick is the app's, not a choice, unless the person changed it afterwards (VS B9).
             if let routed = memo.routedSample, picked.selectedSampleIDs == [routed], let before = memo.samplesBeforeRoute {
                 picked = before
+                routePickStands = true
             }
             memory.samples = picked
             memory.samplesRun = TaxTriageViewMemoryRun.token
@@ -157,7 +170,8 @@ extension TaxTriageResultViewController {
         // The field's text, which a person may have typed before its short wait applies it.
         memory.searchText = organismSearchField.stringValue
         memory.table = tableMemoryWithoutSelection()
-        memory.selectedIdentities = memo.pendingSelection ?? selectedPortableIdentities()
+        // While the route's pick stands, the rows kept are those of the picker it replaced (VS B9).
+        memory.selectedIdentities = routePickStands ? memo.selectionBeforeRoute : keptSelection()
         memory.columns = batchFlatTableView.metadataColumns.captureViewMemory()
         return memory
     }
@@ -282,7 +296,14 @@ extension TaxTriageResultViewController {
             if restore.droppedCount > 0 { lost.insert(.selection) }
             kept = restore.kept
         }
-        memo.pendingSelection = kept
+        if memo.routedSample != nil {
+            // The route's sample wins for this visit (VS B9): the kept rows belong to the picker the route replaced, so
+            // they wait for the visit that brings it back, and the open's own pick stands.
+            memo.selectionBeforeRoute = kept
+            memo.pendingSelection = nil
+        } else {
+            memo.pendingSelection = kept
+        }
         if reload {
             memo.reloadedByRestore = true
             applyBatchGroupFilter()
@@ -298,6 +319,8 @@ extension TaxTriageResultViewController {
         let memo = TaxTriageVisitMemo.memo(for: self)
         if memo.routedSample == nil, let picker = samplePickerState {
             memo.samplesBeforeRoute = picker.captureViewMemory(allSampleIDs: Set(sampleIds))
+            memo.selectionBeforeRoute = keptSelection()
+            memo.pendingSelection = nil
         }
         memo.routedSample = sampleId
         samplePickerState?.selectedSamples = [sampleId]
