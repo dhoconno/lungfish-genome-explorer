@@ -40,6 +40,10 @@ final class ReadStyleSectionNoAssumedLengthTests: XCTestCase {
 
     /// One sequence of 1,000 bp and 10 mapped reads of 10,000 bp. Each read aligns 1,000 bases over the whole sequence
     /// and soft-clips the other 9,000, so every position has depth 10.
+    ///
+    /// `samtools depth -a` run directly on this fixture (samtools 1.24, 2026-11-23): 1,000 positions, sum 10,000,
+    /// mean 10.0 (SAD:92). `samtools coverage` gives meandepth 10 for the same file. The assumed 150 bp showed
+    /// 10 x 150 / 1,000 = 1.5x.
     private func makeFixture(writeBAM: Bool, mappedRecords: Int64) async throws -> Fixture {
         let bundleURL = tempDir.appendingPathComponent("Fixture.lungfishref", isDirectory: true)
         let alignments = bundleURL.appendingPathComponent("alignments", isDirectory: true)
