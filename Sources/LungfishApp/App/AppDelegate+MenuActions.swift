@@ -535,8 +535,8 @@ extension AppDelegate {
     @objc func resetViewSettingsToDefaults(_ sender: Any?) {
         guard let splitVC = activeMainWindowController(sender: sender)?.mainSplitViewController else { return }
 
-        // Delegate to the inspector's existing reset (which posts all needed notifications)
-        splitVC.inspectorController.resetAllAppearanceSettings()
+        // View > Reset View resets the view on show only, and the app-wide look is the Appearance Reset's (VS U3)
+        splitVC.inspectorController.resetOpenView()
     }
 
     @objc func showDocumentInspector(_ sender: Any?) {

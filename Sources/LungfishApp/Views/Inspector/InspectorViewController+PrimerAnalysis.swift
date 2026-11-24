@@ -39,7 +39,7 @@ extension InspectorViewController {
         viewModel.selectedItem = url.deletingPathExtension().lastPathComponent
         viewModel.selectedType = "Primer Analysis"
         viewModel.provenanceSectionViewModel.clear()
-        viewModel.selectedTab = .bundle
+        viewModel.setContentTab(.bundle)
     }
 
     func updatePrimerAnalysisDocument(_ snapshot: PrimerAnalysisViewerSnapshot) {

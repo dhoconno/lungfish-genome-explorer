@@ -132,7 +132,7 @@ extension InspectorViewController {
             sidebarType: .analysisResult,
             displayName: result.outputDirectory.lastPathComponent
         )
-        viewModel.selectedTab = .bundle
+        viewModel.setContentTab(.bundle)
     }
 
     /// Updates the Document inspector with a prebuilt mapping document state.
@@ -150,7 +150,7 @@ extension InspectorViewController {
         }
         viewModel.documentSectionViewModel.updateMappingDocument(state)
         if state != nil {
-            viewModel.selectedTab = .bundle
+            viewModel.setContentTab(.bundle)
         }
     }
 
@@ -234,7 +234,7 @@ extension InspectorViewController {
             sidebarType: .multipleSequenceAlignmentBundle,
             displayName: manifest.name
         )
-        viewModel.selectedTab = .bundle
+        viewModel.setContentTab(.bundle)
         holdsTabOnNextMSASelection = true
         // Loading an alignment drops the Analysis tab, so make sure the
         // selection still names a tab the picker lists.
@@ -351,7 +351,7 @@ extension InspectorViewController {
             sidebarType: .mhcReferenceBundle,
             displayName: manifest.name
         )
-        viewModel.selectedTab = .bundle
+        viewModel.setContentTab(.bundle)
     }
 
     /// Updates the Document inspector with phylogenetic-tree bundle statistics.
@@ -365,7 +365,7 @@ extension InspectorViewController {
             sidebarType: .phylogeneticTreeBundle,
             displayName: manifest.name
         )
-        viewModel.selectedTab = .bundle
+        viewModel.setContentTab(.bundle)
     }
 
     /// Updates the Document inspector with genotype-result bundle statistics.
@@ -539,7 +539,7 @@ extension InspectorViewController {
             sidebarType: .genotypeResultBundle,
             displayName: result.manifest.analysisName
         )
-        viewModel.selectedTab = .bundle
+        viewModel.setContentTab(.bundle)
     }
 
     func updateGenotypeResultDisplaySummary(visibleRows: Int, totalRows: Int, hiddenCells: Int) {
@@ -628,7 +628,7 @@ extension InspectorViewController {
             sidebarType: .twelveSAmpliconResultBundle,
             displayName: result.manifest.analysisName
         )
-        viewModel.selectedTab = .resultSummary
+        viewModel.setContentTab(.resultSummary)
     }
 
     func updateTwelveSImportedSampleMetadata(_ metadataStore: SampleMetadataStore?) {
@@ -642,7 +642,7 @@ extension InspectorViewController {
         let hadDetail = viewModel.twelveSDetailSectionViewModel.hasDetail
         viewModel.twelveSDetailSectionViewModel.apply(payload)
         if payload != nil, !hadDetail, viewModel.selectedTab == .resultSummary {
-            viewModel.selectedTab = .twelveSDetail
+            viewModel.setAppTab(.twelveSDetail)
         }
     }
 
@@ -878,7 +878,7 @@ extension InspectorViewController {
         viewModel.selectedAnnotation = nil
         viewModel.selectionSectionViewModel.select(phylogeneticTreeSelection: state)
         if state != nil {
-            viewModel.selectedTab = .selectedItem
+            viewModel.setAppTab(.selectedItem)
         }
     }
 
@@ -887,7 +887,7 @@ extension InspectorViewController {
         viewModel.selectedAnnotation = nil
         viewModel.selectionSectionViewModel.select(sequenceRegionSelection: state)
         if state != nil {
-            viewModel.selectedTab = .selectedItem
+            viewModel.setAppTab(.selectedItem)
         }
     }
 

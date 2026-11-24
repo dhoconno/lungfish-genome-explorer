@@ -486,6 +486,8 @@ extension MainSplitViewController {
 
     func restoreActiveContentState(_ state: RestorableContentState) {
         guard let url = state.url else { return }
+        // The item's kept Inspector view wins over the window's tab, which stays the fallback (VS U7).
+        inspectorController?.beginViewMemoryVisit(for: url)
         let storedID = state.payload["projectSequenceID"].flatMap(UUID.init(uuidString:))
         let restoredDocument = projectSession.documents.first { document in
             if let storedID { return document.projectSequenceID == storedID }

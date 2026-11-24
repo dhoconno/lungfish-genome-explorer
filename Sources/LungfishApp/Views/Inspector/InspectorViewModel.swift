@@ -80,20 +80,56 @@ public final class InspectorViewModel {
 
     // MARK: - Tab State
 
-    /// Currently selected inspector tab.
-    var selectedTab: InspectorTab = .bundle
+    /// Currently selected inspector tab. A set from the tab control is a person's pick, which the item keeps (VS U7).
+    /// The app's own paths set it with ``setContentTab(_:)`` or ``setAppTab(_:)``, so a tab the app sets is never kept
+    /// as a choice (VS S3).
+    var selectedTab: InspectorTab {
+        get { shownTab }
+        set {
+            let old = shownTab
+            shownTab = newValue
+            guard !appSetsTab, newValue != old else { return }
+            personTab = newValue
+            keepViewMemory()
+        }
+    }
+
+    /// The tab on show. Only ``selectedTab``'s setter and the app's two setters write it.
+    var shownTab: InspectorTab = .bundle
+
+    /// The tab a person picked for the item on show, or the tab kept for it, nil while the content's own tab shows.
+    @ObservationIgnored var personTab: InspectorTab?
+    @ObservationIgnored var appSetsTab = false
+    /// The window's tab from `window-state.json`, the starting tab of the next item shown when that item has no entry.
+    @ObservationIgnored var windowStateTab: InspectorTab?
+    /// The item on show and its read of the store (`InspectorViewController+ViewMemory.swift`).
+    @ObservationIgnored var viewMemoryVisit: InspectorViewMemoryVisit?
+    @ObservationIgnored var applyingViewMemory = false
+
+    /// Sets a tab the app chose, such as the Selected Item tab after a pick in the viewer. It is not a person's pick.
+    func setAppTab(_ tab: InspectorTab) {
+        appSetsTab = true
+        selectedTab = tab
+        appSetsTab = false
+    }
+
+    /// Sets the tab the content opens on, then shows the tab the person picked or kept for the item when the content
+    /// offers it, so the kept tab applies after the content's notification (VS U7).
+    func setContentTab(_ tab: InspectorTab) {
+        setAppTab(tab)
+        applyPersonTab()
+    }
 
     /// Moves ``selectedTab`` back onto a listed tab when the current one stops
-    /// being available.
+    /// being available, then onto the item's kept tab once the content offers it.
     ///
     /// ``availableTabs`` is derived from ``contentMode``, the AI setting, and
     /// whether an alignment document is loaded, so any of those changing can
-    /// strand the selection on a tab the picker no longer lists. The content
-    /// switch would then render a pane with no corresponding segment. Call this
+    /// strand the selection on a tab the picker no longer lists. Call this
     /// wherever those inputs change.
     func reconcileSelectedTab() {
-        guard !availableTabs.contains(selectedTab) else { return }
-        selectedTab = availableTabs.first ?? .bundle
+        if !availableTabs.contains(selectedTab) { setAppTab(availableTabs.first ?? .bundle) }
+        applyPersonTab()
     }
 
     /// Takes every 12S part out of the Inspector (the Detail tab, the result display
@@ -105,8 +141,26 @@ public final class InspectorViewModel {
         reconcileSelectedTab()
     }
 
-    /// Currently selected read-style subsection inside the View tab.
-    var selectedReadStyleViewSubsection: ReadStyleViewSubsection = .alignment
+    /// Currently selected read-style subsection inside the View tab, kept for the item (VS-INSP item 2). The
+    /// subsection grid writes it, so each set is a person's pick.
+    var selectedReadStyleViewSubsection: ReadStyleViewSubsection {
+        get { shownReadStyleSubsection }
+        set {
+            shownReadStyleSubsection = newValue
+            keepViewMemory()
+        }
+    }
+    var shownReadStyleSubsection: ReadStyleViewSubsection = .alignment
+
+    /// Whether the classifier summary's "Samples & Metadata" disclosure is open, kept for the item (VS-INSP item 2).
+    var samplesExpanded: Bool {
+        get { shownSamplesExpanded }
+        set {
+            shownSamplesExpanded = newValue
+            keepViewMemory()
+        }
+    }
+    var shownSamplesExpanded = true
 
     // MARK: - Sidebar Selection State
 

@@ -116,11 +116,15 @@ final class ViewMemorySession {
     let capture: () -> Void
     let reset: () -> Void
     let announce: () -> Void
+    /// Whether the adopter's live capture differs from its starting view, a compare that reads no store (VS U3).
+    let differs: () -> Bool
 
-    init(capture: @escaping () -> Void, reset: @escaping () -> Void, announce: @escaping () -> Void) {
+    init(capture: @escaping () -> Void, reset: @escaping () -> Void, announce: @escaping () -> Void,
+         differs: @escaping () -> Bool = { false }) {
         self.capture = capture
         self.reset = reset
         self.announce = announce
+        self.differs = differs
     }
 }
 

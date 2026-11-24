@@ -147,18 +147,9 @@ extension InspectorViewController {
         )
     }
 
-    /// Handles resetting ALL appearance settings to their defaults.
-    ///
-    /// This is called when the "Reset to Defaults" button is pressed in the
-    /// Appearance section. It coordinates resetting all appearance-related
-    /// settings across multiple section view models:
-    /// - Base colors (A, T, G, C, N)
-    /// - Track height
-    /// - Quality overlay
-    /// - Annotation height, spacing, visibility, and filters
-    ///
-    /// After resetting, it clears persisted settings and posts notifications
-    /// so the viewer updates immediately.
+    /// The Appearance section's Reset button (help tag word 6): the app-wide look, which every bundle shows, returns
+    /// to its defaults. That is the nucleotide colors, the track height and the quality overlay, saved to
+    /// `AppSettings`. The view on show is View > Reset View's (`resetOpenView()`, VS U3).
     public func resetAllAppearanceSettings() {
         inspectorLogger.info("handleResetAllAppearanceSettings: Resetting ALL appearance settings to defaults")
 
@@ -168,45 +159,12 @@ extension InspectorViewController {
         // 2. Reset the quality section view model (quality overlay)
         viewModel.qualitySectionViewModel.resetToDefaults()
 
-        // 3. Reset the annotation section view model (height, spacing, visibility, filters)
-        viewModel.annotationSectionViewModel.resetToDefaults()
-
-        // 4. Reset the core appearance model in AppSettings
+        // 3. Reset the core appearance model in AppSettings
         let defaultAppearance = SequenceAppearance.default
         AppSettings.shared.sequenceAppearance = defaultAppearance
         AppSettings.shared.save()
         viewModel.appearance = defaultAppearance
         inspectorLogger.info("handleResetAllAppearanceSettings: Reset persisted settings to defaults")
-
-        // 5. Post annotation notifications so the viewer updates
-        NotificationCenter.default.post(
-            name: .annotationSettingsChanged,
-            object: self,
-            userInfo: windowScopedUserInfo([
-                "showAnnotations": viewModel.annotationSectionViewModel.showAnnotations,
-                "annotationHeight": viewModel.annotationSectionViewModel.annotationHeight,
-                "annotationSpacing": viewModel.annotationSectionViewModel.annotationSpacing
-            ])
-        )
-
-        // Post annotation filter changed notification
-        NotificationCenter.default.post(
-            name: .annotationFilterChanged,
-            object: self,
-            userInfo: windowScopedUserInfo([
-                "visibleTypes": viewModel.annotationSectionViewModel.visibleTypes,
-                "filterText": viewModel.annotationSectionViewModel.filterText
-            ])
-        )
-
-        // 6. Reset bundle view state (type color overrides, navigation, etc.)
-        NotificationCenter.default.post(
-            name: .bundleViewStateResetRequested,
-            object: self,
-            userInfo: windowScopedUserInfo()
-        )
-
-        inspectorLogger.info("handleResetAllAppearanceSettings: Posted all notifications for viewer update")
     }
 
 }

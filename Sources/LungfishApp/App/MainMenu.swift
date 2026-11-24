@@ -713,9 +713,9 @@ public final class MainMenu {
 
         viewMenu.addItem(.separator())
 
-        // Reset View Settings
+        // Reset View (VS U3): this view only, enabled while it differs from its starting view
         viewMenu.addItem(
-            withTitle: "Reset View Settings to Defaults",
+            withTitle: ResetViewWords.menuTitle,
             action: #selector(ViewMenuActions.resetViewSettingsToDefaults(_:)),
             keyEquivalent: ""
         )

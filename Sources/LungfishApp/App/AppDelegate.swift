@@ -2374,8 +2374,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if menuItem.action == #selector(openReleaseNotes(_:)) {
             return LungfishAppIdentity.current.releaseHistoryURL != nil
         }
-        // Update Sidebar menu item title based on state (Apple HIG compliance)
-        // Tag 1000 is for sidebar toggle
+        // View > Reset View is enabled while the view on show differs from its starting view (VS U3). Tag 1000 is the sidebar
+        if menuItem.action == #selector(resetViewSettingsToDefaults(_:)) { return activeMainWindowController(sender: menuItem)?.mainSplitViewController?.inspectorController.openViewDiffersFromItsStart ?? false }
         if menuItem.tag == 1000 {
             if let isSidebarVisible = activeMainWindowController()?.mainSplitViewController?.isSidebarVisible {
                 menuItem.title = isSidebarVisible ? "Hide Sidebar" : "Show Sidebar"

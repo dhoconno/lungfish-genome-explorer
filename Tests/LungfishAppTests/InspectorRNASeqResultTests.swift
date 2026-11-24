@@ -31,14 +31,24 @@ final class InspectorRNASeqResultTests: XCTestCase {
     private var root: URL!
     private var windows: [NSWindow] = []
 
+    /// A split these tests build saves its panel state to the runner's defaults, so these keys go back as they were
+    /// (QA 6, the VS-RNA continuation's `InspectorCollapsed` line).
+    private var panelDefaults: HostDefaultsRestorer?
+
     override func setUp() async throws {
         try await super.setUp()
+        panelDefaults = HostDefaultsRestorer(keys: [
+            MainSplitViewController.sidebarCollapsedDefaultsKey, MainSplitViewController.inspectorCollapsedDefaultsKey,
+            MainSplitViewController.sidebarWidthDefaultsKey, MainSplitViewController.inspectorWidthDefaultsKey,
+        ])
         root = try TestTempDirectory.make(prefix: "InspectorRNASeqResult")
     }
 
     override func tearDown() async throws {
         for window in windows { window.orderOut(nil) }
         windows.removeAll()
+        panelDefaults?.restore()
+        panelDefaults = nil
         TestTempDirectory.cleanup(root)
         try await super.tearDown()
     }

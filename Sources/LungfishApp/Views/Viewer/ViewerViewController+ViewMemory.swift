@@ -106,6 +106,18 @@ protocol ReferenceViewportMemoryOwner: AnyObject {
     var selectedRowAwaitsItsContext: Bool { get }
     /// Shows word 5a while the filters the restore or the block's carry left hide reads (VS B6).
     func showReadFilterLineIfKept()
+    /// Reset View: the list, the mode and the read filters as the open showed them, and no filter line (VS U3).
+    func resetViewportMemory(to opening: ReferenceViewportMemory)
+}
+
+extension ViewerViewController {
+    /// Whether the view differs from the view the visit started from, which enables View > Reset View (VS U3). One
+    /// capture and one compare on the main actor, with no store read.
+    var viewMemoryDiffersFromStart: Bool {
+        guard let session = viewMemory else { return false }
+        let now = captureViewerMemory()
+        return !now.sameChoices(as: session.start) || now.viewport?.reads != session.start.viewport?.reads
+    }
 }
 
 /// The presentation fields of a reference view, the only fields an older bundle's `.viewstate.json` gives as a starting
@@ -572,6 +584,16 @@ extension ViewerViewController {
         guard let session = viewMemory else { return }
         viewStateSaveWorkItem?.cancel()
         viewStateSaveWorkItem = nil
+        // The place, the list, the mode and the read filters as the open showed them, with no filter line (VS U3,
+        // VS-MAP-2 UX ruling 5). A restored row installs no action context, as at the restore (VS S4).
+        var start = session.start
+        start.display = ReferenceViewerDisplay(capturedViewState())
+        if let viewport = start.viewport, let owner = viewMemoryViewport {
+            session.restoringViewport = true
+            owner.resetViewportMemory(to: viewport)
+            session.restoringViewport = false
+        }
+        _ = restoreViewerMemory(start)
         session.start = captureViewerMemory()
         session.line?.removeFromSuperview()
         session.line = nil

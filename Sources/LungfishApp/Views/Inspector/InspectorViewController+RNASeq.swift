@@ -12,7 +12,7 @@ extension InspectorViewController {
         updateProvenanceTarget(url: bundleURL, sidebarType: .registeredBundle, displayName: name)
         viewModel.documentSectionViewModel.updateRNASeqResultHeader(
             RNASeqResultDocumentState.rows(facts, prefix: "inspector-rnaseq-result"), bundleURL: bundleURL)
-        viewModel.selectedTab = .bundle
+        viewModel.setContentTab(.bundle)
     }
 
     /// The registered bundle the Provenance tab names, which is the RNA-seq result the Inspector shows. The route

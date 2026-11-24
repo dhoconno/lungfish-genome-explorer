@@ -184,6 +184,12 @@ extension GenotypeResultViewController {
         return normalizedDisplayState(GenotypeResultDisplayState(viewportLens: .summary, summaryViewMode: kept)).summaryViewMode
     }
 
+    /// Whether the view differs from the view the visit started from, which enables View > Reset View (VS U3).
+    public var viewMemoryDiffersFromStart: Bool {
+        guard let session = viewMemory else { return false }
+        return captureViewMemory() != session.start
+    }
+
     /// The view as the viewer holds it now. A fallback the policy shows in place of a kept choice is never taken as a
     /// person's choice, as at the base.
     func captureViewMemory() -> GenotypeViewMemory {
@@ -309,7 +315,7 @@ extension GenotypeResultViewController {
     /// Reset View for the result on show. It writes and deletes nothing in the bundle. It shows the view the open
     /// showed and leaves the item's retire mark, so an older bundle's own file is not read again and the reset is not
     /// undone at the next open (the revisit of plan decision S11).
-    func resetViewMemory() {
+    public func resetViewMemory() {
         guard let session = viewMemory else { return }
         restoreViewMemory(session.opening)
         session.start = captureViewMemory()

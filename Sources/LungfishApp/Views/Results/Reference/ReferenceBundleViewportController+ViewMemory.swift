@@ -259,6 +259,21 @@ extension ReferenceBundleViewportController {
         line.showRestored(form)
     }
 
+    /// Reset View (VS U3): the list, the mode and the read filters as the open showed them, through the same paths a
+    /// restore takes, and the filter line goes, since no kept filter stays (VS-MAP-2 UX ruling 5, BIO R9).
+    func resetViewportMemory(to opening: ReferenceViewportMemory) {
+        // The block's carry over a switch is not the open's: a bundle opens at the defaults, and the store's entry is
+        // the one source of a kept filter (VS B6), so Reset View returns the defaults.
+        var start = opening
+        start.reads = .defaults
+        _ = restoreViewportMemory(start, dataChanged: false)
+        if let line = filterLineView {
+            line.removeFromSuperview()
+            embeddedViewerController.view.topAnchor.constraint(equalTo: detailContentContainer.topAnchor).isActive = true
+        }
+        embeddedViewerController.viewMemory?.restoredReads = nil
+    }
+
     var selectedRowAwaitsItsContext: Bool {
         guard embeddedViewerController.alignmentActionContext == nil, alignmentActionContextTask == nil else { return false }
         switch currentInput?.kind {

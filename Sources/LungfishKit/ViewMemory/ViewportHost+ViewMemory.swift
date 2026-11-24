@@ -18,6 +18,12 @@ extension ViewportHost {
         viewMemorySession?.reset()
     }
 
+    /// Whether the installed view differs from the view it started from, which enables View > Reset View (VS U3). One
+    /// capture of the installed view and one compare on the main actor, with no store read.
+    public var viewMemoryDiffersFromStart: Bool {
+        viewMemorySession?.differs() ?? false
+    }
+
     /// The step between `load` and the install: when the surface adopts view memory and its project's entries are
     /// read, it gets its kept view now, or its handle when its own load is pending.
     func prepareViewMemory(for viewport: any ResultViewport) -> ViewMemoryOpening? {
@@ -76,7 +82,8 @@ extension ViewportHost {
                 _ = adopter?.restoreViewMemory(start.view, dataChanged: false)
                 adopter?.announceViewMemory()
             },
-            announce: { [weak adopter] in adopter?.announceViewMemory() })
+            announce: { [weak adopter] in adopter?.announceViewMemory() },
+            differs: { [weak adopter] in adopter.map { $0.captureViewMemory() != start.view } ?? false })
         return ViewMemoryOpening(session: session, words: words, announcesAtInstall: pending == nil)
     }
 

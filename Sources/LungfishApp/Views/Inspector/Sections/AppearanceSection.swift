@@ -103,6 +103,7 @@ public struct AppearanceSection: View {
             Label("Reset to Defaults", systemImage: "arrow.counterclockwise")
         }
         .buttonStyle(.borderless)
+        .help(ResetViewWords.appearanceResetHelp)
     }
 }
 

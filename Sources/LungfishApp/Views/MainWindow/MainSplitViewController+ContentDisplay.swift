@@ -60,7 +60,7 @@ extension MainSplitViewController {
             return
         }
 
-        // When switching away from a bundle to a non-bundle item, clean up the navigator
+        inspectorController.beginViewMemoryVisit(for: item.url) // VS U7; then a non-bundle item cleans up the navigator
         if item.type != .referenceBundle { viewerController.clearBundleDisplay() }
 
         // Always clear FASTA collection view when switching sidebar items

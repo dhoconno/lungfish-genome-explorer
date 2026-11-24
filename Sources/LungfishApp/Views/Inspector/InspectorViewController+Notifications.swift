@@ -51,7 +51,7 @@ extension InspectorViewController {
                 from: firstFASTQBundleURL,
                 readTypeTargetBundleURLs: selectedFASTQMetadataTargetBundleURLs
             )
-            viewModel.selectedTab = .bundle
+            viewModel.setContentTab(.bundle)
         } else if selectedFASTQMetadataTargetBundleURLs.count == 1 {
             viewModel.fastqMetadataSectionViewModel.setReadTypeTargetBundleURLs(selectedFASTQMetadataTargetBundleURLs)
         }
@@ -168,7 +168,7 @@ extension InspectorViewController {
                 viewModel.variantSectionViewModel.clear()
             }
             // Auto-switch to Selected Item when an annotation is selected.
-            viewModel.selectedTab = .selectedItem
+            viewModel.setAppTab(.selectedItem)
         } else {
             // Deselection - clear the annotation
             viewModel.selectedAnnotation = nil
@@ -188,7 +188,7 @@ extension InspectorViewController {
         let tableFields = notification.userInfo?[NotificationUserInfoKey.variantInspectorFields]
             as? [VariantInspectorField] ?? []
         viewModel.variantSectionViewModel.select(variant: result, tableFields: tableFields)
-        viewModel.selectedTab = .selectedItem
+        viewModel.setAppTab(.selectedItem)
     }
 
     /// Handles explicit empty/multi-row variant table selection payloads.
@@ -202,7 +202,7 @@ extension InspectorViewController {
             viewModel.variantSectionViewModel.clear()
         } else {
             viewModel.variantSectionViewModel.select(entries: entries)
-            viewModel.selectedTab = .selectedItem
+            viewModel.setAppTab(.selectedItem)
         }
     }
 
@@ -212,7 +212,7 @@ extension InspectorViewController {
         let read = notification.userInfo?[NotificationUserInfoKey.alignedRead] as? AlignedRead
         viewModel.readStyleSectionViewModel.selectedRead = read
         if read != nil {
-            viewModel.selectedTab = .selectedItem
+            viewModel.setAppTab(.selectedItem)
         }
     }
 
@@ -252,7 +252,7 @@ extension InspectorViewController {
         let chromosome = notification.userInfo?[NotificationUserInfoKey.chromosome] as? ChromosomeInfo
         updateSelectedChromosome(chromosome)
         if chromosome != nil {
-            viewModel.selectedTab = .bundle
+            viewModel.setAppTab(.bundle)
         }
     }
 
@@ -328,7 +328,7 @@ extension InspectorViewController {
             }
         }
 
-        viewModel.selectedTab = .bundle
+        viewModel.setContentTab(.bundle)
     }
 
     private static func fastqBundleURLs(from items: [SidebarItem]) -> [URL] {
@@ -404,7 +404,7 @@ extension InspectorViewController {
               let tab = InspectorTab(rawValue: tabName) else {
             return
         }
-        viewModel.selectedTab = tab
+        viewModel.setAppTab(tab)
     }
 
     /// The viewer sorted the reads by the base at a column. Show that in the
@@ -444,7 +444,9 @@ extension InspectorViewController {
 
     public func restoreSelectedTabIdentifier(_ identifier: String) {
         guard let tab = InspectorTab(rawValue: identifier) else { return }
-        viewModel.selectedTab = tab
+        viewModel.setAppTab(tab)
+        // The window's tab is the fallback of the item shown next when that item has no entry (VS U7).
+        viewModel.windowStateTab = tab
     }
 
     func updateProvenanceTarget(
