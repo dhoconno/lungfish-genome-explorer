@@ -385,7 +385,7 @@ struct FastqIngestRun {
     /// they ran. An input's own record, `<file>.lungfish-provenance.json`, is the extraction's for a file that
     /// `extract taxa-collection` wrote. It holds the source FASTQ with its digest, and the extraction's options, which the
     /// step keeps as its resolved options. A step that the folder's record or the run holds already, by id, is not added
-    /// again, and a record that cannot be read is left out, since the run's own record is the one that must be written.
+    /// again, and a record that cannot be read is left out, and `retireSidecars` keeps it and says so.
     static func carryingOwnRecords(
         of inputs: [URL],
         into fresh: ProvenanceEnvelope,
@@ -443,8 +443,15 @@ struct FastqIngestRun {
     /// (PAIRING-RECORD-LOST), and the folder keeps one record for each file in it. The second file of a pair keeps
     /// its metadata sidecar, which the output's does not carry.
     /// A sidecar that cannot be removed does not fail a run whose output is in place.
-    private func retireSidecars(of original: URL) {
-        var sidecars = [ProvenanceRecorder.fileSidecarURL(for: original)]
+    func retireSidecars(of original: URL) {
+        let own = ProvenanceRecorder.fileSidecarURL(for: original)
+        var sidecars: [URL] = []
+        if FileManager.default.fileExists(atPath: own.path),
+           (try? ProvenanceEnvelopeReader.load(fromSidecar: own)) == nil {
+            events.emitLog(.warning, "The record beside \(original.lastPathComponent) could not be read, so its steps are not in the folder's record. The record stays at \(own.path).")
+        } else {
+            sidecars.append(own)
+        }
         if original == inputs[0] { sidecars.append(FASTQMetadataStore.metadataURL(for: original)) }
         for sidecar in sidecars { try? FileManager.default.removeItem(at: sidecar) }
     }

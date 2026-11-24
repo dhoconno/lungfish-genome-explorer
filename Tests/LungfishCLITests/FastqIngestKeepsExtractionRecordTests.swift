@@ -67,6 +67,10 @@ final class FastqIngestKeepsExtractionRecordTests: XCTestCase {
             sourceFiles.compactMap(\.stringValue).map { URL(fileURLWithPath: $0).lastPathComponent },
             ["SRR12486983.fastq.gz"]
         )
+
+        // A record that was read goes with its original (BIO review of RECORDS, SF1).
+        try ingestRun(input: input).retireSidecars(of: input)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ownRecord.path), "a record that was read goes with its original")
     }
 
     /// Guard. A folder with a root record and no record of the input's own merges as before: the ingest is the one step added.
@@ -81,6 +85,26 @@ final class FastqIngestKeepsExtractionRecordTests: XCTestCase {
         XCTAssertEqual(merged.workflowName, "lungfish extract taxa-collection")
         XCTAssertEqual(merged.steps.count, standing.steps.count + 1)
         XCTAssertEqual(merged.steps.last?.toolName, "FASTQIngestionPipeline")
+    }
+
+    /// An own record that cannot be read is not removed with its original, and the log says so, since the folder's record
+    /// holds no step from it and the file is the only copy (BIO review of RECORDS, SF1).
+    func testAnOwnRecordThatCannotBeReadIsKeptAndSaidSo() throws {
+        let input = root.appendingPathComponent("HSV-1_taxid10298.fastq")
+        try Data(ReadSetFixtures.fastq((1...4).map { "frag\($0)/1" }).utf8).write(to: input)
+        let ownRecord = ProvenanceRecorder.fileSidecarURL(for: input)
+        try Data("{".utf8).write(to: ownRecord)
+        var lines: [String] = []
+        let run = try ingestRun(input: input, events: CLIEventEmitter(enabled: true, emit: { lines.append($0) }))
+
+        run.retireSidecars(of: input)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ownRecord.path), "the record that cannot be read stays")
+        XCTAssertEqual(
+            lines.filter { $0.contains("HSV-1_taxid10298.fastq") }.count,
+            1,
+            "one log line names the file: \(lines)"
+        )
     }
 
     // MARK: - The records the extraction wrote
@@ -130,21 +154,31 @@ final class FastqIngestKeepsExtractionRecordTests: XCTestCase {
 
     // MARK: - The record the ingest writes
 
+    /// The run `fastq ingest` makes for `input`, with its events going to `events`.
+    func ingestRun(
+        input: URL,
+        events: CLIEventEmitter = CLIEventEmitter(enabled: false, emit: { _ in })
+    ) throws -> FastqIngestRun {
+        let command = try FastqIngestSubcommand.parse([input.path, "--binning", "none", "--skip-clumpify"])
+        let urls = command.inputURLs()
+        return FastqIngestRun(
+            inputs: urls,
+            options: command.runOptions(),
+            command: command.replayArgv(),
+            parameters: command.provenanceParameters(inputs: urls),
+            defaults: FastqIngestSubcommand.provenanceDefaults,
+            events: events,
+            clock: ProvenanceRunClock()
+        )
+    }
+
     /// The record `FastqIngestRun.writeRecord` writes into the folder of `input`, with no tool run (the pipeline's result,
     /// the output and its digests are made by hand), merged over the record that stands there.
     func ingestRecord(input: URL) async throws -> ProvenanceEnvelope {
         let command = try FastqIngestSubcommand.parse([input.path, "--binning", "none", "--skip-clumpify"])
         let urls = command.inputURLs()
         let options = command.runOptions()
-        let run = FastqIngestRun(
-            inputs: urls,
-            options: options,
-            command: command.replayArgv(),
-            parameters: command.provenanceParameters(inputs: urls),
-            defaults: FastqIngestSubcommand.provenanceDefaults,
-            events: CLIEventEmitter(enabled: false, emit: { _ in }),
-            clock: ProvenanceRunClock()
-        )
+        let run = try ingestRun(input: input)
         let folder = urls[0].deletingLastPathComponent()
         let output = FastqIngestRun.finalOutputURL(folder: folder, inputs: urls)
         try Data("x".utf8).write(to: output)
