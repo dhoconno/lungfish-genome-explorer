@@ -107,6 +107,8 @@ extension InspectorViewModel {
             applyingViewMemory = false
             return
         }
+        // The window's tab stands for the item until its entry is read, so the content's own tab does not replace it.
+        personTab = windowStateTab
         setAppTab(windowStateTab ?? .bundle)
         windowStateTab = nil
         reconcileSelectedTab()
