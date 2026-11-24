@@ -157,7 +157,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
     static var presentUnkeptFASTQDrawerEditBeforeClose: @MainActor (NSAlert, NSWindow, @escaping @MainActor () -> Void) -> Void = {
         alert, window, close in
         alert.beginSheetModal(for: window) { _ in
-            close()
+            Task { @MainActor in close() }
         }
     }
 
