@@ -152,6 +152,33 @@ extension ViewSwitchViewStateTests {
         await assertShownTab(.analysis, in: harness, "an item with no entry opens on the window's tab")
     }
 
+    /// The window's tab belongs to the content its snapshot restores. A snapshot with no active content leaves none for
+    /// the next item shown, so that item opens on its own tab and keeps it (VS-INSP fix, SWIFT SF-1).
+    func testInspectorWindowTabOfASnapshotWithNoActiveContentIsNotTheNextItemsTab() async throws {
+        // Applying a snapshot can save the panels' state to the runner's defaults, so those keys go back as they were.
+        let panelDefaults = HostDefaultsRestorer(keys: [
+            MainSplitViewController.sidebarCollapsedDefaultsKey, MainSplitViewController.inspectorCollapsedDefaultsKey,
+            MainSplitViewController.sidebarWidthDefaultsKey, MainSplitViewController.inspectorWidthDefaultsKey,
+        ])
+        defer { panelDefaults.restore() }
+        let mapping = ReferenceViewStateDriver(route: .mapping)
+        let second = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: mapping.kind), in: project)
+        try mapping.prepare(second)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        harness.split.applyProjectWindowSnapshot(
+            ProjectWindowSnapshot(
+                id: UUID(), projectURL: project, windowOrdinal: 1, windowOrder: 0, windowTitleSuffix: nil, frame: nil,
+                isFullScreen: false, selectedSidebarURL: nil, expandedSidebarURLs: [], sidebarSearchText: nil,
+                activeContent: nil, inspectorTab: InspectorTab.analysis.rawValue, sidebarCollapsed: false,
+                inspectorCollapsed: false, sidebarWidth: nil, inspectorWidth: nil, operationsPanelFilter: nil,
+                operationsPanelVisible: false))
+        try await settledShow(second, in: harness, driver: mapping)
+        await assertShownTab(
+            .bundle, in: harness, "an item opened after a snapshot with no active content opens on its own tab")
+    }
+
     /// A tab pick, a person's change, Reset View, a switch away and back write nothing into the project (UX 6,
     /// SWIFT SF-3).
     func testATabChangeAndResetViewWriteNothingIntoTheProject() async throws {
