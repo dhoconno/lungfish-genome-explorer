@@ -3934,7 +3934,7 @@ features:
       - "View > Expand All"
       - "View > Show as RNA (U instead of T)"
       - "View > Show Annotations for Selected Track"
-      - "View > Reset View Settings to Defaults"
+      - "View > Reset View"
     inputs: []
     outputs: []
     viewport_class: none
