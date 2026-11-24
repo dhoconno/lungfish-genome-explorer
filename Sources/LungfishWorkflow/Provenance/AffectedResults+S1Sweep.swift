@@ -134,7 +134,8 @@ extension AffectedResults {
             backlogID: "RECORDS-AFFECTED-OTHER-RESULT-TYPES", kinds: [.resultRunRecordReplaced], firstBuild: nil,
             lastBuild: 14223,
             sentence: "A sample metadata import replaced the run's record of this result.",
-            whatToDo: "Run the analysis again for a full record.",
+            whatToDo: "To get a full record, run the analysis again, or import the original results file again for a "
+                + "NAO-MGS result.",
             fixCommit: "cc18a4e12"
         ),
         // RECORDS (2e44adecd) adds the steps of an input's own record to an in-place ingest. Before it, an ingest that

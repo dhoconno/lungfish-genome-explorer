@@ -342,7 +342,8 @@ final class AffectedResultsS1SweepTests: XCTestCase {
                 "Run the 12S matching again for a full record."),
             "RECORDS-AFFECTED-OTHER-RESULT-TYPES": (
                 "A sample metadata import replaced the run's record of this result.",
-                "Run the analysis again for a full record."),
+                "To get a full record, run the analysis again, or import the original results file again for a "
+                    + "NAO-MGS result."),
             "PAIRING-RECORD-LOST": (
                 "Ingesting this file in place may have dropped the record of the extraction it came from, which held the source "
                     + "file, its digest and the per-taxon counts.",
