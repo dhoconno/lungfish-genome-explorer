@@ -517,5 +517,6 @@ extension ViewerViewController {
         fastaCollectionSourceURLs = normalizedExistingURLs(fastaCollectionSourceURLs)
         // No contents, so nothing configures the list again, and it reads no file.
         _ = showFASTACollection(FASTACollectionSurface.Input(controller: controller, contents: nil))
+        (surfaceHost.activeViewport as? FASTACollectionSurface)?.startTheWayBack()
     }
 }

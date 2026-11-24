@@ -162,7 +162,7 @@ extension FASTACollectionSurface: ViewMemoryAdopting {
     /// the show and this load cannot suspend, so the file's few attributes are read on the main actor, once a show, as
     /// SWIFT ruling R2 allows. A list of several files or of a project's sequences has no one file and keeps no view.
     /// The way back from one record shows the same list, which already holds its view, so it reads the identity its
-    /// first show kept and starts from the list's starting view, through a handle applied on the next turn (VS S3).
+    /// first show kept and starts from the list's starting view, through the handle `startTheWayBack()` applies (VS S3).
     func readViewMemoryIdentity(of request: Input) {
         let identity: FASTACollectionViewMemoryIdentity?
         if let contents = request.contents {
@@ -176,12 +176,16 @@ extension FASTACollectionSurface: ViewMemoryAdopting {
         }
         viewMemoryItem = identity?.item
         viewMemoryDataKey = identity?.dataKey
+    }
+
+    /// Starts the way back's visit from the list's starting view. The host sets the handle after `load` returns and
+    /// applies it only to the installed list, so the route calls this once the show has installed the list, in the
+    /// same turn: a change made after the way back is then kept even when the leave comes before the next turn, which
+    /// a handle applied on the next turn missed. The list as left differs from the starting view, so the kept view
+    /// does not apply over it (VS A2), and Reset View shows the starting view. A second call does nothing.
+    func startTheWayBack() {
         guard isWayBack else { return }
-        // The host sets the handle after this load returns, and the list as left differs from the starting view, so
-        // the kept view does not apply over it and a later change is kept from the starting view.
-        Task { @MainActor [weak self] in
-            self?.viewMemoryHandle?.applyPending(startingView: FASTACollectionViewState())
-        }
+        viewMemoryHandle?.applyPending(startingView: FASTACollectionViewState())
     }
 
     var viewMemoryLoadIsPending: Bool { isWayBack }
