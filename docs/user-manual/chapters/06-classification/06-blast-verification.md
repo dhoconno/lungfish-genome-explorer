@@ -23,7 +23,7 @@ glossary_refs: [accession, bit-score, blast, bundle, clade, contig, e-value, esv
 features_refs: [classify.blast-verify, results.table-row-commands]
 fixtures_refs: [kraken-protocol-cornea]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
