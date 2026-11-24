@@ -19,6 +19,8 @@ extension PhylogeneticTreeSurface {
     /// - `cladogram`, `colorMode`, `zoomScale`, `tipLabelColumn`, `findText` and `columnWidths` are presentation and
     ///   come back on any key. A tip label column the bundle no longer has falls back to the original labels. The find
     ///   field moves the selection and hides no node, so it is no count filter of VS B6, and the restore runs no find.
+    ///   `columnWidths` holds every node table column but the one the table fits to the drawer (see
+    ///   `viewMemoryColumns`), so the window's layout alone changes no kept field (SWIFT SF-2).
     /// - `collapsedNodeIDs` are clades by node id, a stable identity made from the node's place and labels. Each one
     ///   the tree still has comes back on any key, before the selection, so a kept node under a collapsed clade is
     ///   found (lesson 11).
@@ -116,10 +118,20 @@ extension PhylogeneticTreeViewController {
         (nodes.first(where: \.isTip) ?? nodes.first)?.id
     }
 
+    /// The node table's columns whose width only a person sets. The table keeps AppKit's default
+    /// `lastColumnOnlyAutoresizingStyle`, so each change of the drawer's width, the install's first layout included,
+    /// sizes its last column to fit (`superviewFrameChanged:` then `sizeLastColumnToFit`). That width is the layout's,
+    /// so it is neither kept nor restored: the start taken before the install would otherwise differ from every later
+    /// capture, and a visit with no change would keep an entry (SWIFT SF-2).
+    var viewMemoryColumns: ArraySlice<NSTableColumn> {
+        let columns = nodeTableView.tableColumns[...]
+        return nodeTableView.columnAutoresizingStyle == .lastColumnOnlyAutoresizingStyle ? columns.dropLast() : columns
+    }
+
     func capturedViewMemory() -> PhylogeneticTreeSurface.TreeViewState {
         let origin = treeScrollView.contentView.bounds.origin
         let opening = openingNodeID.map { selectedNodeID == $0 && selectedNodeIDs == [$0] } ?? (selectedNodeID == nil)
-        let widths = nodeTableView.tableColumns.map { ($0.identifier.rawValue, Double($0.width)) }
+        let widths = viewMemoryColumns.map { ($0.identifier.rawValue, Double($0.width)) }
         return PhylogeneticTreeSurface.TreeViewState(
             cladogram: treeCanvasView.layoutMode == .cladogram,
             zoomScale: Double(treeCanvasView.zoomScale),
@@ -186,7 +198,7 @@ extension PhylogeneticTreeViewController {
             treeCanvasView.resetView()
             if abs(zoom - 1) > 0.0001 { treeCanvasView.zoom(by: zoom) }
         }
-        for column in nodeTableView.tableColumns {
+        for column in viewMemoryColumns {
             if let width = state.columnWidths[column.identifier.rawValue], abs(CGFloat(width) - column.width) > 0.5 {
                 column.width = CGFloat(width)
             }
