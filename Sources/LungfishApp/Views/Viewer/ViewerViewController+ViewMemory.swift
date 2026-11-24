@@ -112,11 +112,12 @@ protocol ReferenceViewportMemoryOwner: AnyObject {
 
 extension ViewerViewController {
     /// Whether the view differs from the view the visit started from, which enables View > Reset View (VS U3). One
-    /// capture and one compare on the main actor, with no store read.
+    /// capture and one compare on the main actor, with no store read. The read filters compare with the defaults Reset
+    /// View returns, not with the start, which can hold the block's carry.
     var viewMemoryDiffersFromStart: Bool {
         guard let session = viewMemory else { return false }
         let now = captureViewerMemory()
-        return !now.sameChoices(as: session.start) || now.viewport?.reads != session.start.viewport?.reads
+        return !now.sameChoices(as: session.start) || (now.viewport?.reads ?? .defaults) != .defaults
     }
 }
 
