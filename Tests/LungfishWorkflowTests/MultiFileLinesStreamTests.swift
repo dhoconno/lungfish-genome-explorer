@@ -6,7 +6,7 @@
 // (the exact-bare pass, the exact barcode demux, the ONT and PacBio materializer and the FASTQ reads export). These pins
 // hold what each of them relies on: the lines of every file in list order, plain or gzip; the earlier lines and then the
 // error of a file that cannot be read; the end of the stream at its first error; the end at the next pull of a cancelled
-// task; and no line for no files. Each pin gives the same answer on the stream that read ahead in a producer task.
+// task; and no line for no files. Pins 1, 2 and 5 give the same answer on the base stream, which read ahead in a producer task. At the base pin 3 threw on its second pull and pin 4 counted 22 lines where the head stops at 10.
 
 import XCTest
 import LungfishIO
