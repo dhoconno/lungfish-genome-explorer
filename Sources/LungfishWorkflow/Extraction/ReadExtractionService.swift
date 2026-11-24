@@ -45,8 +45,26 @@ public actor ReadExtractionService {
 
     /// The file name of the bundle whose reads, written scores and all, the alignment `bamURL` was mapped from, or nil
     /// (FLUIDIGM-CHILDREN review B1).
+    ///
+    /// Mapping keeps the FASTQ quality string, so the BAM of mapped placeholder reads holds the written `I` on every
+    /// base and any bundle extracted from it would show Mean Q 40.0 with no mark. The run records its inputs beside the
+    /// alignment, in `mapping-provenance.json`, twice: `inputFASTQPaths` are the files the mapper ran on (the payload file
+    /// inside a bundle with one, a file written for the run, outside every bundle, for a derived, chunked or concatenated
+    /// bundle) and `inputFiles` are the inputs as the run found them (the bundle, its manifest, its payload). Both are
+    /// asked, so the bundle is found whichever way its reads reached the mapper, and the first whose reads carry
+    /// placeholder scores gives its bundle's file name. A folder with no record, or an input no such bundle stands behind,
+    /// gives nil.
     package static func placeholderScoreSourceName(ofAlignment bamURL: URL) -> String? {
-        nil
+        let folder = bamURL.deletingLastPathComponent()
+        guard let provenance = MappingProvenance.load(from: folder) else { return nil }
+        let recordedInputs = provenance.inputFiles.map { record in
+            record.path.hasPrefix("/") ? URL(fileURLWithPath: record.path) : folder.appendingPathComponent(record.path)
+        }
+        let inputs = provenance.inputFASTQPaths.map { URL(fileURLWithPath: $0) } + recordedInputs
+        guard let source = inputs.first(where: { FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: $0) }) else {
+            return nil
+        }
+        return SequenceInputResolver.enclosingFASTQBundleURL(for: source)?.lastPathComponent ?? source.lastPathComponent
     }
 
     // MARK: - Extract by Read IDs

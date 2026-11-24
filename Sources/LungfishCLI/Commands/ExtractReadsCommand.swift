@@ -633,6 +633,12 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         guard fm.fileExists(atPath: bamURL.path) else {
             throw ExtractReadsRefusal("BAM file not found: \(bamFile!)")
         }
+        // The reads are wrapped in a plain bundle that no mark can sit on, and the BAM of an alignment mapped from placeholder
+        // reads holds the written `I`, so the extraction is refused in the words of the read-ID extraction before any tool
+        // runs (FLUIDIGM-CHILDREN review B1). The app's "Extract Reads... (original reads)" runs this command.
+        if let bundleName = ReadExtractionService.placeholderScoreSourceName(ofAlignment: bamURL) {
+            throw LungfishWorkflow.ExtractionError.placeholderScores(bundleName: bundleName)
+        }
 
         let format: ReadIDBAMExtractionFormat = (classifierFormat == "fasta") ? .fasta : .fastq
         let config = ReadIDBAMExtractionConfig(
@@ -692,6 +698,12 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let bamURL = URL(fileURLWithPath: bamFile!)
         guard fm.fileExists(atPath: bamURL.path) else {
             throw ExtractReadsRefusal("BAM file not found: \(bamFile!)")
+        }
+        // The reads are wrapped in a plain bundle that no mark can sit on, and the BAM of an alignment mapped from placeholder
+        // reads holds the written `I`, so the extraction is refused in the words of the read-ID extraction before any tool
+        // runs (FLUIDIGM-CHILDREN review B1). The app's "Extract Reads... (original reads)" runs this command.
+        if let bundleName = ReadExtractionService.placeholderScoreSourceName(ofAlignment: bamURL) {
+            throw LungfishWorkflow.ExtractionError.placeholderScores(bundleName: bundleName)
         }
         let config = BAMRegionExtractionConfig(
             bamURL: bamURL,
