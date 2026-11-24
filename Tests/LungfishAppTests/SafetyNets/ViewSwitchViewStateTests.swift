@@ -524,6 +524,98 @@ final class ViewSwitchViewStateTests: XCTestCase {
         // BLAST act on, are the outline's, which the drivers' `selected` reading pins.
     }
 
+    /// VS-TAX review BIO SF-2: two samples show the same taxon, the person selects the second sample's row, and after a
+    /// switch the row that comes back is that sample's, so Extract Reads and BLAST act on it and on no other sample's.
+    func testKraken2RestoresTheSelectedRowOfItsOwnSampleWhenTwoSamplesShowTheSameTaxon() async throws {
+        let analyses = try SafetyNetFiles.makeDirectory(project.appendingPathComponent("Analyses", isDirectory: true))
+        let batch = try RoutingSafetyNetFixtures.kraken2Result(
+            named: "kraken2-batch-2026-01-15T12-00-00", in: analyses, samples: ["HG002", "MMU-17"],
+            sampleSubdirectories: true
+        )
+        try Kraken2ViewStateDriver.buildBatch(in: batch, samples: ["HG002", "MMU-17"])
+        try RoutingSafetyNetTable.metadata("kraken2", isBatch: true, in: batch)
+        let batchRow = SidebarItem(title: batch.lastPathComponent, type: .classificationResult, url: batch)
+        let other = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Status only"), in: project)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        func table() -> TaxonomyTableView? {
+            (harness.split.viewerController.surfaceHost.activeViewport as? Kraken2Surface)?.controller?.taxonomyTableView
+        }
+        /// The row of Homo sapiens under `sample`, once every sample's node is open.
+        func homoSapiensRow(of sample: String) -> Int? {
+            guard let outline = table()?.outlineView else { return nil }
+            outline.expandItem(nil, expandChildren: true)
+            return (0..<outline.numberOfRows).first { row in
+                let taxon = TaxonomyViewStateControls.taxon(atRow: row, in: outline)
+                return taxon?.taxId == 9606 && taxon?.sample == sample
+            }
+        }
+
+        harness.select(batchRow)
+        let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { homoSapiensRow(of: "MMU-17") != nil }
+        XCTAssertTrue(shown, "the Homo sapiens row under MMU-17 shows")
+        let chosen = try XCTUnwrap(homoSapiensRow(of: "MMU-17"))
+        try XCTUnwrap(table()).outlineView.selectRowIndexes(IndexSet(integer: chosen), byExtendingSelection: false)
+        try await leave(for: other, in: harness, driver: Kraken2ViewStateDriver())
+
+        harness.select(batchRow)
+        let restored = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+            table()?.outlineView.selectedRowIndexes.count == 1
+        }
+        XCTAssertTrue(restored, "the selected row came back")
+        let back = try XCTUnwrap(table())
+        let selected = back.outlineView.selectedRowIndexes.compactMap { TaxonomyViewStateControls.taxon(atRow: $0, in: back.outlineView) }
+        XCTAssertEqual(selected.map(\.taxId), [9606], "one Homo sapiens row")
+        XCTAssertEqual(selected.map(\.sample), ["MMU-17"], "the row of the sample the person chose")
+        let actionable = TaxonomyViewStateControls.actionableSelection(of: back)
+        XCTAssertEqual(actionable.map(\.taxId), [9606], "Extract Reads and BLAST act on one taxon")
+        XCTAssertEqual(actionable.map(\.sample), ["MMU-17"], "and on the sample the person chose")
+    }
+
+    /// VS-TAX review BIO SF-2: two samples hold the same assembly, the person selects the second sample's row, and after
+    /// a switch the row that comes back is that sample's, so Extract Reads and BLAST act on it and on no other sample's.
+    func testEsVirituRestoresTheSelectedRowOfItsOwnSampleWhenTwoSamplesShowTheSameAssembly() async throws {
+        let analyses = try SafetyNetFiles.makeDirectory(project.appendingPathComponent("Analyses", isDirectory: true))
+        let batch = try RoutingSafetyNetFixtures.esVirituResult(
+            named: "esviritu-batch-2026-01-15T12-00-00", in: analyses, samples: ["HG002", "MMU-17"]
+        )
+        try RoutingSafetyNetTable.metadata("esviritu", isBatch: true, in: batch)
+        let batchRow = SidebarItem(title: batch.lastPathComponent, type: .batchGroup, url: batch)
+        let other = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Status only"), in: project)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        func table() -> ViralDetectionTableView? {
+            (harness.split.viewerController.surfaceHost.activeViewport as? EsVirituSurface)?.controller?.detectionTableView
+        }
+        /// Selects each row in turn and gives the one whose selection reads as `sample`'s.
+        func row(of sample: String) -> Int? {
+            guard let table = table() else { return nil }
+            for row in 0..<table.outlineView.numberOfRows {
+                table.outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                if table.selectedSampleAccessions().first?.sampleId == sample { return row }
+            }
+            return nil
+        }
+
+        harness.select(batchRow)
+        let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { table()?.outlineView.numberOfRows == 2 }
+        XCTAssertTrue(shown, "each sample shows its own row of the assembly")
+        let chosen = try XCTUnwrap(row(of: "MMU-17"), "a row of MMU-17")
+        try XCTUnwrap(table()).outlineView.selectRowIndexes(IndexSet(integer: chosen), byExtendingSelection: false)
+        try await leave(for: other, in: harness, driver: EsVirituViewStateDriver())
+
+        harness.select(batchRow)
+        let restored = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+            table()?.selectedSampleAccessions().count == 1
+        }
+        XCTAssertTrue(restored, "the selected row came back")
+        let pairs = try XCTUnwrap(table()).selectedSampleAccessions()
+        XCTAssertEqual(pairs.map(\.sampleId), ["MMU-17"], "the row of the sample the person chose")
+        XCTAssertEqual(pairs.map(\.accession), ["NC_001405.1"], "the assembly both samples hold")
+    }
+
     /// VS A10 and QA 6: the Kraken2 and EsViritu tables write no column layout to the account's defaults when the route
     /// sets their result, and a moved column comes back after a switch, from view memory.
     func testKraken2AndEsVirituKeepAMovedColumnInViewMemoryAndWriteNoLayoutToTheAccountDefaults() async throws {

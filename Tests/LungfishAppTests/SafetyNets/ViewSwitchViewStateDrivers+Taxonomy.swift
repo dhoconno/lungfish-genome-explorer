@@ -102,6 +102,28 @@ enum TaxonomyViewStateControls {
         return root.children.first
     }
 
+    /// The sample a node of a merged tree belongs to: the synthetic node below the root that holds it, as the table reads
+    /// it for a row's identity. Nil in a one-sample tree (VS-TAX review BIO SF-2).
+    static func sampleName(of node: TaxonNode) -> String? {
+        var current: TaxonNode? = node
+        while let held = current {
+            if held.parent?.taxId == 1, held.taxId < 0 { return held.name }
+            current = held.parent
+        }
+        return nil
+    }
+
+    /// The taxon id and the sample of the node at `row`, nil for a row that holds no taxon.
+    static func taxon(atRow row: Int, in outline: NSOutlineView) -> (taxId: Int, sample: String?)? {
+        guard let node = outline.item(atRow: row) as? TaxonNode else { return nil }
+        return (node.taxId, sampleName(of: node))
+    }
+
+    /// The taxon id and the sample of each node Extract Reads and BLAST would act on for the selection.
+    static func actionableSelection(of table: TaxonomyTableView) -> [(taxId: Int, sample: String?)] {
+        table.selectedActionableNodesByIdentity().map { ($0.taxId, sampleName(of: $0)) }
+    }
+
     /// A changed bundle drops the filter text and keeps the rest, so only the first line differs.
     static func readingAfterChangedBundle(changed: [String]) -> [String] {
         var reading = changed
@@ -151,24 +173,39 @@ struct Kraken2ViewStateDriver: ViewStateDriver {
         return reading
     }
 
-    private static func build(in folder: URL, stamp: String) throws {
+    /// A batch result's database with the same taxa under each of `samples`, as a run with several samples builds it
+    /// (VS-TAX review BIO SF-2).
+    static func buildBatch(in folder: URL, samples: [String]) throws {
+        try build(in: folder, stamp: firstRunStamp, samples: samples)
+    }
+
+    private static func build(in folder: URL, stamp: String, samples: [String] = ["HG002"]) throws {
         let database = folder.appendingPathComponent("kraken2.sqlite")
         try? FileManager.default.removeItem(at: database)
-        func row(_ name: String, _ taxId: Int, _ rank: String, _ reads: Int, _ parent: Int?, _ depth: Int) -> Kraken2ClassificationRow {
+        func row(
+            _ sample: String, _ name: String, _ taxId: Int, _ rank: String, _ reads: Int, _ parent: Int?, _ depth: Int
+        ) -> Kraken2ClassificationRow {
             Kraken2ClassificationRow(
-                sample: "HG002", taxonName: name, taxId: taxId, rank: rank, rankDisplayName: rank,
+                sample: sample, taxonName: name, taxId: taxId, rank: rank, rankDisplayName: rank,
                 readsDirect: rank == "S" ? reads : 0, readsClade: reads, percentage: Double(reads) / 2,
                 parentTaxId: parent, depth: depth, fractionDirect: 0.0
             )
         }
+        var metadata = ["tool": "kraken2", "created_at": stamp]
+        for sample in samples {
+            metadata["total_reads_\(sample)"] = "200"
+            metadata["classified_reads_\(sample)"] = "200"
+        }
         _ = try Kraken2Database.create(
             at: database,
-            rows: [
-                row("root", 1, "R", 200, nil, 0),
-                row("Homo", 9605, "G", 120, 1, 1), row("Homo sapiens", 9606, "S", 120, 9605, 2),
-                row("Mus", 10088, "G", 80, 1, 1), row("Mus musculus", 10090, "S", 80, 10088, 2),
-            ],
-            metadata: ["tool": "kraken2", "created_at": stamp, "total_reads_HG002": "200", "classified_reads_HG002": "200"]
+            rows: samples.flatMap { sample in
+                [
+                    row(sample, "root", 1, "R", 200, nil, 0),
+                    row(sample, "Homo", 9605, "G", 120, 1, 1), row(sample, "Homo sapiens", 9606, "S", 120, 9605, 2),
+                    row(sample, "Mus", 10088, "G", 80, 1, 1), row(sample, "Mus musculus", 10090, "S", 80, 10088, 2),
+                ]
+            },
+            metadata: metadata
         )
     }
 
