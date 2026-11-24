@@ -99,10 +99,12 @@ extension ReferenceBundleViewportController: ReferenceViewportMemoryOwner {
     /// Runs the list's own selection or row fill, so a selection change it sends notes no person's pick (VS-MAP-RACE).
     /// A row fill is one: `BatchTableView.configure(rows:)` sends the kept selection again when the rows of a list
     /// that still holds it are configured again, on a return in the same viewport or the Inspector's reload (SWIFT B1).
+    /// A nested own call leaves the flag as it found it, so the outer call stays own to its end (SWIFT SF-1).
     func asOwnSelection(_ work: () -> Void) {
+        let was = selectsOwnRow
         selectsOwnRow = true
+        defer { selectsOwnRow = was }
         work()
-        selectsOwnRow = false
     }
 
     /// Selects a row as the list's own open, refresh or reselect does (`refreshSelection`, `refreshSequenceSelection`,
