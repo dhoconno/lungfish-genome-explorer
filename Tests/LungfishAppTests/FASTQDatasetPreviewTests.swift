@@ -396,6 +396,23 @@ final class FASTQDatasetPreviewTests: XCTestCase {
         XCTAssertEqual(controller.readPreviewRecords.first?.meanQuality ?? 0, 71.0, accuracy: 1e-9)
     }
 
+    /// The Fluidigm materializers build their reads from sequence counts and write Q40 on every base. No instrument
+    /// scored them, so the Mean Q cell shows no number, as it does for FASTA (QUALITY-BIO ruling F3).
+    func testPlaceholderReadsShowNoMeanQ() async throws {
+        let bundle = try await FluidigmSampleBundleFixture.materialize(
+            outputDirectory: root.appendingPathComponent("fluidigm", isDirectory: true),
+            workDirectory: root.appendingPathComponent("work-fluidigm", isDirectory: true)
+        )
+        let reads = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
+        let controller = try await Fixture.readPreview(of: reads)
+
+        XCTAssertTrue(controller.readPreviewLoaded, "the bundle's reads are previewed")
+        XCTAssertFalse(controller.readPreviewRecords.isEmpty)
+        for record in controller.readPreviewRecords {
+            XCTAssertNil(record.meanQuality, "Mean Q of \(record.readID) reads \(String(describing: record.meanQuality))")
+        }
+    }
+
     func testReadPreviewLoadsOffTheCallersThread() async throws {
         let dataset = try Fixture.makeDataset(in: root)
         let controller = FASTQDatasetViewController()

@@ -124,6 +124,38 @@ final class FlyeProfileSelectorTests: XCTestCase {
         XCTAssertEqual(selection.basis, .unavailable)
     }
 
+    // MARK: - Reads that carry placeholder scores (QUALITY-BIO ruling F4)
+
+    /// The Fluidigm materializers build their reads from sequence counts and write Q40 on every base. No instrument
+    /// measured them, so the selector reads no quality from the reads and the dialog says it could not measure one.
+    func testPlaceholderScoresAreNotMeasured() async throws {
+        let bundle = try await FluidigmSampleBundleFixture.materialize(
+            outputDirectory: tempDir.appendingPathComponent("fluidigm", isDirectory: true),
+            workDirectory: tempDir.appendingPathComponent("work-fluidigm", isDirectory: true)
+        )
+        let reads = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundle))
+        for input in [bundle, reads] {
+            let selection = await FlyeProfileSelector.select(forInputURL: input)
+            XCTAssertEqual(selection.basis, .unavailable, "basis for \(input.lastPathComponent)")
+            XCTAssertNil(selection.readQuality, "quality for \(input.lastPathComponent)")
+            XCTAssertEqual(selection.profileID, "nano-hq", "the catalog default")
+        }
+    }
+
+    /// A bundle made before the mark existed holds no field. Its operation (a demultiplex) and its library prep
+    /// (Fluidigm Access Array) say its reads were built from counts, so it reads as placeholder all the same.
+    func testABundleMadeBeforeTheMarkIsNotMeasured() async throws {
+        let bundle = try await FluidigmSampleBundleFixture.materialize(
+            outputDirectory: tempDir.appendingPathComponent("fluidigm", isDirectory: true),
+            workDirectory: tempDir.appendingPathComponent("work-fluidigm", isDirectory: true)
+        )
+        try FluidigmSampleBundleFixture.removeMark(from: bundle)
+
+        let selection = await FlyeProfileSelector.select(forInputURL: bundle)
+        XCTAssertEqual(selection.basis, .unavailable)
+        XCTAssertNil(selection.readQuality)
+    }
+
     // MARK: - Helpers
 
     private func writeFASTQ(named name: String, qualityCharacter: Character, readCount: Int) throws -> URL {

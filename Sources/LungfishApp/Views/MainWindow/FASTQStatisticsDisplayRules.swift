@@ -47,6 +47,13 @@ enum FASTQStatisticsDisplayRules {
             && statistics.q30Percentage == 0
     }
 
+    /// Whether the cached score histogram and per-position summaries describe scores the reads carry.
+    /// Red stub (QUALITY-2, QUALITY-BIO SF1): it holds the condition both chart guards test today, so the tests that
+    /// need the name compile and fail on what they assert. The next commit makes it read `hasNoQualityScores`.
+    static func hasQualityReport(_ statistics: FASTQDatasetStatistics) -> Bool {
+        !statistics.perPositionQuality.isEmpty && !statistics.qualityScoreHistogram.isEmpty
+    }
+
     static func meanQualityText(_ statistics: FASTQDatasetStatistics) -> String {
         hasNoQualityScores(statistics) ? noQualityScores : String(format: "%.1f", statistics.meanQuality)
     }

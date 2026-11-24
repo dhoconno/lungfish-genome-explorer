@@ -49,6 +49,17 @@ final class ONTFluidigmNoInventedQualityTests: XCTestCase {
         )
     }
 
+    /// The manifest marks the reads' scores as placeholders, the key the importer, the read table and the Assembly
+    /// selector read (QUALITY-BIO ruling F1).
+    private func assertMarkedAsPlaceholderScores(_ bundle: URL, file: StaticString = #filePath, line: UInt = #line) throws {
+        let data = try Data(contentsOf: FASTQBundle.derivedManifestURL(in: bundle))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any], file: file, line: line)
+        XCTAssertEqual(
+            json["qualityScoresArePlaceholders"] as? Bool, true,
+            "the manifest marks the scores as placeholders", file: file, line: line
+        )
+    }
+
     private static func reverseComplement(_ sequence: String) -> String {
         let complement: [Character: Character] = [
             "A": "T", "C": "G", "G": "C", "T": "A", "R": "Y", "Y": "R", "S": "S", "W": "W",
@@ -81,6 +92,7 @@ final class ONTFluidigmNoInventedQualityTests: XCTestCase {
         let bundle = output.appendingPathComponent("LF2871.lungfishfastq", isDirectory: true)
         let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
         assertNoQualityFigures(manifest.cachedStatistics, readCount: 2, baseCount: Int64(read.count * 2))
+        try assertMarkedAsPlaceholderScores(bundle)
     }
 
     func testAmpliconMaterializerStoresNoQualityFigures() async throws {
@@ -116,5 +128,6 @@ final class ONTFluidigmNoInventedQualityTests: XCTestCase {
         let bundle = output.appendingPathComponent("LF2871.lungfishfastq", isDirectory: true)
         let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
         assertNoQualityFigures(manifest.cachedStatistics, readCount: 2, baseCount: Int64(insert.count * 2))
+        try assertMarkedAsPlaceholderScores(bundle)
     }
 }

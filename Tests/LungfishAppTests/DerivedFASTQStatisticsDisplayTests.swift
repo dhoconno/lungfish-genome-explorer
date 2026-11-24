@@ -212,6 +212,69 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
         XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(scoresWithoutHistogram), "40.0%")
     }
 
+    /// Reads counted from `histogram`, with every base under Q20 unless `q20` and `q30` say otherwise.
+    private static func counted(
+        _ histogram: [UInt8: Int],
+        mean: Double,
+        q20: Double = 0,
+        q30: Double = 0,
+        perPositionQuality: [PositionQualitySummary] = []
+    ) -> FASTQDatasetStatistics {
+        FASTQDatasetStatistics(
+            readCount: 4, baseCount: 400,
+            meanReadLength: 100, minReadLength: 88, maxReadLength: 118,
+            medianReadLength: 98, n50ReadLength: 108,
+            meanQuality: mean, q20Percentage: q20, q30Percentage: q30, gcContent: 0.51,
+            readLengthHistogram: [88: 1, 98: 1, 108: 1, 118: 1], qualityScoreHistogram: histogram,
+            perPositionQuality: perPositionQuality
+        )
+    }
+
+    private static func flatSummary(_ score: Double) -> PositionQualitySummary {
+        PositionQualitySummary(
+            position: 0, mean: score, median: score, lowerQuartile: score, upperQuartile: score,
+            percentile10: score, percentile90: score
+        )
+    }
+
+    /// One score of Q2 or below on every base is a placeholder. The storage pass writes a called Q0 or Q1 as Q2
+    /// (`BBToolsQualityArguments.keepEveryScore`), so reads with no scores read Q0 on the parent and Q2 on every
+    /// bundle made from them (walk 2026.11.6 rows 7 and 9, WALK-BIO 2.4, QUALITY-BIO B1).
+    func testPlaceholderScoresReadNoQualityScores() {
+        for score: UInt8 in [0, 1, 2] {
+            let statistics = Self.counted([score: 400], mean: Double(score))
+            XCTAssertTrue(FASTQStatisticsDisplayRules.hasNoQualityScores(statistics), "Q\(score) on every base")
+            XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(statistics), "No quality scores", "Q\(score) Mean Q")
+            XCTAssertEqual(FASTQStatisticsDisplayRules.q20Text(statistics), "No quality scores", "Q\(score) Q20")
+            XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(statistics), "No quality scores", "Q\(score) Q30")
+        }
+        let q3 = Self.counted([3: 400], mean: 3)
+        XCTAssertFalse(FASTQStatisticsDisplayRules.hasNoQualityScores(q3), "Q3 is a called score")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(q3), "3.0")
+        let mixed = Self.counted([2: 200, 30: 200], mean: 5)
+        XCTAssertFalse(FASTQStatisticsDisplayRules.hasNoQualityScores(mixed), "real scores beside Q2 keep their numbers")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(mixed), "5.0")
+    }
+
+    /// The score histogram and the per-position boxplot of a flat Q2 describe no scores the reads carry, so the
+    /// charts are not drawn for them (QUALITY-BIO SF1).
+    func testPlaceholderScoresHaveNoQualityReport() {
+        let placeholder = Self.counted([2: 400], mean: 2, perPositionQuality: [Self.flatSummary(2)])
+        XCTAssertFalse(FASTQStatisticsDisplayRules.hasQualityReport(placeholder), "a flat Q2 is no quality report")
+
+        let called = Self.counted([30: 400], mean: 30, q20: 100, q30: 100, perPositionQuality: [Self.flatSummary(30)])
+        XCTAssertTrue(FASTQStatisticsDisplayRules.hasQualityReport(called), "called scores keep their charts")
+
+        XCTAssertFalse(
+            FASTQStatisticsDisplayRules.hasQualityReport(Self.counted([30: 400], mean: 30, q20: 100, q30: 100)),
+            "no per-position summaries, no report"
+        )
+        XCTAssertFalse(
+            FASTQStatisticsDisplayRules.hasQualityReport(Self.counted([:], mean: 0, perPositionQuality: [Self.flatSummary(30)])),
+            "no score histogram, no report"
+        )
+    }
+
     /// The overlay and the failure alert name the object ("the read statistics for NAME"), put the next step before the
     /// reason, and end on the reason, since a raw reason can be long (UX review S1, S2).
     func testTheMeasuringWordsGiveTheNextStepBeforeTheReason() throws {

@@ -211,4 +211,74 @@ final class FASTQOperationOutputStoredStatsTests: XCTestCase {
         XCTAssertEqual(FASTQStatisticsDisplayRules.q20Text(shown), FASTQStatisticsDisplayRules.noQualityScores)
         XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(shown), FASTQStatisticsDisplayRules.noQualityScores)
     }
+
+    // MARK: - Reads that carry placeholder scores (QUALITY-BIO ruling F1, F2)
+
+    /// The value of `key` in the bundle's `derived.manifest.json`, or nil when the key is not written.
+    private static func manifestValue(_ key: String, in bundle: URL) -> Any? {
+        guard let data = try? Data(contentsOf: FASTQBundle.derivedManifestURL(in: bundle)),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        return json[key]
+    }
+
+    /// A length filter on the Fluidigm sample's reads writes their Q40 characters, and the importer measured those as
+    /// Mean Q 40.0, Q20 100% and Q30 100%. The reads were built from sequence counts and no instrument scored them,
+    /// so the child stores no quality figure and carries the mark of its parent.
+    func testAChildOfPlaceholderReadsStoresNoQualityFigures() async throws {
+        let parent = try await FluidigmSampleBundleFixture.materialize(
+            outputDirectory: project.appendingPathComponent("Imports", isDirectory: true),
+            workDirectory: root.appendingPathComponent("work-fluidigm", isDirectory: true)
+        )
+        let parentReads = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: parent))
+
+        let staging = root.appendingPathComponent("work-filter", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let staged = staging.appendingPathComponent("filter.fastq")
+        let filtered = (1...3)
+            .map { "@u00000\($0);size=\($0)\nACGTACGTACGTACGTACGT\n+\n\(String(repeating: "I", count: 20))\n" }
+            .joined()
+        try filtered.write(to: staged, atomically: true, encoding: .utf8)
+        try DialogRowStagedProvenance.write(
+            argv: ["fixture-tool", parentReads.path, "-o", staged.path],
+            inputURL: parentReads,
+            outputURL: staged,
+            in: staging
+        )
+        let writer = AppFASTQOutputBundleWriter(
+            ingestor: QualityFloorIngestor(),
+            statisticsCalculator: AppFASTQOutputBundleWriter.swiftReaderStatisticsCalculator
+        )
+        let child = try await writer.importFASTQOutput(
+            sourceURL: staged,
+            bundleURL: project.appendingPathComponent("Analyses/filtered.\(FASTQBundle.directoryExtension)"),
+            originalRequest: .derivative(request: .subsampleCount(3), inputURLs: [parent], outputMode: .perInput),
+            sourceInputURL: parent
+        )
+
+        let stored = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: child)).cachedStatistics
+        XCTAssertEqual(stored.readCount, 3, "the reads are still counted")
+        XCTAssertEqual(stored.baseCount, 60, "and so are their bases")
+        XCTAssertEqual(stored.meanQuality, 0, "Mean Q of reads no instrument scored")
+        XCTAssertEqual(stored.q20Percentage, 0, "Q20")
+        XCTAssertEqual(stored.q30Percentage, 0, "Q30")
+        XCTAssertTrue(stored.qualityScoreHistogram.isEmpty, "score histogram \(stored.qualityScoreHistogram)")
+        XCTAssertTrue(
+            stored.perPositionQuality.isEmpty,
+            "\(stored.perPositionQuality.count) per-position quality summaries"
+        )
+        XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(stored), FASTQStatisticsDisplayRules.noQualityScores)
+        XCTAssertEqual(
+            Self.manifestValue("qualityScoresArePlaceholders", in: child) as? Bool, true,
+            "a child of placeholder reads carries the mark of its parent"
+        )
+    }
+
+    /// A child of reads that carried scores gets no mark, since a mark would hide the scores it does hold.
+    func testAChildOfMeasuredReadsCarriesNoMark() async throws {
+        let bundle = try await importSubsampleThroughTheStoragePass()
+        XCTAssertNil(
+            Self.manifestValue("qualityScoresArePlaceholders", in: bundle),
+            "the mark is written only for reads that carry placeholder scores"
+        )
+    }
 }
