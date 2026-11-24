@@ -20,7 +20,7 @@ import LungfishKit
 import LungfishWorkflow
 
 /// The one line a changed bundle shows when the filter text drops (word 2, `.filters`).
-private let filtersNotKeptLine = "The data changed since your last visit, so your filters were not kept."
+private let filtersNotKeptLine = "The data changed since your last visit, so your filters were not restored."
 
 /// When the fixture's run was built, and when the rerun of the changed-bundle case was, as `build-db` records them in
 /// the database's `created_at` (`BuildDbCommand+Kraken2Core.swift`, `BuildDbCommand+EsVirituCore.swift`).

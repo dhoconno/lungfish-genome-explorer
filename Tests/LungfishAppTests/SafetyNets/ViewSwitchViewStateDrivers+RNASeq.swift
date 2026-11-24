@@ -143,7 +143,7 @@ struct RNASeqViewStateDriver: ViewStateDriver {
     }
 
     var lineAfterChangedBundle: String? {
-        "The data changed since your last visit, so your filters were not kept."
+        "The data changed since your last visit, so your filters were not restored."
     }
 }
 
@@ -210,6 +210,6 @@ struct CellMapViewStateDriver: ViewStateDriver {
     }
 
     var lineAfterChangedBundle: String? {
-        "The data changed since your last visit, so your place and selection were not kept."
+        "The data changed since your last visit, so your place and selection were not restored."
     }
 }

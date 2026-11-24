@@ -68,6 +68,6 @@ struct TwelveSViewStateDriver: ViewStateDriver {
     }
 
     var lineAfterChangedBundle: String? {
-        "The data changed since your last visit, so your filters were not kept."
+        "The data changed since your last visit, so your filters were not restored."
     }
 }

@@ -90,7 +90,7 @@ public enum ViewMemoryWords {
     public static let viewReset = "The data changed since your last visit, so the view was reset."
 
     /// Word 4, when a selection passed its cap and was dropped whole.
-    public static let selectionTooLarge = "Your selection was too large to keep, so it was cleared."
+    public static let selectionTooLarge = "Your selection was too large to save and was cleared."
 
     /// Word 2 for what `loss` names, in the order place, selection, filters and sample choice, or nil for none.
     public static func dataChanged(_ loss: ViewMemoryLoss) -> String? {
@@ -101,7 +101,7 @@ public enum ViewMemoryWords {
         guard let last = nouns.last else { return nil }
         let list = nouns.count == 1 ? last : nouns.dropLast().joined(separator: ", ") + " and " + last
         let verb = nouns.count > 1 || last == "filters" ? "were" : "was"
-        return "The data changed since your last visit, so your \(list) \(verb) not kept."
+        return "The data changed since your last visit, so your \(list) \(verb) not restored."
     }
 
     /// The one line a restore shows: word 2 when fields were dropped, else word 4 when the selection passed its cap.

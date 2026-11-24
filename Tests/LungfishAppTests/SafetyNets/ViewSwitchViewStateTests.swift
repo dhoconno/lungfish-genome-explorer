@@ -237,7 +237,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         viewer = try XCTUnwrap(harness.split.viewerController.twelveSAmpliconResultViewController)
         XCTAssertEqual(viewer.targetTable.tableView.numberOfRows, 3, "a changed bundle drops the column filter")
         XCTAssertEqual(scientificNameTitle(in: viewer)?.hasSuffix(" ◆"), false)
-        XCTAssertEqual(harness.resetLineWords, "The data changed since your last visit, so your filters were not kept.")
+        XCTAssertEqual(harness.resetLineWords, "The data changed since your last visit, so your filters were not restored.")
     }
 
     /// The surface reads its item and data key once in its load and never in a getter (SWIFT SF-3), so a folder
@@ -377,7 +377,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertEqual(try driver.read(in: harness), [
             "embedding tSNE", "colour UMIs per cell", "point size 6.0", "window all cells", "selection No cells selected",
         ])
-        XCTAssertEqual(harness.resetLineWords, "The data changed since your last visit, so your place was not kept.")
+        XCTAssertEqual(harness.resetLineWords, "The data changed since your last visit, so your place was not restored.")
     }
 
     /// Reset View hands back the starting view: the first colouring, the default size, every cell and no selection.

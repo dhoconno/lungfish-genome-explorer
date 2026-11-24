@@ -25,15 +25,15 @@ final class ViewMemoryPartsTests: XCTestCase {
         ]
         XCTAssertEqual(
             forms[0].text,
-            "Read filters from your last visit are on, so some reads are hidden. Change them in the Inspector."
+            "Read filters from your last visit hide some reads. Change filters in the Inspector."
         )
         XCTAssertEqual(
             forms[1].text,
-            "Filters from your last visit are on, so 3 of 10 rows show. Change them in the Inspector."
+            "With filters from your last visit, you can see 3 of 10 rows. Change filters in the Inspector."
         )
         XCTAssertEqual(
             forms[2].text,
-            "Settings from your last visit change these values. Change them in the Inspector."
+            "Settings from your last visit change these values. Change the settings in the Inspector."
         )
         for form in forms {
             XCTAssertLessThanOrEqual(form.text.split(separator: " ").count, 20, form.text)
@@ -71,7 +71,7 @@ final class ViewMemoryPartsTests: XCTestCase {
         XCTAssertFalse(line.isHidden)
         XCTAssertEqual(
             line.displayedText,
-            "Read filters from your last visit are on, so some reads are hidden. Change them in the Inspector."
+            "Read filters from your last visit hide some reads. Change filters in the Inspector."
         )
         XCTAssertEqual(announcer.messages, [line.displayedText])
 

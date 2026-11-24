@@ -156,7 +156,7 @@ final class ViewportHostViewMemoryTests: XCTestCase {
         XCTAssertEqual(back.filter, "", "a filter restores only on an equal data key (VS B6)")
         XCTAssertEqual(back.selection, [])
         XCTAssertEqual(host.resetLine?.words,
-                       "The data changed since your last visit, so your selection and filters were not kept.")
+                       "The data changed since your last visit, so your selection and filters were not restored.")
 
         try show(host, .init(url: other))
         XCTAssertNil(host.resetLine, "the next show removes the line")
@@ -421,13 +421,13 @@ final class ViewportHostViewMemoryTests: XCTestCase {
     func testTheWordsNameWhatWasNotKeptInOrder() {
         XCTAssertNil(ViewMemoryWords.dataChanged([]))
         XCTAssertEqual(ViewMemoryWords.dataChanged(.place),
-                       "The data changed since your last visit, so your place was not kept.")
+                       "The data changed since your last visit, so your place was not restored.")
         XCTAssertEqual(ViewMemoryWords.dataChanged(.filters),
-                       "The data changed since your last visit, so your filters were not kept.")
+                       "The data changed since your last visit, so your filters were not restored.")
         XCTAssertEqual(ViewMemoryWords.dataChanged([.filters, .place]),
-                       "The data changed since your last visit, so your place and filters were not kept.")
+                       "The data changed since your last visit, so your place and filters were not restored.")
         let all = try? XCTUnwrap(ViewMemoryWords.dataChanged([.place, .selection, .filters, .sampleChoice]))
-        XCTAssertEqual(all, "The data changed since your last visit, so your place, selection, filters and sample choice were not kept.")
+        XCTAssertEqual(all, "The data changed since your last visit, so your place, selection, filters and sample choice were not restored.")
         XCTAssertEqual(all?.split(separator: " ").count, 18)
         for words in [ViewMemoryWords.viewReset, ViewMemoryWords.selectionTooLarge, all ?? ""] {
             XCTAssertLessThanOrEqual(words.split(separator: " ").count, 20)

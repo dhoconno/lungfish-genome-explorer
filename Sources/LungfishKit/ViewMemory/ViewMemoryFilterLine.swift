@@ -7,7 +7,7 @@ import AppKit
 /// The three forms of the line that a viewport shows while a restored filter or sample subset
 /// hides rows or changes values and the viewport itself shows nothing of it (VS B5, B6).
 ///
-/// The words are the plan's draft of word 5. Each line is one line of at most 20 words, and none
+/// The words are word 5 as the copy edit left them. Each line is one line of at most 20 words, and none
 /// runs a count that needs a long load. A table that counts its rows cheaply uses `counted`.
 public enum ViewMemoryFilterLineForm: Sendable, Equatable {
     /// Rows or reads are hidden and no cheap count exists. `kind` starts a sentence ("Read")
@@ -22,11 +22,11 @@ public enum ViewMemoryFilterLineForm: Sendable, Equatable {
     public var text: String {
         switch self {
         case .hiddenWithoutCount(let kind, let noun):
-            return "\(kind) filters from your last visit are on, so some \(noun) are hidden. Change them in the Inspector."
+            return "\(kind) filters from your last visit hide some \(noun). Change filters in the Inspector."
         case .counted(let shown, let total):
-            return "Filters from your last visit are on, so \(shown.formatted()) of \(total.formatted()) rows show. Change them in the Inspector."
+            return "With filters from your last visit, you can see \(shown.formatted()) of \(total.formatted()) rows. Change filters in the Inspector."
         case .changesValues:
-            return "Settings from your last visit change these values. Change them in the Inspector."
+            return "Settings from your last visit change these values. Change the settings in the Inspector."
         }
     }
 

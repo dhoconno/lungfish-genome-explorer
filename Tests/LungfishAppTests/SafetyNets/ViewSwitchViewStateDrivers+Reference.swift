@@ -18,7 +18,7 @@ import XCTest
 import LungfishTestSupport
 
 /// The words of the one line when a changed bundle drops the place (VS U2, word 2).
-private let yourPlaceWasNotKept = "The data changed since your last visit, so your place was not kept."
+private let yourPlaceWasNotKept = "The data changed since your last visit, so your place was not restored."
 
 /// The reference and mapping result kinds, which show one embedded viewer on the fixture's one SARS-CoV-2 sequence.
 @MainActor
