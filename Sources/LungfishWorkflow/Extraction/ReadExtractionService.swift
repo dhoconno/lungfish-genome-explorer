@@ -65,6 +65,14 @@ public actor ReadExtractionService {
         guard !config.readIDs.isEmpty else {
             throw ExtractionError.emptyReadIDSet
         }
+        // The FASTQ child of an extraction is a plain bundle that no mark can sit on, so reads built from sequence counts,
+        // whose written scores a view would measure as Q40, are refused before any folder or tool (FLUIDIGM-CHILDREN F7).
+        for source in config.sourceFASTQs where FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: source) {
+            let folder = source.deletingLastPathComponent()
+            throw ExtractionError.placeholderScores(
+                bundleName: FASTQBundle.isBundleURL(folder) ? folder.lastPathComponent : source.lastPathComponent
+            )
+        }
 
         let fm = FileManager.default
         try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)

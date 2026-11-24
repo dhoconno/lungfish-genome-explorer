@@ -712,10 +712,18 @@ public enum ExtractionError: Error, LocalizedError, Sendable {
     /// The associated value describes the failure reason.
     case bundleCreationFailed(String)
 
+    /// A source FASTQ sits in a bundle whose reads carry placeholder scores. The FASTQ child of an extraction is a plain
+    /// bundle that no mark can sit on, so the extraction is refused (lane FLUIDIGM-CHILDREN F7).
+    ///
+    /// The associated value is the name of the source bundle.
+    case placeholderScores(bundleName: String)
+
     // MARK: - LocalizedError
 
     public var errorDescription: String? {
         switch self {
+        case .placeholderScores(let bundleName):
+            return "\(bundleName) holds reads built from sequence counts. Their quality scores were written, not measured, and extracted reads would show them as measured, so Lungfish does not extract them."
         case .noSourceFASTQ:
             return "No source FASTQ files are available for extraction"
         case .emptyReadIDSet:
