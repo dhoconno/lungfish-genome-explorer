@@ -2037,7 +2037,9 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     @objc private func saveClicked(_ sender: NSButton) {
         endCellEditing()
         delegate?.fastqMetadataDrawerViewDidSave(self, fastqURL: fastqURL, metadata: currentMetadata())
-        statusLabel.stringValue = "Saved with this dataset. Demultiplex\u{2026} runs it."
+        statusLabel.stringValue = hasWaitingEdit
+            ? "Not saved. Check that the dataset is still in the project and its folder can be written."
+            : "Saved with this dataset. Demultiplex\u{2026} runs it."
     }
 
     private func notifyDemuxPlanChanged() {

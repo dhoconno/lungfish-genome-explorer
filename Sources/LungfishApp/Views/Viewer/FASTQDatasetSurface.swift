@@ -161,7 +161,7 @@ final class FASTQDatasetSurface: ResultViewport {
         readViewMemoryIdentity(of: request)
     }
 
-    /// The drawer is a person's open pane over this dashboard, so it goes with it. An edit not saved in it goes too.
+    /// The drawer is a person's open pane over this dashboard, so it goes with it. An edit waiting in it is saved to its own dataset first (releaseFASTQDashboardState, FASTQ-DRAWER-EDIT-LOST-ON-SELECT).
     func willDeactivate(replacedBy next: SurfaceKind?) {
         viewer?.releaseFASTQDashboardState()
     }

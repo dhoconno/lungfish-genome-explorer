@@ -66,8 +66,13 @@ enum AnnotationDrawerIndexHandoff {
             + (count == 1 ? "annotation, so it is not in this table." : "annotations, so they are not in this table.")
     }
 
-    /// The last line under the track lines of a drawer that shows the tracks that did open.
-    static let tracksNotInTableRemedy = "Reopen the bundle, and if this repeats, import those annotations again."
+    /// The last line under the track lines of a drawer that shows the tracks that did open. Reopening the bundle can
+    /// bring back a database that could not be read, but it cannot add one that was never built.
+    static func tracksNotInTableRemedy(for tracks: [AnnotationTrackInfo]) -> String {
+        tracks.contains { $0.databasePath != nil }
+            ? "Reopen the bundle, and if this repeats, import those annotations again."
+            : "Import those annotations again."
+    }
 
     /// Marks the track lines of a drawer whose table shows the tracks that did open, at the foot of the drawer.
     static let missingTracksIdentifier = NSUserInterfaceItemIdentifier("annotationDrawerMissingTracksNotice")
@@ -171,7 +176,7 @@ extension ViewerViewController {
         guard let bundle, AnnotationDrawerIndexHandoff.endedWithNoIndex(index, bundle: bundle) else {
             AnnotationDrawerIndexHandoff.setNotice(nil, in: drawer)
             AnnotationDrawerIndexHandoff.setMissingTracksNotice(
-                lines.isEmpty ? nil : (lines + [AnnotationDrawerIndexHandoff.tracksNotInTableRemedy]).joined(separator: "\n"),
+                lines.isEmpty ? nil : (lines + [AnnotationDrawerIndexHandoff.tracksNotInTableRemedy(for: missing)]).joined(separator: "\n"),
                 in: drawer
             )
             return
