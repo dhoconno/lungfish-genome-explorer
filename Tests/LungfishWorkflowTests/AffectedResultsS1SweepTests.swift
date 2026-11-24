@@ -326,13 +326,13 @@ final class AffectedResultsS1SweepTests: XCTestCase {
                 "If you changed any of them, demultiplex again from the tab."),
             "DERIVED-STATS-PRESTORAGE": (
                 "Mean Q and the quality charts describe the reads before Lungfish stored them, which raised every score of "
-                    + "0 or 1 to 2, so if the reads held scores of 0 or 1, they can read a little lower than the stored "
+                    + "0 or 1 to 2, so if the reads held scores of 0 or 1, those figures can read a little lower than the stored "
                     + "reads, while Q20 and Q30 are not changed.",
                 "Run the operation again to measure the stored reads."),
             "MERGE-COUNTED-INVENTED-Q": (
                 "The version that made these merged reads kept one copy of each read sequence and wrote a quality score of "
                     + "40 on every base in place of the scores bbmerge and the sequencer gave, so the quality shown for them, "
-                    + "and any trimming or filtering by quality, used scores no instrument measured, reads that did not merge "
+                    + "and any trimming or filtering by quality, used scores no instrument measured, and reads that did not merge "
                     + "lost their mate pairing, and each copy stands for several reads that later steps count once.",
                 "Merge the original read pairs again with this version, and redo any trimming, filtering, assembly, mapping "
                     + "or variant calling that used these merged reads."),
@@ -344,7 +344,7 @@ final class AffectedResultsS1SweepTests: XCTestCase {
                 "A sample metadata import replaced the run's record of this result.",
                 "Run the analysis again for a full record."),
             "PAIRING-RECORD-LOST": (
-                "Ingesting this file in place may have dropped the record of the extraction it came from, with the source "
+                "Ingesting this file in place may have dropped the record of the extraction it came from, which held the source "
                     + "file, its digest and the per-taxon counts.",
                 "Extract the reads again if you need that record."),
             "TTL-ONT-CHECKPOINT-REUSE": (
