@@ -26,6 +26,16 @@ final class InspectorFailureReportsTests: XCTestCase {
         XCTAssertEqual(report.details?.contains("Multiple metadata rows"), true)
     }
 
+    func testImportSampleMetadataSaysTheRunRecordCouldNotBeRead() {
+        let path = "/tmp/run.lungfish12s/.lungfish-provenance.json"
+        let report = InspectorFailureReports.importSampleMetadata(SampleMetadataBundleImportError.unreadableRecord(path))
+        XCTAssertEqual(report.title, "Could not import the sample metadata")
+        XCTAssertEqual(report.whatHappened, "The sample metadata was not imported, because the run record in the bundle could not be read. The bundle is unchanged.")
+        XCTAssertEqual(report.nextStep, "Run the analysis or import that made the bundle again, which writes a new run record, then import the sample metadata into the new bundle.")
+        XCTAssertEqual(report.details?.contains(path), true)
+        XCTAssertEqual(report.body.contains(path), false)
+    }
+
     func testSaveSampleMetadataNamesTheSample() {
         assertFailureAlert(
             InspectorFailureReports.saveSampleMetadata(sampleName: "S12", rawFailureError()),

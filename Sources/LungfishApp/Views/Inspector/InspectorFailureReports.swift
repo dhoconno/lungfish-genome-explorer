@@ -35,6 +35,17 @@ enum InspectorFailureReports {
                 underlying: error
             )
         }
+        // A run record in the bundle that cannot be read stops the import and leaves the bundle as it was (RECORDS-BIO
+        // SF2). The table is not at fault, so the body says what is, and the record's path stays in the details.
+        if let importError = error as? SampleMetadataBundleImportError,
+           case .unreadableRecord = importError {
+            return FailureReport(
+                failedStep: "Import the sample metadata",
+                whatHappened: "The sample metadata was not imported, because the run record in the bundle could not be read. The bundle is unchanged.",
+                nextStep: "Run the analysis or import that made the bundle again, which writes a new run record, then import the sample metadata into the new bundle.",
+                underlying: error
+            )
+        }
         return FailureReport(
             failedStep: "Import the sample metadata",
             whatHappened: "The sample metadata was not imported.",
