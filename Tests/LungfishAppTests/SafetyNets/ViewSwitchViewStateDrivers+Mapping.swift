@@ -252,6 +252,28 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
             viewport.alignmentActionContextTask, "a click on the restored row builds its action context as a pick does")
     }
 
+    /// SWIFT-EVIDENCE-HASH item 3. Before the person picks or clicks the restored contig, Extract Reads in Selected
+    /// Region says the evidence is unavailable. It is never a silent no-op.
+    func testExtractReadsBeforeThePickKeepsItsWordsForMissingEvidence() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        pick("chr2", in: viewport)
+        viewport.testEmbeddedViewerController.zoomIn() // a user event handler, which marks the view changed
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(mapping: first, store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertEqual(selectedContig(in: viewport), "chr2", "the contig as left")
+        XCTAssertNil(viewer.alignmentActionContext, "a restored contig has no action context before the pick")
+        let alerts = AlertLog()
+        viewer.extractionFailureAlertPresenter = { title, message in alerts.entries.append((title, message)) }
+        viewer.extractReadsInSelectedAlignmentRegion()
+        XCTAssertEqual(alerts.entries.count, 1, "Extract Reads before the pick says so and is never a silent no-op")
+        XCTAssertEqual(alerts.entries.first?.title, "Extract Selected Region Failed")
+        XCTAssertEqual(alerts.entries.first?.message, AlignmentScientificActionError.contextUnavailable.localizedDescription)
+    }
+
     // MARK: - Support
 
     private func makeStore() -> ViewMemoryStore {
@@ -343,4 +365,10 @@ private final class ClickedRowStandIn: NSTableView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override var clickedRow: Int { row }
+}
+
+/// The failure alerts a viewer presents, collected in place of a live sheet.
+@MainActor
+private final class AlertLog {
+    var entries: [(title: String, message: String)] = []
 }
