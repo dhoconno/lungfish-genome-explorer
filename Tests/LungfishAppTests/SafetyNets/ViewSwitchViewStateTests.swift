@@ -319,7 +319,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         defer { harness.close() }
         harness.keepViews(in: loadedStore())
         try await show(fixture, in: harness, driver: driver)
-        try driver.change(in: harness)
+        try await driver.change(in: harness)
         await driver.settle(in: harness)
         XCTAssertTrue(try driver.read(in: harness).contains("selected G2"), "the gene picked before the switch")
 
@@ -375,7 +375,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         harness.keepViews(in: loadedStore())
         try await show(fixture, in: harness, driver: driver)
         let start = try driver.read(in: harness)
-        try driver.change(in: harness)
+        try await driver.change(in: harness)
         await driver.settle(in: harness)
         XCTAssertNotEqual(try driver.read(in: harness), start)
 
