@@ -881,6 +881,169 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertTrue(output.contains("TTTTT\(fld0001RC)GGGGGCCCCC"))
     }
 
+    // MARK: - Children of reads with placeholder scores (lane FLUIDIGM-CHILDREN F5, ruling BIO-FLUIDIGM-CHILDREN)
+
+    /// A bundle whose derived manifest holds the placeholder mark and whose reads carry `I`. The mark is the only thing
+    /// that makes it a marked source: its operation is a subsample and it holds no Fluidigm library prep, so the legacy
+    /// clause of `FASTQQualityScoreOrigin` does not apply.
+    private func makeMarkedSourceBundle(
+        in tempDir: URL,
+        name: String,
+        sequences: [String]
+    ) throws -> URL {
+        let bundleURL = tempDir.appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try writeFASTQ(sequences: sequences, to: bundleURL.appendingPathComponent("reads.fastq"))
+        let operation = FASTQDerivativeOperation(kind: .subsampleCount, count: sequences.count)
+        let manifest = FASTQDerivedBundleManifest(
+            name: name,
+            parentBundleRelativePath: ".",
+            rootBundleRelativePath: ".",
+            rootFASTQFilename: "reads.fastq",
+            payload: .full(fastqFilename: "reads.fastq"),
+            lineage: [operation],
+            operation: operation,
+            cachedStatistics: .empty,
+            pairingMode: .singleEnd,
+            qualityScoresArePlaceholders: true
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+        return bundleURL
+    }
+
+    /// Every child bundle in `outputDir`, by name without its extension, with its stored derived manifest.
+    private func childManifests(in outputDir: URL) throws -> [String: FASTQDerivedBundleManifest] {
+        var children: [String: FASTQDerivedBundleManifest] = [:]
+        for url in try FileManager.default.contentsOfDirectory(at: outputDir, includingPropertiesForKeys: nil)
+        where url.pathExtension == FASTQBundle.directoryExtension {
+            children[url.deletingPathExtension().lastPathComponent] = FASTQBundle.loadDerivedManifest(in: url)
+        }
+        return children
+    }
+
+    private func assertChildrenAreMarked(
+        _ children: [String: FASTQDerivedBundleManifest],
+        readCounts: [String: Int],
+        route: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(Set(children.keys), Set(readCounts.keys), "\(route) children", file: file, line: line)
+        for (name, readCount) in readCounts {
+            guard let manifest = children[name] else { continue }
+            let stats = manifest.cachedStatistics
+            XCTAssertEqual(
+                manifest.qualityScoresArePlaceholders, true,
+                "\(route) \(name), a child of placeholder reads carries the mark of its source", file: file, line: line
+            )
+            XCTAssertEqual(stats.readCount, readCount, "\(route) \(name) read count", file: file, line: line)
+            XCTAssertEqual(stats.meanQuality, 0, "\(route) \(name) Mean Q of reads no instrument scored", file: file, line: line)
+            XCTAssertEqual(stats.q20Percentage, 0, "\(route) \(name) Q20", file: file, line: line)
+            XCTAssertEqual(stats.q30Percentage, 0, "\(route) \(name) Q30", file: file, line: line)
+            XCTAssertTrue(
+                stats.qualityScoreHistogram.isEmpty,
+                "\(route) \(name) score histogram \(stats.qualityScoreHistogram)", file: file, line: line
+            )
+            XCTAssertTrue(
+                stats.perPositionQuality.isEmpty,
+                "\(route) \(name) \(stats.perPositionQuality.count) per-position quality summaries", file: file, line: line
+            )
+        }
+    }
+
+    /// FLUIDIGM-CHILDREN F5. Demultiplex Barcodes started on a bundle whose reads carry written scores stored the
+    /// scores of the reads' `I` characters in each child, Mean Q 40.0 and Q20 and Q30 of 100 percent, with no mark.
+    /// A child of marked reads stores the `withoutQualities` shape and the mark, on both Swift-native routes.
+    func testAChildOfPlaceholderReadsIsMarked() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        // The exact bare-barcode route, one known barcode on two of three reads.
+        let fld0001 = "GTATCGTCGT"
+        let bareSource = try makeMarkedSourceBundle(
+            in: tempDir,
+            name: "counted-bare",
+            sequences: [
+                "AAAAA" + fld0001 + "CCCCCGGGGG",
+                "TTTTT" + PlatformAdapters.reverseComplement(fld0001) + "GGGGGCCCCC",
+                "AAAAAAAAAACCCCCCCCCC",
+            ]
+        )
+        let bareOutput = tempDir.appendingPathComponent("bare-out", isDirectory: true)
+        _ = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: bareSource,
+                barcodeKit: BarcodeKitDefinition(
+                    id: "custom-marked-subset",
+                    displayName: "Custom Marked Subset",
+                    vendor: "custom",
+                    isDualIndexed: false,
+                    pairingMode: .singleEnd,
+                    barcodes: [BarcodeEntry(id: "FLD0001", i7Sequence: fld0001)]
+                ),
+                outputDirectory: bareOutput,
+                barcodeLocation: .bothEnds,
+                maxDistanceFrom5Prime: 0,
+                maxDistanceFrom3Prime: 0,
+                trimBarcodes: true,
+                threads: 1,
+                engine: .exactBareBarcode,
+                rootBundleURL: bareSource,
+                rootFASTQFilename: "reads.fastq"
+            ),
+            progress: { _, _ in }
+        )
+        assertChildrenAreMarked(
+            try childManifests(in: bareOutput),
+            readCounts: ["FLD0001": 2, "unassigned": 1],
+            route: "exact bare-barcode route"
+        )
+
+        // The exact asymmetric route, one sample from a barcode pair on one of two reads.
+        let forward = "ACGTACGT"
+        let reverse = "TGCATGCA"
+        let insert = "GATTACA"
+        let pairSource = try makeMarkedSourceBundle(
+            in: tempDir,
+            name: "counted-pair",
+            sequences: [
+                forward + insert + PlatformAdapters.reverseComplement(reverse),
+                "CCCCCCCCCCCCCCCCCCCCCCCC",
+            ]
+        )
+        let pairOutput = tempDir.appendingPathComponent("pair-out", isDirectory: true)
+        _ = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: pairSource,
+                barcodeKit: BarcodeKitDefinition(
+                    id: "exact-marked-pair",
+                    displayName: "Exact Marked Pair",
+                    vendor: "custom",
+                    isDualIndexed: true,
+                    pairingMode: .fixedDual,
+                    barcodes: [BarcodeEntry(id: "PAIR1", i7Sequence: forward, i5Sequence: reverse)]
+                ),
+                outputDirectory: pairOutput,
+                errorRate: 0.0,
+                minimumOverlap: 4,
+                trimBarcodes: true,
+                threads: 1,
+                sampleAssignments: [
+                    FASTQSampleBarcodeAssignment(sampleID: "sample1", forwardSequence: forward, reverseSequence: reverse),
+                ],
+                rootBundleURL: pairSource,
+                rootFASTQFilename: "reads.fastq",
+                minimumInsert: insert.count
+            ),
+            progress: { _, _ in }
+        )
+        assertChildrenAreMarked(
+            try childManifests(in: pairOutput),
+            readCounts: ["sample1": 1, "unassigned": 1],
+            route: "exact barcode-pair route"
+        )
+    }
+
     func testExactBareBarcodeDemuxRecordsThreadCountInCommandLine() async throws {
         let tempDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
