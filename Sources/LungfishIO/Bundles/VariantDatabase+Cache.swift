@@ -537,8 +537,8 @@ extension VariantDatabase {
         return filterKeys.isSubset(of: impactKeys) && storedImpactKeys().isSubset(of: filterKeys)
     }
 
-    /// The upper-cased impact keys that have rows in `variant_info`, which `_high_impact` is built from.
-    /// Each key costs one seek on `idx_variant_info_key`.
+    /// The upper-cased impact keys that have rows in `variant_info`, and those that `variant_info_defs` lists in any case,
+    /// which `_high_impact` is built from. Each probe costs one seek on `idx_variant_info_key`.
     private func storedImpactKeys() -> Set<String> {
         guard let db else { return [] }
         var stored = Set<String>()
@@ -549,6 +549,19 @@ extension VariantDatabase {
             else { continue }
             sqlite3_bind_text(stmt, 1, key, -1, sqliteTransientDestructor)
             if sqlite3_step(stmt) == SQLITE_ROW { stored.insert(key.uppercased()) }
+        }
+        // A spelling the probes above cannot find, such as `Impact`, is listed in `variant_info_defs`, the keys the
+        // filters resolve against. `_high_impact` holds its variants too, so a filter must name it before the table
+        // may serve the filter.
+        let names = Set(Self.impactInfoKeys.map { $0.uppercased() })
+        var defs: OpaquePointer?
+        defer { sqlite3_finalize(defs) }
+        if sqlite3_prepare_v2(db, "SELECT key FROM variant_info_defs", -1, &defs, nil) == SQLITE_OK {
+            while sqlite3_step(defs) == SQLITE_ROW {
+                guard let text = sqlite3_column_text(defs, 0) else { continue }
+                let key = String(cString: text).uppercased()
+                if names.contains(key) { stored.insert(key) }
+            }
         }
         return stored
     }
