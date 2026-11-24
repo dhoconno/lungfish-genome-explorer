@@ -146,12 +146,14 @@ extension ExtractReadsSubcommand {
         case .readNames(let selection) where selection.sourceFASTQs.isEmpty:
             placeholderSource = ReadExtractionService.placeholderScoreSourceName(ofAlignment: invocation.alignmentURL)
         case .readNames(let selection):
+            // The original reads of a mapping that ran on a file written for its run sit in no bundle, which says nothing about
+            // their scores; the record of the run beside the alignment does (FLUIDIGM-4 BIO review B1).
             placeholderSource = selection.sourceFASTQs
                 .first(where: { FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: $0) })
                 .map { source in
                     let folder = source.deletingLastPathComponent()
                     return FASTQBundle.isBundleURL(folder) ? folder.lastPathComponent : source.lastPathComponent
-                }
+                } ?? ReadExtractionService.placeholderScoreSourceName(ofAlignment: invocation.alignmentURL)
         }
         if let bundleName = placeholderSource {
             throw LungfishWorkflow.ExtractionError.placeholderScores(bundleName: bundleName)
