@@ -83,6 +83,12 @@ struct GenotypeViewMemoryRead: Sendable {
             item: item, key: key, dataKey: dataKey(ofBundleAt: bundleURL), kept: kept, olderFile: olderFile)
     }
 
+    /// The summary mode the store keeps for this folder, else the older bundle file's.
+    var storedSummaryViewMode: String? {
+        if case .view(let view, _, _) = kept { return view.summaryViewMode }
+        return olderFile?.preferredSummaryViewMode
+    }
+
     /// The data key of VS B1: the name, size and modification time of each file directly in the bundle other than the
     /// annotation sidecar and its record, which an edit rewrites while the data stays. A rerun changes it. Nil when
     /// the bundle cannot be listed, so it never compares equal. No field of item 1 depends on it.
@@ -119,6 +125,8 @@ final class GenotypeViewMemorySession {
     var read: GenotypeViewMemoryRead?
     var applied = false
     var resetBeforeApply = false
+    /// A person changed the view before the restore ran, so it is kept when the restore lands.
+    var changedBeforeApply = false
     var line: ViewMemoryResetLineView?
     /// The line of word 5c while restored percent bases show, and the bases it stands for.
     var settingsLine: ViewMemoryFilterLineView?
@@ -221,10 +229,17 @@ extension GenotypeResultViewController {
         if session.resetBeforeApply {
             // Reset View ran before the read landed, so the reset stands and the retire mark is left now.
             if let key = read.key { session.store.reset(key, kind: GenotypeViewMemory.kind, folder: read.item?.folder) }
+            if session.changedBeforeApply { keepViewMemory() }
             return
         }
         // A late restore applies only while the view is as the open showed it, so a change made before it stays.
-        guard captureViewMemory() == session.opening else { return }
+        guard captureViewMemory() == session.opening else {
+            // A person changed the view first. It stays, and the change that could not be kept before is kept now,
+            // with the kept summary mode in place of a malformed analysis's fallback (BIO SF-1).
+            session.storedMode = read.storedSummaryViewMode
+            if session.changedBeforeApply { keepViewMemory() }
+            return
+        }
         switch read.kept {
         case .view(let kept, let keptDataKey, _):
             session.storedMode = kept.summaryViewMode
@@ -270,7 +285,12 @@ extension GenotypeResultViewController {
 
     /// Keeps the view as it stands for the result on show, in the store and never in the bundle (VS S1, S3).
     func keepViewMemory() {
-        guard let session = viewMemory, session.applied, let read = session.read, let key = read.key else { return }
+        guard let session = viewMemory else { return }
+        guard session.applied else {
+            session.changedBeforeApply = true
+            return
+        }
+        guard let read = session.read, let key = read.key else { return }
         session.store.keep(
             captureViewMemory(), startingView: session.start, for: key, dataKey: read.dataKey, folder: read.item?.folder)
     }
