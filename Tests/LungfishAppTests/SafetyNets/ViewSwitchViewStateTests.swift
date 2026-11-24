@@ -927,6 +927,27 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await assertChangedBundle(TreeViewStateDriver())
     }
 
+    /// Extract Subtree takes the node the restored view shows selected (VS B4, lesson 11).
+    func testTreeExtractSubtreeActsOnTheNodeTheRestoredViewShows() async throws {
+        let driver = TreeViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let viewer = try XCTUnwrap(driver.viewer(in: harness))
+        let clade = try XCTUnwrap(viewer.nodes.first { !$0.isTip && $0.parentID != nil })
+        viewer.selectNode(id: clade.id, center: false)
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        let back = try XCTUnwrap(driver.viewer(in: harness))
+        var requested: [String] = []
+        back.onTreeBundleOperationRequested = { requested.append($0.nodeID) }
+        back.extractSelectedSubtreeBundle(nil)
+        XCTAssertEqual(back.selectedNodeID, clade.id, "the view shows the node as left")
+        XCTAssertEqual(requested, [clade.id], "Extract Subtree takes the node the view shows selected")
+    }
+
     /// Whole rows are a row selection, so they come back by row id on a changed key with no line, and Extract then
     /// takes the rows the view shows selected (VS B4, BIO).
     func testAlignmentWholeRowsComeBackByRowIDOnAChangedBundleAndExtractTakesThem() async throws {
