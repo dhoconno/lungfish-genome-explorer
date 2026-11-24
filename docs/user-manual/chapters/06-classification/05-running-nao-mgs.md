@@ -26,7 +26,7 @@ glossary_refs: [accession, bam, bit-score, blast, bundle, fastq, fragment, mate,
 features_refs: [classify.nao-mgs]
 fixtures_refs: [naomgs]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
