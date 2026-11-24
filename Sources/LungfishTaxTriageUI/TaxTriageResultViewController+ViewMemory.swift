@@ -42,7 +42,7 @@ enum TaxTriageRowIdentity {
 ///   the column titles). Its selection is not used: the selection is the next field.
 /// - `selectedIdentities`, the selected rows by the batch table's identity, which carries the sample (VS B4), without the
 ///   result's path. A row that no longer exists is dropped, never replaced by the top row, and a loss is reported only
-///   on a changed data key (lesson 11).
+///   on a changed data key (lesson 11). A view kept with no row selected leaves the open's top-row pick.
 /// - `columns`, the batch table's metadata column layout, is presentation and lives here, never in the account's
 ///   defaults (VS A10).
 /// The divider is not kept: the alignment pane opens and shuts with the selected row's alignment file.
@@ -68,7 +68,8 @@ final class TaxTriageVisitMemo {
     var firstPageLanded = false
     var loadComplete = false
     var reloadedByRestore = false
-    /// The portable identities the restore selects once their rows show, empty for none, nil when no restore waits.
+    /// The portable identities the restore selects once their rows show, empty when every kept row is gone (no row, never
+    /// the top row), nil when no restore waits and the open's top-row pick stands.
     var pendingSelection: [String]?
     var routedSample: String?
     var samplesBeforeRoute: SamplePickerMemory?
@@ -224,6 +225,8 @@ extension TaxTriageResultViewController {
         let memo = TaxTriageVisitMemo.memo(for: self)
         if afterLateRestore {
             guard !memo.reloadedByRestore else { memo.reloadedByRestore = false; return }
+            // No row waits, so the top row the first page selected stands, and no later page selects it again.
+            guard memo.pendingSelection != nil else { return }
             shouldSelectTopDatabaseRowAfterLoad = true
         }
         guard let pending = memo.pendingSelection else { return }
@@ -302,7 +305,10 @@ extension TaxTriageResultViewController {
             memo.selectionBeforeRoute = kept
             memo.pendingSelection = nil
         } else {
-            memo.pendingSelection = kept
+            // A kept view with no row leaves the open's top-row pick standing, as a batch table's restore does. Only kept
+            // rows that are all gone select nothing in its place (VS B4). So a restore that reloads no page, such as
+            // Reset View, leaves no empty marker for a later page to take.
+            memo.pendingSelection = memory.selectedIdentities.isEmpty ? nil : kept
         }
         if reload {
             memo.reloadedByRestore = true
