@@ -1666,18 +1666,15 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
 
 @MainActor
 final class TaxonomyLayoutPreferenceTests: XCTestCase {
+    /// The suite the viewer reads its panel layout from, removed when the case ends (VS-LEAK).
+    private lazy var layouts = makeTestDefaultsSuite(prefix: "TaxonomyLayoutPreferenceTests")
+
     private func setLayoutPreference(
         _ layout: MetagenomicsPanelLayout,
         legacyTableOnLeft: Bool
     ) {
-        UserDefaults.standard.set(layout.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
-        UserDefaults.standard.set(legacyTableOnLeft, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-    }
-
-    override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: MetagenomicsPanelLayout.defaultsKey)
-        UserDefaults.standard.removeObject(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-        super.tearDown()
+        layouts.defaults.set(layout.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
+        layouts.defaults.set(legacyTableOnLeft, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
     }
 
     func testTaxonomyViewUsesEnumLayoutPreferenceForStackedMode() {
@@ -1685,6 +1682,7 @@ final class TaxonomyLayoutPreferenceTests: XCTestCase {
 
         let vc = TaxonomyViewController()
         isolateLayouts(vc)
+        vc.layoutDefaults = layouts.defaults
         _ = vc.view
 
         XCTAssertFalse(vc.testSplitView.isVertical)

@@ -1203,15 +1203,12 @@ final class EsVirituViewControllerBatchModeTests: XCTestCase {
     }
 
     func testLayoutPreferenceStacksDetectionTableAboveDetail() {
-        UserDefaults.standard.set(MetagenomicsPanelLayout.stacked.rawValue, forKey: MetagenomicsPanelLayout.defaultsKey)
-        UserDefaults.standard.set(false, forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-        defer {
-            UserDefaults.standard.removeObject(forKey: MetagenomicsPanelLayout.defaultsKey)
-            UserDefaults.standard.removeObject(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey)
-        }
+        let layouts = makeTestDefaultsSuite(prefix: "BatchAggregatedViewTests")
+        MetagenomicsPanelLayout.stacked.persist(defaults: layouts.defaults, notificationCenter: NotificationCenter())
 
         let vc = EsVirituResultViewController()
         isolateLayouts(vc)
+        vc.layoutDefaults = layouts.defaults
         vc.loadViewIfNeeded()
 
         XCTAssertFalse(vc.splitView.isVertical)
