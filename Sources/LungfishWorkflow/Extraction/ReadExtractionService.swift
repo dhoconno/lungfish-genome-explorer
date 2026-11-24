@@ -52,11 +52,16 @@ public actor ReadExtractionService {
     /// inside a bundle with one, a file written for the run, outside every bundle, for a derived, chunked or concatenated
     /// bundle) and `inputFiles` are the inputs as the run found them (the bundle, its manifest, its payload). Both are
     /// asked, so the bundle is found whichever way its reads reached the mapper, and the first whose reads carry
-    /// placeholder scores gives its bundle's file name. A folder with no record, or an input no such bundle stands behind,
-    /// gives nil.
+    /// placeholder scores gives its bundle's file name. The record is the one beside the BAM, `<bam stem>.mapping-provenance.json`,
+    /// which `bam adopt-mapping` keeps for each adopted track since 2.13 and which a viewport's alignment holds, and failing
+    /// that the folder's `mapping-provenance.json` that a mapping run leaves (FLUIDIGM-3 review B2). A folder with no record,
+    /// one that does not decode, or an input no such bundle stands behind, gives nil.
     package static func placeholderScoreSourceName(ofAlignment bamURL: URL) -> String? {
         let folder = bamURL.deletingLastPathComponent()
-        guard let provenance = MappingProvenance.load(from: folder) else { return nil }
+        let trackRecord = MappingProvenance.trackRecordURL(forAlignmentAt: bamURL)
+        guard let provenance = MappingProvenance.load(fromFile: trackRecord) ?? MappingProvenance.load(from: folder) else {
+            return nil
+        }
         let recordedInputs = provenance.inputFiles.map { record in
             record.path.hasPrefix("/") ? URL(fileURLWithPath: record.path) : folder.appendingPathComponent(record.path)
         }
