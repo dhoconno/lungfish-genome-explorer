@@ -104,9 +104,9 @@ final class TaxonomyExtractionMemoryTests: XCTestCase {
 
     // MARK: - The refusal
 
-    /// A kreport that puts 60 M reads in Homo sapiens, on a Mac of 16 GiB: 60 M fragments at 200 B are 12 GB, more than
+    /// A kreport that puts 60 M reads in Homo sapiens, on a Mac of 16 GiB: 60 M fragments at 300 B are 17 GB, more than
     /// the 8 GiB that half the Mac is. The result has no per-read output at all, so the refusal can only have come from
-    /// the kreport, before that file was read. A kreport of 20 M reads (4 GB) is not refused.
+    /// the kreport, before that file was read. A kreport of 20 M reads (6 GB) is not refused.
     @MainActor
     func testASelectionTooLargeForTheMacRefusesInWordsBeforeThePerReadFileIsRead() async throws {
         let root = try TestTempDirectory.make(prefix: "extraction-refusal")
