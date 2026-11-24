@@ -230,7 +230,7 @@ final class OperationsDialogReadinessLineTests: XCTestCase {
             (.removeContaminants, "Filter reads that match a contaminant reference, using the reference FASTA in Inputs for custom contaminants."),
             (.removeHumanReads, "Filter reads that match the configured human database using the managed Deacon pan-human index."),
             (.translate, "Translate frame 1 to protein FASTA, appending .1 (mate 1) and .2 (mate 2) only to interleaved mates’ shared IDs."),
-            (.mergeOverlappingPairs, "Merge overlapping paired-end reads and store merged amplicon reads as counted exemplars with duplicate support in FASTQ headers."),
+            (.mergeOverlappingPairs, "Merge overlapping paired-end reads into single reads. Pairs that do not overlap stay as pairs."),
             (.orientReads, "Set read orientation using the selected reference sequence, which is required, without saving a separate unoriented bundle."),
             (.adapterRemoval, "Remove adapter sequences from reads, with manual trimming limited to a single literal sequence."),
         ]

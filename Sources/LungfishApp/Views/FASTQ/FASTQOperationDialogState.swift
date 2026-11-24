@@ -1213,7 +1213,7 @@ final class FASTQOperationDialogState {
         case .removeDuplicates:
             return "Collapse duplicate reads from the selected datasets."
         case .mergeOverlappingPairs:
-            return "Merge overlapping paired-end reads and store merged amplicon reads as counted exemplars with duplicate support in FASTQ headers."
+            return "Merge overlapping paired-end reads into single reads. Pairs that do not overlap stay as pairs."
         case .repairPairedEndFiles:
             return "Repair synchronization issues between paired-end mates."
         case .reverseComplement:
