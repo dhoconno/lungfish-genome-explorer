@@ -112,6 +112,76 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         }
     }
 
+    /// Materializes two identical reads of the sample LF2871 with the Fluidigm sample materializer and returns its
+    /// bundle, `LF2871.lungfishfastq` under `outputDirectory`. Its reads are built from sequence counts, so the Q40
+    /// characters they carry were written and no instrument measured them (the shared fixture of lane QUALITY-2,
+    /// copied here because a test target cannot use another's).
+    private func materializeFluidigmSampleBundle(outputDirectory: URL, workDirectory: URL) async throws -> URL {
+        let cs1 = "ACACTGACGACATGGTTCTACA"
+        let cs2rc = "AGACCAAGTCTCTGCTACCGTA"
+        let barcode = "AAAACCCCGG"
+        let read = cs1 + "ACGTACGTACGTACGT" + cs2rc + "CC" + barcode
+        try FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
+        let input = workDirectory.appendingPathComponent("barcode11.fastq")
+        let barcodes = workDirectory.appendingPathComponent("samples.csv")
+        let fastq = (1...2).map { "@read-\($0)\n\(read)\n+\n\(String(repeating: "I", count: read.count))\n" }.joined()
+        try fastq.write(to: input, atomically: true, encoding: .utf8)
+        try "sample,barcode\nLF2871,\(barcode)\n".write(to: barcodes, atomically: true, encoding: .utf8)
+        _ = try await ONTFluidigmSampleMaterializer().run(
+            ONTFluidigmSampleMaterializationRequest(
+                inputURL: input,
+                barcodeDefinitionsURL: barcodes,
+                outputDirectory: outputDirectory,
+                force: true
+            )
+        )
+        return outputDirectory.appendingPathComponent("LF2871.lungfishfastq", isDirectory: true)
+    }
+
+    /// FLUIDIGM-CHILDREN F6. A merge of Fluidigm sample bundles made a plain bundle with no derived manifest and no
+    /// mark, so the dashboard measured the written `I` characters as Mean Q 40.0 with Q20 and Q30 of 100 percent. A merge
+    /// refuses bundles whose reads carry written scores, with words, and leaves no bundle and no staging folder.
+    func testBundlesWithPlaceholderScoresAreNotMerged() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try await materializeFluidigmSampleBundle(
+            outputDirectory: root.appendingPathComponent("first", isDirectory: true),
+            workDirectory: root.appendingPathComponent("first-input", isDirectory: true)
+        )
+        let second = try await materializeFluidigmSampleBundle(
+            outputDirectory: root.appendingPathComponent("second", isDirectory: true),
+            workDirectory: root.appendingPathComponent("second-input", isDirectory: true)
+        )
+        let mergeOutput = root.appendingPathComponent("merged-out", isDirectory: true)
+        try FileManager.default.createDirectory(at: mergeOutput, withIntermediateDirectories: true)
+
+        var merged: URL?
+        var refusal: Error?
+        do {
+            merged = try await FASTQBundleMergeService.merge(
+                sourceBundleURLs: [first, second],
+                outputDirectory: mergeOutput,
+                bundleName: "Merged Fluidigm"
+            )
+        } catch {
+            refusal = error
+        }
+        if let merged {
+            let reads = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: merged)?.first)
+            let measured = try await FASTQReader(validateSequence: false)
+                .computeStatistics(from: reads, sampleLimit: 0).statistics
+            XCTFail("the merge of two Fluidigm bundles succeeded and its reads measure Mean Q \(measured.meanQuality)")
+        }
+        let words = try XCTUnwrap((refusal as? LocalizedError)?.errorDescription, "the merge refuses with words")
+        XCTAssertTrue(words.contains("LF2871.lungfishfastq"), "the words name the bundle: \(words)")
+        XCTAssertTrue(words.contains("built from sequence counts"), "the words say where the reads come from: \(words)")
+        XCTAssertTrue(words.contains("written, not measured"), "the words say the scores were not measured: \(words)")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: mergeOutput.path), [],
+            "a refused merge leaves no bundle and no staging folder"
+        )
+    }
+
     func testMergeCreatesMaterializedBundleForInterleavedInputs() async throws {
         let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
