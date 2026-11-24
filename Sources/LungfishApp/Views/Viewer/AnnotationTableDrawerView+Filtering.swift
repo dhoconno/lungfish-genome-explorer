@@ -1745,11 +1745,11 @@ extension AnnotationTableDrawerView {
     }
 
     func resolveVariantInfoFilter(_ filter: VariantDatabase.InfoFilter) -> VariantDatabase.InfoFilter {
-        let held = VariantDatabase.heldImpactKeys(typed: filter.key, among: infoColumnKeys.map(\.key))
-        return VariantDatabase.InfoFilter(
-            key: held.first ?? resolveVariantInfoKey(filter.key), op: filter.op, value: filter.value,
-            alsoKeys: filter.alsoKeys + held.dropFirst()
-        )
+        let keys = infoColumnKeys.map(\.key)
+        let held = VariantDatabase.heldImpactKeys(typed: filter.key, among: keys)
+            + VariantDatabase.heldGeneKeys(typed: filter.key, among: keys)
+        return VariantDatabase.InfoFilter(key: held.first ?? resolveVariantInfoKey(filter.key), op: filter.op,
+                                          value: filter.value, alsoKeys: filter.alsoKeys + held.dropFirst())
     }
 
     #if DEBUG

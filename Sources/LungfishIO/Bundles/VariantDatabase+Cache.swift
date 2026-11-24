@@ -88,6 +88,16 @@ extension VariantDatabase {
         return infoKeys.filter { names.contains($0.uppercased()) }.sorted()
     }
 
+    /// The gene keys of `infoKeys` that a typed `key` names, compared without case and in one fixed order. The typed key
+    /// `gene` stands for the gene of a variant whichever tool wrote it, so it names all of them, as the genes list reads
+    /// them. A key typed in full, such as `CSQ_SYMBOL`, reads that key alone and names none. `ANN_Gene_Name` is left
+    /// out, since `ANN_Gene` holds the same values.
+    public static func heldGeneKeys(typed key: String, among infoKeys: [String]) -> [String] {
+        guard key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "gene" else { return [] }
+        let names: Set<String> = ["GENE", "GENEINFO", "SYMBOL", "ANN_GENE", "CSQ_SYMBOL"]
+        return infoKeys.filter { names.contains($0.uppercased()) }.sorted()
+    }
+
     /// The `db_metadata` row that marks `_high_impact` and `_tok_bio_hi` as built with the list-member match over keys
     /// compared without case, as the filters compare them. A database imported before holds both tables built with
     /// `value = 'HIGH'` and has no row, or built over exact-case keys and has the row `member`.

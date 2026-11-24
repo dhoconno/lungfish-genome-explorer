@@ -214,6 +214,7 @@ extension VariantDatabase {
         func sqlCondition(paramIndex: inout Int32) -> (sql: String, bindings: [(Int32, String)]) {
             var bindings: [(Int32, String)] = []
             let allKeys = [key] + alsoKeys
+            if let mixed = mixedKindsCondition(allKeys, paramIndex: &paramIndex) { return mixed }
             for name in allKeys {
                 bindings.append((paramIndex, name))
                 paramIndex += 1
@@ -247,7 +248,7 @@ extension VariantDatabase {
         }
 
         /// True when `name` holds comma-joined unique values, as every `ANN_` and `CSQ_` part and impact key does.
-        private static func holdsValueList(_ name: String) -> Bool {
+        static func holdsValueList(_ name: String) -> Bool {
             let upper = name.uppercased()
             return upper.hasPrefix("ANN_") || upper.hasPrefix("CSQ_")
                 || VariantDatabase.impactInfoKeys.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
