@@ -478,6 +478,48 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertNil(harness.resetLineWords, "the route's pick is not a loss, so no line shows")
     }
 
+    /// The sidebar's sample folder row shows its sample for that visit, and the next visit by the batch row brings back
+    /// the samples the person chose, not the route's, for EsViritu as for Kraken2 (VS B9, VS-TAX review BIO SF-3).
+    func testEsVirituRouteSampleShowsForItsVisitAndTheBatchRowBringsBackThePicker() async throws {
+        let analyses = try SafetyNetFiles.makeDirectory(project.appendingPathComponent("Analyses", isDirectory: true))
+        let batch = try RoutingSafetyNetFixtures.esVirituResult(
+            named: "esviritu-batch-2026-01-15T12-00-00", in: analyses, samples: ["HG002", "MMU-17"]
+        )
+        for sample in ["HG002", "MMU-17"] {
+            try SafetyNetFiles.makeDirectory(batch.appendingPathComponent(sample, isDirectory: true))
+        }
+        try RoutingSafetyNetTable.metadata("esviritu", isBatch: true, in: batch)
+        let batchRow = SidebarItem(title: batch.lastPathComponent, type: .batchGroup, url: batch)
+        let sampleRow = SidebarItem(
+            title: "MMU-17", type: .esvirituResult, url: batch.appendingPathComponent("MMU-17", isDirectory: true)
+        )
+        let other = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Status only"), in: project)
+        let driver = EsVirituViewStateDriver()
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        func picker() -> Set<String>? {
+            (harness.split.viewerController.surfaceHost.activeViewport as? EsVirituSurface)?
+                .controller?.samplePickerState?.selectedSamples
+        }
+        func visit(_ item: SidebarItem, expecting samples: Set<String>) async {
+            harness.select(item)
+            let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { picker() == samples }
+            XCTAssertTrue(shown, "\(item.title): the picker shows \(String(describing: picker())), not \(samples)")
+        }
+
+        await visit(batchRow, expecting: ["HG002", "MMU-17"])
+        let viewer = try XCTUnwrap((harness.split.viewerController.surfaceHost.activeViewport as? EsVirituSurface)?.controller)
+        viewer.samplePickerState?.selectedSamples = ["HG002"]
+        viewer.applyBatchSampleFilter()
+        try await leave(for: other, in: harness, driver: driver)
+
+        await visit(sampleRow, expecting: ["MMU-17"])
+        try await leave(for: other, in: harness, driver: driver)
+        await visit(batchRow, expecting: ["HG002"])
+        XCTAssertNil(harness.resetLineWords, "the route's pick is not a loss, so no line shows")
+    }
+
     /// VS-TAX item 2: the samples a Kraken2 batch view restores show in the Inspector's picker, which holds the viewer's
     /// own state. A stale Inspector would need the viewer's `announceViewMemory()`.
     func testKraken2RestoredSamplesShowInTheInspector() async throws {

@@ -169,7 +169,7 @@ private func makeTestTree() -> TaxonTree {
 
 /// Creates a ``ClassificationResult`` for testing, wrapping the given tree.
 @MainActor
-private func makeTestResult(tree: TaxonTree? = nil) -> ClassificationResult {
+private func makeTestResult(tree: TaxonTree? = nil, provenanceId: UUID? = nil) -> ClassificationResult {
     let tree = tree ?? makeTestTree()
     let tempDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("taxonomy-vc-test-\(UUID().uuidString)")
@@ -190,7 +190,7 @@ private func makeTestResult(tree: TaxonTree? = nil) -> ClassificationResult {
         brackenURL: nil,
         runtime: 5.2,
         toolVersion: "2.1.3",
-        provenanceId: nil
+        provenanceId: provenanceId
     )
 }
 
@@ -227,6 +227,24 @@ private func makeTaxonomyBlastResult(
 final class TaxonomyViewControllerTests: XCTestCase {
 
     // MARK: - Configuration
+
+    /// VS-TAX review BIO SF-3: a one-sample result keys on its provenance run id, the route a CLI-run classification
+    /// takes, so a rerun with the same tree and counts has another key (VS B1), and a result with no run keys as none.
+    func testAOneSampleResultKeysOnItsRunRecord() throws {
+        let first = UUID()
+        let second = UUID()
+        func key(_ provenanceId: UUID?) -> String? {
+            let vc = TaxonomyViewController()
+            isolateLayouts(vc)
+            _ = vc.view  // trigger loadView
+            vc.configure(result: makeTestResult(provenanceId: provenanceId))
+            return vc.viewMemoryDataKey()
+        }
+        let keyOfFirst = try XCTUnwrap(key(first))
+        XCTAssertNotEqual(keyOfFirst, try XCTUnwrap(key(second)), "a rerun with the same counts has another run record")
+        XCTAssertEqual(keyOfFirst, key(first), "the same run record gives the same key")
+        XCTAssertTrue(try XCTUnwrap(key(nil)).contains("run no run"), "a result with no run record keys as no run")
+    }
 
     func testConfigureWithResult() throws {
         let vc = TaxonomyViewController()
