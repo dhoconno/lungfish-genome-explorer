@@ -32,6 +32,11 @@ class MultipleSequenceAlignmentSurface: ResultViewport {
     /// It runs for its own kind too: the App gives the Inspector a new alignment's blocks only after that show.
     var onWillDeactivate: (@MainActor () -> Void)?
 
+    /// Where the bundle lives and its data key (VS B1), read once in `load` off the main actor
+    /// (`MultipleSequenceAlignmentViewController+ViewMemory.swift`), never in a getter.
+    var viewMemoryItem: ViewMemoryItem?
+    var viewMemoryDataKey: String?
+
     /// What `viewController` answers before a load, which the host never reads.
     private lazy var unloaded: NSViewController = {
         let empty = NSViewController()
@@ -88,5 +93,7 @@ class MultipleSequenceAlignmentSurface: ResultViewport {
         }
         guard committed else { throw CancellationError() }
         controller = request.controller
+        await readViewMemoryIdentity(at: request.url, manifest: request.controller.bundle?.manifest)
+        guard !Task.isCancelled, request.canCommit() else { throw CancellationError() }
     }
 }

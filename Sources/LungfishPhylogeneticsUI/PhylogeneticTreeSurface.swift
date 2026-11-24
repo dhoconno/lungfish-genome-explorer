@@ -21,6 +21,11 @@ public final class PhylogeneticTreeSurface: ResultViewport {
     /// runs for its own kind too: the App gives the Inspector a new tree's blocks only after that tree's show.
     public var onWillDeactivate: (@MainActor () -> Void)?
 
+    /// Where the bundle lives and its data key (VS B1), read once in `load`
+    /// (`PhylogeneticTreeViewController+ViewMemory.swift`), never in a getter.
+    public internal(set) var viewMemoryItem: ViewMemoryItem?
+    public internal(set) var viewMemoryDataKey: String?
+
     /// What `viewController` answers before a load, which the host never reads.
     private lazy var unloaded: NSViewController = {
         let empty = NSViewController()
@@ -54,5 +59,6 @@ public final class PhylogeneticTreeSurface: ResultViewport {
         let tree = PhylogeneticTreeViewController()
         try tree.displayBundle(at: url)
         controller = tree
+        readViewMemoryIdentity(at: url)
     }
 }
