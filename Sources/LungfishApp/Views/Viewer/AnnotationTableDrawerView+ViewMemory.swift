@@ -73,6 +73,7 @@ extension ViewerViewController {
     func restorePendingDrawerMemory(in drawer: AnnotationTableDrawerView) {
         guard let session = viewMemory, let kept = session.pendingDrawer, drawer === annotationDrawerView,
               !session.restoringDrawer, !drawer.isLoading else { return }
+        guard !drawer.displayedAnnotations.isEmpty else { return } // BIO R1: neither the tab nor the row before the rows load
         session.restoringDrawer = true
         defer { session.restoringDrawer = false }
         if drawer.activeTab.rawValue != kept.tab, let tab = AnnotationTableDrawerView.DrawerTab(rawValue: kept.tab) {
