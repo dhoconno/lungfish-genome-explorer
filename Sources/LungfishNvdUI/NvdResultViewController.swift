@@ -123,7 +123,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private(set) var database: NvdDatabase? { didSet { refreshExportItem() } }
 
     /// Bundle manifest metadata.
-    private var manifest: NvdManifest?
+    private(set) var manifest: NvdManifest?
 
     /// URL of the NVD bundle directory.
     public private(set) var bundleURL: URL? {
@@ -135,11 +135,11 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     /// All samples from the database.
-    private var allSamples: [NvdSampleMetadata] = []
+    private(set) var allSamples: [NvdSampleMetadata] = []
     private var manifestSamplesByID: [String: NvdSampleSummary] = [:]
 
     /// Currently selected sample IDs for filtering.
-    private(set) var selectedSamples: Set<String> = [] { didSet { refreshExportItem() } }
+    var selectedSamples: Set<String> = [] { didSet { refreshExportItem() } }
 
     /// Export-failure presentation seam. Tests inject a spy to assert
     /// a failure was surfaced without driving real `NSAlert` UI.
@@ -148,7 +148,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Displayed Data
 
     /// Best hits (hit_rank=1) for currently selected samples.
-    private var displayedContigs: [NvdBlastHit] = [] {
+    private(set) var displayedContigs: [NvdBlastHit] = [] {
         didSet {
             displayedContigLookup = Dictionary(
                 displayedContigs.map {
@@ -258,7 +258,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
     /// This viewport owns the typography observation for standard and metadata
     /// cells, so the embedded metadata controller must not observe separately.
-    let metadataColumnController = MetadataColumnController(
+    let metadataColumnController = MetadataColumnController.adoptingViewMemory(
         contentTypographyOwnership: .embedded,
         userDefaults: {
             #if DEBUG
@@ -329,11 +329,11 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     // MARK: - UI Components
 
-    private let summaryBar = NvdSummaryBar()
+    let summaryBar = NvdSummaryBar()
     let splitView = TrackedDividerSplitView()
     private let outlineScrollView = NSScrollView()
-    private let outlineView = NSOutlineView()
-    private let searchField = NSSearchField()
+    let outlineView = NSOutlineView()
+    let searchField = NSSearchField()
     private let detailScrollView = NSScrollView()
     private let detailContentView = FlippedNvdContentView()
     /// The shared bar, BLAST Results button and BLAST results pane (lane ADOPT, plan exit check 4).
@@ -341,7 +341,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         blastDrawer: blastDrawerContainer.blastResultsTab, rerunFollowsSelection: true
     )
     var actionBar: ClassifierActionBar { resultActions.bar }
-    private let groupingSegment = NSSegmentedControl(labels: ["By Sample", "By Taxon"], trackingMode: .selectOne, target: nil, action: nil)
+    let groupingSegment = NSSegmentedControl(labels: ["By Sample", "By Taxon"], trackingMode: .selectOne, target: nil, action: nil)
 
     // MARK: - Multi-Selection Placeholder
 
@@ -402,20 +402,20 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     // MARK: - Search
 
-    private(set) var searchQuery: String = ""
+    var searchQuery: String = ""
     private var filterWorkItem: DispatchWorkItem?
 
     // MARK: - Split View State
 
     private var detailContainer: ScrollViewSplitPaneContainerView?
     private var outlineContainer: NSView?
-    private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
+    let splitCoordinator = TwoPaneTrackedSplitCoordinator()
     private var splitViewBottomConstraint: NSLayoutConstraint?
 
     // MARK: - Selection Sync
 
     private var suppressSelectionSync = false
-    private var selectionIdentities = SelectionIdentityStore<String>()
+    var selectionIdentities = SelectionIdentityStore<String>()
 
     // MARK: - Sample Popover
 
@@ -621,13 +621,13 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         updateSampleFilterButtonTitle()
         applySplitPositionIfNeeded(force: true)
 
-        hideLoadingOverlay()
+        finishDatabaseConfigure()
         logger.info("Configured NVD viewer with database, \(self.allSamples.count) samples")
     }
 
     // MARK: - Data Reload
 
-    private func reloadOutlineData() {
+    func reloadOutlineData() {
 #if DEBUG
         outlineReloadCount += 1
 #endif
@@ -703,7 +703,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     // MARK: - Detail Pane Content
 
-    private func showOverview() {
+    func showOverview() {
 #if DEBUG
         detailRebuildCount += 1
 #endif
@@ -1143,7 +1143,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         loadingSpinner.startAnimation(nil)
     }
 
-    private func hideLoadingOverlay() {
+    func hideLoadingOverlay() {
         loadingSpinner.stopAnimation(nil)
         loadingOverlay.isHidden = true
     }
@@ -1644,7 +1644,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         applyLayoutPreference()
     }
 
-    private func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
+    func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
         switch layout {
         case .detailLeading, .stacked:
             return 0.4
@@ -1670,7 +1670,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
                 self?.minimumExtents(for: MetagenomicsPanelLayout.current()) ?? (250, 300)
             },
             defaultLeadingFraction: { [weak self] in
-                self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
+                self?.keptSplitFraction ?? self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
             },
             afterApply: { [weak self] in
                 self?.resizeDetailContentToFit()
@@ -1706,7 +1706,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             desiredIsVertical: desiredIsVertical,
             desiredFirstPane: desiredFirstPane,
             desiredSecondPane: desiredSecondPane,
-            defaultLeadingFraction: defaultLeadingFraction(for: layout),
+            defaultLeadingFraction: keptSplitFraction ?? defaultLeadingFraction(for: layout),
             minimumExtents: minimumExtents(for: layout),
             isViewInWindow: view.window != nil,
             afterApply: { [weak self] in
@@ -1717,7 +1717,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     // MARK: - Sample Filter
 
-    private func updateSampleFilterButtonTitle() {
+    func updateSampleFilterButtonTitle() {
         let total = allSamples.count
         let selected = selectedSamples.count
         if selected == total {
@@ -2309,7 +2309,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Action Bar Selection Helper
 
     /// Updates the unified action bar info text from a BLAST hit.
-    private func updateActionBarForHit(_ hit: NvdBlastHit?) {
+    func updateActionBarForHit(_ hit: NvdBlastHit?) {
         if let hit {
             let displayName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
             let classification = hit.adjustedTaxidName.isEmpty ? "Unclassified" : hit.adjustedTaxidName
@@ -2335,7 +2335,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Metadata Column Updates
 
     /// Updates metadata columns for the current sample selection.
-    private func updateMetadataColumnsForCurrentSamples() {
+    func updateMetadataColumnsForCurrentSamples() {
         let isMulti = selectedSamples.count > 1
         let sampleId: String?
         if selectedSamples.count == 1 {
@@ -2661,7 +2661,7 @@ extension NvdResultViewController {
         displaySelectionDetail(for: selectedOutlineItemsByIdentity())
     }
 
-    private func restoreOutlineSelection(_ indexes: IndexSet) {
+    func restoreOutlineSelection(_ indexes: IndexSet) {
         suppressSelectionSync = true
         outlineView.selectRowIndexes(indexes, byExtendingSelection: false)
         suppressSelectionSync = false
@@ -2683,7 +2683,7 @@ extension NvdResultViewController {
         selectedOutlineItemsByIdentity().count
     }
 
-    private func singleIdentityBackedSelectedHit() -> NvdBlastHit? {
+    func singleIdentityBackedSelectedHit() -> NvdBlastHit? {
         let selected = selectedOutlineItemsByIdentity()
         guard selected.count == 1, let item = selected.first else { return nil }
         switch item {
@@ -2718,7 +2718,7 @@ extension NvdResultViewController {
         visibleSelectionItemsAndIdentities()?.map(\.identity)
     }
 
-    private func visibleSelectionItemsAndIdentities() -> [(item: NvdOutlineItem, identity: String)]? {
+    func visibleSelectionItemsAndIdentities() -> [(item: NvdOutlineItem, identity: String)]? {
         var visible: [(item: NvdOutlineItem, identity: String)] = []
         visible.reserveCapacity(outlineView.numberOfRows)
         for row in 0..<outlineView.numberOfRows {
@@ -2731,7 +2731,7 @@ extension NvdResultViewController {
         return visible
     }
 
-    private func selectionIdentity(for item: NvdOutlineItem) -> String? {
+    func selectionIdentity(for item: NvdOutlineItem) -> String? {
         let resultPath = database?.databaseURL.standardizedFileURL.path
             ?? bundleURL?.standardizedFileURL.path
             ?? manifest?.sourceDirectoryPath

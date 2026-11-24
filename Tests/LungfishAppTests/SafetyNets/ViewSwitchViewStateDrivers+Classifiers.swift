@@ -427,6 +427,31 @@ extension ViewSwitchViewStateTests {
         assertNoLayoutKeyWritten()
     }
 
+    /// A kept hit whose contig and taxon group are closed at the restore is revealed and selected, and on an equal data
+    /// key nothing is reported lost, so no line says the data changed (lesson 11). It calls the viewer's apply, which
+    /// exists only with the change, so it rides in the code commit.
+    func testNvdRestoresAKeptHitUnderAClosedContigAndTaxonGroup() async throws {
+        let driver = NvdViewStateDriver()
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try await driver.change(in: harness)
+        let viewer = try XCTUnwrap(driver.viewer(in: harness))
+        var kept = viewer.captureNvdViewMemory()
+        XCTAssertEqual(kept.selectedIdentities.count, 1, "the second hit is kept")
+        kept.expandedIdentities = []
+        viewer.testOutlineView.collapseItem(nil, collapseChildren: true)
+        let lost = viewer.applyNvdViewMemory(kept, dataChanged: false)
+        XCTAssertEqual(lost, [], "an equal data key loses nothing")
+        XCTAssertEqual(
+            try driver.read(in: harness)[NvdViewStateDriver.selectedLine], "selected SampleA \(NvdViewStateDriver.contig) hit 2",
+            "the restore opens the taxon group and the contig and selects the kept hit"
+        )
+        XCTAssertEqual(viewer.testSelectedOutlineContigSamples(), ["SampleA"], "Extract and BLAST act on the hit of SampleA")
+    }
+
     /// No table wrote a column layout key that names this test's folder to the account's defaults (VS A10, QA 6).
     func assertNoLayoutKeyWritten(file: StaticString = #filePath, line: UInt = #line) {
         let written = UserDefaults.standard.dictionaryRepresentation().keys.filter {

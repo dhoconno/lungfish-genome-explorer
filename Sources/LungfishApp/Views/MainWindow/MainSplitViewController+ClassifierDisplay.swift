@@ -1088,7 +1088,7 @@ extension MainSplitViewController {
         )
 
         // Show a placeholder at once. Its viewer takes only an NVD block out of the Summary when it leaves.
-        let placeholderVC = NvdResultViewController()
+        let placeholderVC = NvdResultViewController.keepingViewMemory(of: url)
         do {
             try viewerController.displayNvdResult(placeholderVC) { [weak self] in
                 guard let summary = self?.inspectorController?.viewModel.documentSectionViewModel,

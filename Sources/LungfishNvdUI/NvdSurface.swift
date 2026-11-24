@@ -17,6 +17,14 @@ public final class NvdSurface: ResultViewport {
     /// The result viewer the host installs, the one the load adopted.
     public private(set) var controller: NvdResultViewController?
 
+    /// Where the result lives, read once in `load` (`NvdSurface+ViewMemory.swift`).
+    public internal(set) var viewMemoryItem: ViewMemoryItem?
+
+    /// The host's handle for the late restore, which the viewer runs once its database is in.
+    public var viewMemoryHandle: ViewMemoryHandle<ViewState>? {
+        didSet { wireViewMemoryHandle() }
+    }
+
     /// Called whenever the host removes this viewer, so the App can take the NVD block
     /// out of the Inspector. It runs for its own kind too: the App gives the Inspector a
     /// new result's block only after that result's show.
@@ -47,8 +55,10 @@ public final class NvdSurface: ResultViewport {
         onWillDeactivate?()
     }
 
-    /// Adopts the controller the App passed as `input`.
+    /// Adopts the controller the App passed as `input` and reads where its result lives.
     public func load(input: Any, token: AsyncRequestToken<SurfaceRequest>) async throws {
-        controller = try expectInput(input, as: NvdResultViewController.self)
+        let adopted = try expectInput(input, as: NvdResultViewController.self)
+        controller = adopted
+        readViewMemoryIdentity(of: adopted)
     }
 }
