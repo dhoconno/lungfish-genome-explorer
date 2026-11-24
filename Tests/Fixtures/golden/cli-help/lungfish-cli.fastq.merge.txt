@@ -9,8 +9,11 @@ OPTIONS:
   --min-overlap <min-overlap>
                           Minimum overlap (default: 12)
   --strict                Use strict merge mode
-  --count-duplicates      Collapse identical output sequences after merge and
-                          encode support as size=N
+  --count-duplicates      Collapse identical sequences, merged and unmerged
+                          alike, into one record each, named
+                          u<number>;size=<reads>. The written scores are Q40
+                          placeholders, not measured, and reads that did not
+                          merge lose their mate pairing.
   -o, --output <output>   Output file path (required)
   --force                 Overwrite existing output file
   --compress              Compress output with gzip
