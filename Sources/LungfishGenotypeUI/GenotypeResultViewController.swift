@@ -1593,9 +1593,8 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             persistCandidateDisplaySettings(requestedSettings, requestedState: state)
             return
         }
-        let previousViewMode = displayState.summaryViewMode
         applyDisplayStateImmediately(state)
-        noteViewMemoryChange(from: previousViewMode)
+        noteViewMemoryChange()
     }
 
     func applyDisplayStateImmediately(_ state: GenotypeResultDisplayState) {

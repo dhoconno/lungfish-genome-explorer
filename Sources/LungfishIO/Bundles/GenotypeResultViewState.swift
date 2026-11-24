@@ -1,13 +1,16 @@
 import Foundation
 
-/// The view an analyst last chose for a `.lungfishgenotype` result, kept as
-/// app state inside the bundle (plan decision S11).
+/// The view an analyst last chose for a `.lungfishgenotype` result, which an
+/// older build kept as app state inside the bundle (plan decision S11).
 ///
 /// The file is hidden, so directory digests skip it, and no record names it.
-/// The viewer writes it only after a user change, never on open and never
-/// when it restores a view. A view switch therefore writes no
-/// `annotations.json` and no record. `BundleKindRegistry` declares the file
-/// name in the genotype kind's `appStateFileNames`.
+/// The viewer no longer writes it. It keeps its view in the view memory store
+/// outside every bundle and project, and reads this file once, off the main
+/// actor, as a starting view while the result has no store entry and no
+/// retire mark (`GenotypeResultViewController+ViewMemory.swift`). A view
+/// switch therefore writes no `annotations.json` and no record.
+/// `BundleKindRegistry` declares the file name in the genotype kind's
+/// `appStateFileNames`.
 ///
 /// An older sidecar kept these fields in `GenotypeAnnotationSidecar.Settings`.
 /// They stay there, decode as before and reach the Excel export record, and a

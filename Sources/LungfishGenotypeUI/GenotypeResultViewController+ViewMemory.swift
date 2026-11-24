@@ -200,8 +200,7 @@ extension GenotypeResultViewController {
 
     /// A person's change through `applyDisplayState`, the path of the viewport's controls and the Inspector. It keeps
     /// the view at once, so a quit with no switch finds it, and a change of a restored percent basis ends its line.
-    func noteViewMemoryChange(from previousViewMode: GenotypeSummaryViewMode) {
-        recordSummaryViewChoice(from: previousViewMode, to: displayState.summaryViewMode)
+    func noteViewMemoryChange() {
         guard let session = viewMemory else { return }
         if let restored = session.restoredBases, captureViewMemory().bases != restored { clearSettingsLine(in: session) }
         keepViewMemory()

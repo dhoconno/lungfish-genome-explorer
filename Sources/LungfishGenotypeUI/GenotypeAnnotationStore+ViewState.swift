@@ -18,13 +18,4 @@ extension GenotypeAnnotationStore {
     nonisolated static func olderViewState(inBundleAt bundleURL: URL) -> GenotypeResultViewState? {
         GenotypeResultViewState.load(fromBundleAt: bundleURL)
     }
-
-    /// Writes nothing. A user's view change is view memory, which the viewer keeps in the store when the visit ends,
-    /// so a read-only bundle and a writable one behave alike and no write runs past `isReadOnly` (VS U9).
-    ///
-    /// - Returns: Always false, since nothing is written.
-    @discardableResult
-    func recordUserViewChange(_ change: (inout GenotypeResultViewState) -> Void) -> Bool {
-        false
-    }
 }
