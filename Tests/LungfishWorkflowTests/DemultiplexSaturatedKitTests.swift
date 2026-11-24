@@ -7,8 +7,10 @@
 // random bases, which real read starts pass. QA's 384 kit published on 87 of 87 real cuts (BIO-DEMUX-NULL:23). Preflight
 // now refuses such a kit unless the person keeps the unchecked samples.
 
+import CryptoKit
 import XCTest
 import LungfishIO
+import LungfishTestSupport
 @testable import LungfishWorkflow
 
 final class DemultiplexSaturatedKitTests: XCTestCase {
@@ -633,5 +635,215 @@ final class DemultiplexSaturatedKitTests: XCTestCase {
             kitName: "Dual One", pairs: 1, maxDistanceFrom5Prime: 59, maxDistanceFrom3Prime: 50, lines: 6_120
         ).errorDescription)
         XCTAssertTrue(single.contains("the barcode pair of \"Dual One\""), single)
+    }
+
+    // MARK: - The same cap on the built-in dual route (DEMUX-BUILTIN-DUAL-LINES, rulings UX-DEMUX-SIZE and BIO-DEMUX-CAP)
+
+    /// The records of an adapter file, the lines that name a row.
+    private func records(_ url: URL) throws -> Int {
+        try String(contentsOf: url, encoding: .utf8).split(separator: "\n").filter { $0.hasPrefix(">") }.count
+    }
+
+    /// What `createAdapterConfiguration` does for `kit` at Both Ends at `fivePrime` and `threePrime` with no sample sheet: the
+    /// refusal it throws, and the adapter file it left, nil when it left none.
+    private func adapterAttempt(
+        _ kit: BarcodeKitDefinition, fivePrime: Int, threePrime: Int
+    ) async throws -> (refusal: DemultiplexError?, file: URL?) {
+        let files = try project(starts: ["ACGTACGTACGT"])
+        let work = folder.appendingPathComponent("work-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        var refusal: DemultiplexError?
+        do {
+            _ = try await DemultiplexingPipeline().createAdapterConfiguration(
+                for: config(kit: kit, files: files, fivePrime: fivePrime, threePrime: threePrime), workDirectory: work
+            )
+        } catch let error as DemultiplexError {
+            refusal = error
+        }
+        let file = work.appendingPathComponent("adapters.fasta")
+        return (refusal, FileManager.default.fileExists(atPath: file.path) ? file : nil)
+    }
+
+    private func assertRefusedForLines(
+        _ error: DemultiplexError?, kit: String, pairs: Int, fivePrime: Int, threePrime: Int, lines: Int, _ setting: String
+    ) {
+        guard case .tooManySearchLines(let kitName, let count, let o5, let o3, let total)? = error else {
+            return XCTFail("\(setting) was refused as \(String(describing: error)), not for its lines")
+        }
+        XCTAssertEqual(kitName, kit, setting)
+        XCTAssertEqual([count, o5, o3, total], [pairs, fivePrime, threePrime, lines], setting)
+    }
+
+    /// The built-in TruSeq HT Dual Index kit at Both Ends, 8/8, error 0.15 gives Cutadapt 96 x 81 x 2 = 15,552 lines. Cutadapt
+    /// spends 451 s on them before the first read and 0.17 s a read after it, about 12 hours for a million reads on the
+    /// app's 4 cores, under one unmoving "[ 10%]" line, and nothing bounded the route (UX-DEMUX-SIZE, QA-DEMUX-CHANCE). The run
+    /// stops in the words of the line cap before it writes an adapter file or calls Cutadapt, as the custom dual route does
+    /// (BIO-DEMUX-CAP item 4 (a)). The Cutadapt of this runner is a stand-in that leaves a mark when it is called.
+    func testTheBuiltInTruSeqHTKitAtEightEightIsRefusedBeforeCutadaptRuns() async throws {
+        let kit = BarcodeKitRegistry.truseqHTDual
+        let name = "TruSeq HT Dual Index (96 combinations)"
+        XCTAssertEqual(kit.displayName, name)
+        let attempt = try await adapterAttempt(kit, fivePrime: 8, threePrime: 8)
+        assertRefusedForLines(attempt.refusal, kit: name, pairs: 96, fivePrime: 8, threePrime: 8, lines: 15_552, "adapter lines")
+        XCTAssertNil(attempt.file, "no adapter file is written")
+        let stand = try ManagedTestStandIn(prefix: "DualCapCutadapt")
+        defer { stand.remove() }
+        let called = stand.home.appendingPathComponent("cutadapt-was-called")
+        try stand.install("cutadapt", script: "#!/bin/sh\n/usr/bin/touch \"\(called.path)\"\nexit 1\n")
+        let pipeline = DemultiplexingPipeline(
+            runner: NativeToolRunner(toolsDirectory: nil, homeDirectory: stand.home, appIdentity: .preview),
+            cutadaptVersionOverride: "5.2"
+        )
+        let files = try project(starts: ["ACGTACGTACGT"])
+        var refused: DemultiplexError?
+        do {
+            _ = try await pipeline.run(config: config(kit: kit, files: files, fivePrime: 8, threePrime: 8), progress: { _, _ in })
+            XCTFail("the run of 15,552 lines ran")
+        } catch let error as DemultiplexError {
+            refused = error
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: called.path), "the run called Cutadapt")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.output.path), "a refusal writes nothing")
+        assertRefusedForLines(refused, kit: name, pairs: 96, fivePrime: 8, threePrime: 8, lines: 15_552, "run")
+        XCTAssertEqual(
+            refused?.errorDescription,
+            "Searching the 96 barcode pairs of \"TruSeq HT Dual Index (96 combinations)\" up to 8 bases from the start of the "
+                + "read and up to 8 bases from the end takes 15,552 Cutadapt search lines, one for each pair, strand and "
+                + "combination of start and end distance. That is more than the 6,000 a run can take, since Cutadapt spends time "
+                + "on every line before it reads the first read, so nothing was run. If the barcodes sit inside a known adapter "
+                + "sequence, trim that sequence from the reads first and run again with both distances at 0, or lower the 5' "
+                + "Distance and 3' Distance until the lines fit (on the command line, --max-distance-5prime and "
+                + "--max-distance-3prime)."
+        )
+    }
+
+    /// Both built-in dual kits at 4/4 write the adapter file they wrote before the cap, byte for byte: TruSeq HT 96 x 25 x 2 =
+    /// 4,800 records and Nextera XT v2 84 x 25 x 2 = 4,200 (BIO-DEMUX-CAP item 4 (b)). The TruSeq HT digest was taken from the
+    /// base, whose run of this test reported only its first failing assertion, so each file is also compared with the lines
+    /// the writer writes for the kit's rows, `>id` and `^N{a}i7...rc(i5)N{b}$` for each pair, strand and two offsets.
+    func testTheBuiltInKitsAtFourFourWriteTheAdapterFileTheyWroteBeforeTheCap() async throws {
+        let expected: [(BarcodeKitDefinition, Int, String?)] = [
+            (BarcodeKitRegistry.truseqHTDual, 4_800, "5387f672818680dc05eea885cca4505fec1b1ce6ab2f8068e18cb11dad137052"),
+            (BarcodeKitRegistry.nexteraXTv2, 4_200, nil),
+        ]
+        for (kit, count, digest) in expected {
+            let attempt = try await adapterAttempt(kit, fivePrime: 4, threePrime: 4)
+            XCTAssertNil(attempt.refusal, kit.displayName)
+            let file = try XCTUnwrap(attempt.file, kit.displayName)
+            XCTAssertEqual(try records(file), count, kit.displayName)
+            let data = try Data(contentsOf: file)
+            if let digest {
+                let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+                XCTAssertEqual(sha, digest, "\(kit.displayName) at 4/4")
+            }
+            XCTAssertTrue(String(decoding: data, as: UTF8.self) == writtenLines(kit, distance: 4), "\(kit.displayName) at 4/4 is not the lines of its rows")
+        }
+    }
+
+    /// The adapter file the built-in dual route writes for `kit` at Both Ends, both distances `distance`: for each row, the
+    /// pair `i7...rc(i5)` and then its other strand `i5...rc(i7)` unless that strand reads as the pair itself, each at every
+    /// 5' and 3' offset, with `N{n}` for an offset above 0.
+    private func writtenLines(_ kit: BarcodeKitDefinition, distance: Int) -> String {
+        func spacer(_ offset: Int) -> String { offset > 0 ? "N{\(offset)}" : "" }
+        var lines: [String] = []
+        for barcode in kit.barcodes {
+            let first = barcode.i7Sequence.uppercased()
+            let second = PlatformAdapters.reverseComplement((barcode.i5Sequence ?? "").uppercased())
+            var strands = [(first, second)]
+            let other = (PlatformAdapters.reverseComplement(second), PlatformAdapters.reverseComplement(first))
+            if other != (first, second) { strands.append(other) }
+            for (front, back) in strands {
+                for five in 0...distance {
+                    for three in 0...distance {
+                        lines.append(">\(barcode.id)")
+                        lines.append("^\(spacer(five))\(front)...\(back)\(spacer(three))$")
+                    }
+                }
+            }
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Nextera XT v2 holds 84 pairs, N701-N712 x S502-S508, so each pair and strand gives (d5 + 1)(d3 + 1) lines: 4/4 is 4,200
+    /// and 6/4 is 5,880, which pass, and 5/5 is 6,048, which is refused (BIO-DEMUX-CAP item 4 (c)).
+    func testNexteraXTv2HasEightyFourPairsAndTheCapAdmitsFourFourAndSixFourButNotFiveFive() async throws {
+        let kit = BarcodeKitRegistry.nexteraXTv2
+        XCTAssertEqual(kit.barcodes.count, 84, "N701-N712 x S502-S508")
+        for (fivePrime, threePrime, lines) in [(4, 4, 4_200), (6, 4, 5_880)] {
+            let setting = "Nextera XT v2 at \(fivePrime)/\(threePrime)"
+            let attempt = try await adapterAttempt(kit, fivePrime: fivePrime, threePrime: threePrime)
+            XCTAssertNil(attempt.refusal, setting)
+            XCTAssertEqual(try records(try XCTUnwrap(attempt.file, setting)), lines, setting)
+        }
+        let refused = try await adapterAttempt(kit, fivePrime: 5, threePrime: 5)
+        assertRefusedForLines(
+            refused.refusal, kit: kit.displayName, pairs: 84, fivePrime: 5, threePrime: 5, lines: 6_048, "Nextera XT v2 at 5/5"
+        )
+        XCTAssertNil(refused.file, "no adapter file is written")
+    }
+
+    /// A distance of `Int.max` on the built-in kit is refused in words, as the custom route refuses a billion, and is not
+    /// multiplied or counted out as typed (BIO-DEMUX-CAP item 4 (d)).
+    func testADistanceOfIntMaxOnTheBuiltInKitIsRefusedInWordsAndDoesNotOverflow() async throws {
+        let kit = BarcodeKitRegistry.truseqHTDual
+        let attempt = try await adapterAttempt(kit, fivePrime: Int.max, threePrime: Int.max)
+        guard case .tooManySearchLines(let kitName, let pairs, let o5, let o3, let lines)? = attempt.refusal else {
+            return XCTFail("Int.max/Int.max was refused as \(String(describing: attempt.refusal)), not for its lines")
+        }
+        XCTAssertEqual(kitName, kit.displayName)
+        XCTAssertEqual([pairs, o5, o3], [96, Int.max, Int.max])
+        XCTAssertGreaterThan(lines, DemultiplexingPipeline.observedPairLineCap)
+        let words = try XCTUnwrap(attempt.refusal?.errorDescription)
+        XCTAssertTrue(words.contains("nothing was run"), words)
+        XCTAssertTrue(words.contains("\"\(kit.displayName)\""), words)
+        XCTAssertNil(attempt.file, "no adapter file is written")
+    }
+
+    /// `preflight` alone, the call the CLI makes before it says a word, refuses the kit of (a) in the same error, and does so
+    /// before the chance check sums the kit's lines. That check summed them twice at the base, about 3 s in Release and
+    /// minutes in Debug, so the bound is the same in every build (BIO-DEMUX-CAP item 4 (e)).
+    func testPreflightAloneRefusesTheBuiltInKitAtEightEightWithinASecond() async throws {
+        let files = try project(starts: ["ACGTACGTACGT"])
+        let config = config(kit: BarcodeKitRegistry.truseqHTDual, files: files, fivePrime: 8, threePrime: 8)
+        let clock = ContinuousClock()
+        let started = clock.now
+        var refused: DemultiplexError?
+        do {
+            try await DemultiplexingPipeline().preflight(config: config)
+            XCTFail("preflight passed 15,552 lines")
+        } catch let error as DemultiplexError {
+            refused = error
+        }
+        let elapsed = started.duration(to: clock.now)
+        assertRefusedForLines(
+            refused, kit: "TruSeq HT Dual Index (96 combinations)", pairs: 96, fivePrime: 8, threePrime: 8, lines: 15_552, "preflight"
+        )
+        XCTAssertLessThan(elapsed, .seconds(1), "the refusal comes before the chance sums")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: files.output.path), "preflight writes nothing")
+    }
+
+    /// The cap counts the lines the writer writes. The route writes `^N{a}i7...rc(i5)N{b}$`, so a pair whose i5 is its i7
+    /// reads as itself on the other strand and is written as one strand. One such pair at 59/59 is 3,600 lines, and an `x 2`
+    /// count of 7,200 would refuse a run that fits (BIO-DEMUX-CAP item 1 (ii) and item 4 (f)). The definition takes the
+    /// built-in route, at error 0.
+    func testAPairThatReadsAsItselfOnTheOtherStrandIsCountedOnceAtFiftyNineFiftyNine() async throws {
+        let i7 = "TCCGGAGA"
+        let text = "# kit: truseq-ht-dual\nid,sequence,secondary_sequence\nSELF,\(i7),\(i7)\n"
+        let kit = try BarcodeKitRegistry.loadCustomKit(text: text, name: "Self Strand")
+        XCTAssertEqual(kit.sourceKitID, "truseq-ht-dual")
+        XCTAssertEqual(kit.pairingMode, .fixedDual)
+        let files = try project(starts: ["ACGTACGTACGT"])
+        let config = config(kit: kit, files: files, errorRate: 0, fivePrime: 59, threePrime: 59)
+        let pipeline = DemultiplexingPipeline()
+        XCTAssertTrue(pipeline.searchesBuiltInDualPairsAtAnOffset(config))
+        XCTAssertFalse(pipeline.usesObservedCustomBarcodePairs(config))
+        let attempt = try await adapterAttempt(kit, fivePrime: 59, threePrime: 59)
+        XCTAssertNil(attempt.refusal)
+        XCTAssertEqual(try records(try XCTUnwrap(attempt.file)), 3_600, "one strand, 60 x 60 lines")
+        do {
+            try await pipeline.preflight(config: config)
+        } catch let error as DemultiplexError {
+            if case .tooManySearchLines = error { XCTFail("preflight counted the pair twice: \(error.errorDescription ?? "")") } else { throw error }
+        }
     }
 }
