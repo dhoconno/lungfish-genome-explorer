@@ -3597,6 +3597,107 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(manifestOutput.fileSize, UInt64(try Data(contentsOf: manifestURL).count))
     }
 
+    /// Runs Refresh QC Summary on `bundle` with a CLI report whose statistics read like a written Q40 (Mean Q 40, Q20 and
+    /// Q30 of 100, score histogram `[40: 120]`) and returns the manifest the importer saved.
+    private func refreshQCSummaryWithAQ40Report(
+        of bundle: URL,
+        sourceFASTQ: URL,
+        in tempDir: URL,
+        reportName: String
+    ) async throws -> FASTQDerivedBundleManifest {
+        let reportURL = tempDir.appendingPathComponent(reportName)
+        let report = TestFastqQCSummaryReport(
+            inputs: [
+                .init(
+                    input: bundle.path,
+                    statistics: FASTQDatasetStatistics(
+                        readCount: 4, baseCount: 120, meanReadLength: 30, minReadLength: 20, maxReadLength: 40,
+                        medianReadLength: 30, n50ReadLength: 30, meanQuality: 40, q20Percentage: 100,
+                        q30Percentage: 100, gcContent: 0.5, readLengthHistogram: [30: 4],
+                        qualityScoreHistogram: [40: 120], perPositionQuality: []
+                    )
+                )
+            ]
+        )
+        try JSONEncoder().encode(report).write(to: reportURL, options: .atomic)
+        try writeQCSummaryCLIProvenance(reportURL: reportURL, sourceURL: sourceFASTQ)
+
+        let importer = BundleFASTQOperationImporter(destinationDirectory: tempDir)
+        let request = FASTQOperationLaunchRequest.refreshQCSummary(inputURLs: [bundle])
+        let imported = try await importer.importOutputs(
+            at: [reportURL],
+            forResolvedRequest: request,
+            originalRequest: request,
+            outputDirectory: tempDir
+        )
+        XCTAssertEqual(imported, [bundle])
+        return try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundle))
+    }
+
+    /// QUALITY-2 BIO review SF1. Refresh QC Summary is the one writer that rebuilds a bundle's manifest from a CLI
+    /// report, and the report measured the written `I` characters of a Fluidigm bundle as Q40. For reads that carry
+    /// placeholder scores the rebuilt manifest keeps the mark and stores no quality figure. The control is a measured
+    /// bundle, which keeps the report's Mean Q 40 and gains no mark key.
+    func testRefreshQCSummaryOfPlaceholderReadsKeepsTheMarkAndStoresNoQualityFigures() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecQCPlaceholder")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fluidigm = try await FluidigmSampleBundleFixture.materialize(
+            outputDirectory: tempDir.appendingPathComponent("fluidigm", isDirectory: true),
+            workDirectory: tempDir.appendingPathComponent("fluidigm-input", isDirectory: true)
+        )
+        let marked = try await refreshQCSummaryWithAQ40Report(
+            of: fluidigm,
+            sourceFASTQ: try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: fluidigm)),
+            in: tempDir,
+            reportName: "qc-summary-placeholder.json"
+        )
+        let stats = marked.cachedStatistics
+        XCTAssertEqual(marked.qualityScoresArePlaceholders, true, "the refreshed manifest keeps the mark")
+        XCTAssertEqual(stats.readCount, 4, "the counts of the report are stored")
+        XCTAssertEqual(stats.meanQuality, 0, "Mean Q of reads no instrument scored")
+        XCTAssertEqual(stats.q20Percentage, 0, "Q20 of reads no instrument scored")
+        XCTAssertEqual(stats.q30Percentage, 0, "Q30 of reads no instrument scored")
+        XCTAssertTrue(stats.qualityScoreHistogram.isEmpty, "score histogram \(stats.qualityScoreHistogram)")
+        XCTAssertTrue(stats.perPositionQuality.isEmpty, "\(stats.perPositionQuality.count) per-position quality summaries")
+
+        // The control, the measured bundle of the test above.
+        let root = try FASTQOperationTestHelper.makeBundle(named: "root", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: root.fastqURL, readCount: 10, readLength: 30)
+        let derivedBundle = tempDir.appendingPathComponent(
+            "subset.\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: derivedBundle, withIntermediateDirectories: true)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "subset",
+                parentBundleRelativePath: "../\(root.bundleURL.lastPathComponent)",
+                rootBundleRelativePath: "../\(root.bundleURL.lastPathComponent)",
+                rootFASTQFilename: root.fastqURL.lastPathComponent,
+                payload: .subset(readIDListFilename: "read-ids.txt"),
+                lineage: [],
+                operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 2),
+                cachedStatistics: .countsOnlyFixture(readCount: 1, baseCount: 30),
+                pairingMode: nil
+            ),
+            in: derivedBundle
+        )
+        let measured = try await refreshQCSummaryWithAQ40Report(
+            of: derivedBundle,
+            sourceFASTQ: root.fastqURL,
+            in: tempDir,
+            reportName: "qc-summary-measured.json"
+        )
+        XCTAssertEqual(measured.cachedStatistics.meanQuality, 40, "measured reads keep the report's Mean Q")
+        XCTAssertEqual(measured.cachedStatistics.q20Percentage, 100, "measured reads keep the report's Q20")
+        XCTAssertNil(measured.qualityScoresArePlaceholders, "a measured bundle gains no mark")
+        let json = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: FASTQBundle.derivedManifestURL(in: derivedBundle))
+        ) as? [String: Any]
+        XCTAssertNil(json?["qualityScoresArePlaceholders"], "the mark key is written only for placeholder reads")
+    }
+
     func testMapLaunchBuildsTopLevelMapInvocation() throws {
         let request = FASTQOperationLaunchRequest.map(
             inputURLs: [
