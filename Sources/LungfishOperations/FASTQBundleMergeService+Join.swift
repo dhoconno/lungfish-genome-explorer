@@ -22,11 +22,18 @@ extension FASTQBundleMergeService {
         defer { try? inputHandle.close() }
 
         var lastByte: UInt8?
-        while true {
-            let chunk = inputHandle.readData(ofLength: 1_048_576)
-            if chunk.isEmpty { break }
-            outputHandle.write(chunk)
-            lastByte = chunk.last
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            autoreleasepool { () -> Void in
+                let chunk = inputHandle.readData(ofLength: 1_048_576)
+                guard !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                outputHandle.write(chunk)
+                lastByte = chunk.last
+            }
         }
         if inputURL.pathExtension.lowercased() != "gz", let lastByte, lastByte != UInt8(ascii: "\n") {
             outputHandle.write(Data([UInt8(ascii: "\n")]))

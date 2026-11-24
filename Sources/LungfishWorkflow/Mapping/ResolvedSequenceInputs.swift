@@ -329,9 +329,17 @@ public struct ResolvedSequenceInputs: Sendable, Equatable {
         let input = try FileHandle(forReadingFrom: member)
         defer { try? input.close() }
         var lastByte: UInt8?
-        while let chunk = try input.read(upToCount: joinChunkSize), !chunk.isEmpty {
-            try stage.write(chunk)
-            lastByte = chunk.last
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                guard let chunk = try input.read(upToCount: joinChunkSize), !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                try stage.write(chunk)
+                lastByte = chunk.last
+            }
         }
         if endingWithLineBreak, let lastByte, lastByte != UInt8(ascii: "\n") {
             try stage.write(Data([UInt8(ascii: "\n")]))

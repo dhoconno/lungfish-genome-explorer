@@ -231,23 +231,29 @@ public struct AssemblyContigCatalog: Sendable {
         var bufferedData = Data()
         var headersByName: [String: String] = [:]
 
-        while true {
-            guard let chunk = try handle.read(upToCount: bufferSize) else { break }
-            if chunk.isEmpty { break }
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                guard let chunk = try handle.read(upToCount: bufferSize), !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
 
-            bufferedData.append(chunk)
-            var lineStartIndex = bufferedData.startIndex
+                bufferedData.append(chunk)
+                var lineStartIndex = bufferedData.startIndex
 
-            while let newlineIndex = bufferedData[lineStartIndex...].firstIndex(of: 0x0A) {
-                try registerHeaderIfNeeded(
-                    from: bufferedData.subdata(in: lineStartIndex..<newlineIndex),
-                    headersByName: &headersByName
-                )
-                lineStartIndex = bufferedData.index(after: newlineIndex)
-            }
+                while let newlineIndex = bufferedData[lineStartIndex...].firstIndex(of: 0x0A) {
+                    try registerHeaderIfNeeded(
+                        from: bufferedData.subdata(in: lineStartIndex..<newlineIndex),
+                        headersByName: &headersByName
+                    )
+                    lineStartIndex = bufferedData.index(after: newlineIndex)
+                }
 
-            if lineStartIndex > bufferedData.startIndex {
-                bufferedData.removeSubrange(bufferedData.startIndex..<lineStartIndex)
+                if lineStartIndex > bufferedData.startIndex {
+                    bufferedData.removeSubrange(bufferedData.startIndex..<lineStartIndex)
+                }
             }
         }
 

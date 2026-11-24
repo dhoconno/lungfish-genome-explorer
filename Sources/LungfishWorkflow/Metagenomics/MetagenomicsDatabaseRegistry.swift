@@ -1332,10 +1332,18 @@ public actor MetagenomicsDatabaseRegistry {
         defer { try? handle.close() }
         var md5 = Insecure.MD5()
         var sha256 = SHA256()
-        while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty {
-            switch algorithm {
-            case .md5: md5.update(data: chunk)
-            case .sha256: sha256.update(data: chunk)
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                guard let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                switch algorithm {
+                case .md5: md5.update(data: chunk)
+                case .sha256: sha256.update(data: chunk)
+                }
             }
         }
         switch algorithm {

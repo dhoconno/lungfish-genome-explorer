@@ -88,10 +88,17 @@ public struct PayloadChecksum: Codable, Sendable, Equatable {
         defer { try? handle.close() }
         var hasher = SHA256()
         let chunkSize = 65536
-        while true {
-            let chunk = handle.readData(ofLength: chunkSize)
-            if chunk.isEmpty { break }
-            hasher.update(data: chunk)
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            autoreleasepool { () -> Void in
+                let chunk = handle.readData(ofLength: chunkSize)
+                guard !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                hasher.update(data: chunk)
+            }
         }
         let digest = hasher.finalize()
         return digest.map { String(format: "%02x", $0) }.joined()

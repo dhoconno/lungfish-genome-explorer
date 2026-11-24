@@ -167,30 +167,35 @@ public enum Kraken2OutputParser {
             parsedCount += 1
         }
 
-        while true {
-            let chunk: Data?
-            do {
-                chunk = try handle.read(upToCount: streamingChunkSize)
-            } catch {
-                throw Kraken2OutputParserError.fileReadError(url, error.localizedDescription)
-            }
-
-            guard let chunk, !chunk.isEmpty else {
-                break
-            }
-
-            buffer.append(chunk)
-            while let newlineIndex = buffer.firstIndex(where: { $0 == 10 || $0 == 13 }) {
-                let delimiter = buffer[newlineIndex]
-                let lineData = buffer[..<newlineIndex]
-                if previousDelimiterWasCR, delimiter == 10, lineData.isEmpty {
-                    previousDelimiterWasCR = false
-                    buffer.removeSubrange(...newlineIndex)
-                    continue
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                let chunk: Data?
+                do {
+                    chunk = try handle.read(upToCount: streamingChunkSize)
+                } catch {
+                    throw Kraken2OutputParserError.fileReadError(url, error.localizedDescription)
                 }
-                try processLine(Data(lineData))
-                previousDelimiterWasCR = delimiter == 13
-                buffer.removeSubrange(...newlineIndex)
+
+                guard let chunk, !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+
+                buffer.append(chunk)
+                while let newlineIndex = buffer.firstIndex(where: { $0 == 10 || $0 == 13 }) {
+                    let delimiter = buffer[newlineIndex]
+                    let lineData = buffer[..<newlineIndex]
+                    if previousDelimiterWasCR, delimiter == 10, lineData.isEmpty {
+                        previousDelimiterWasCR = false
+                        buffer.removeSubrange(...newlineIndex)
+                        continue
+                    }
+                    try processLine(Data(lineData))
+                    previousDelimiterWasCR = delimiter == 13
+                    buffer.removeSubrange(...newlineIndex)
+                }
             }
         }
 

@@ -226,9 +226,17 @@ enum SequenceExportStaging {
     private static func copy(_ url: URL, to writer: DurableReplace.StageWriter) throws {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
-        while let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty {
-            try Task.checkCancellation()
-            try writer.write(chunk)
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                try Task.checkCancellation()
+                try writer.write(chunk)
+            }
         }
     }
 }

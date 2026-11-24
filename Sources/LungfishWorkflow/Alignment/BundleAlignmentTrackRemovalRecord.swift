@@ -64,11 +64,18 @@ public struct BundleAlignmentTrackRemovalRecord: Sendable {
         defer { try? handle.close() }
         var hasher = SHA256()
         var size: UInt64 = 0
-        while true {
-            try Task.checkCancellation()
-            guard let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty else { break }
-            hasher.update(data: chunk)
-            size += UInt64(chunk.count)
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                try Task.checkCancellation()
+                guard let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                hasher.update(data: chunk)
+                size += UInt64(chunk.count)
+            }
         }
         let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
         return ProvenanceFileDescriptor(

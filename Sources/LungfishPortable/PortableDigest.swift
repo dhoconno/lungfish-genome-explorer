@@ -29,8 +29,16 @@ public enum PortableDigest {
     /// the handle, so a file checked with `fstat` is hashed through the same descriptor.
     package static func sha256Hex(reading handle: FileHandle) throws -> String {
         var hasher = SHA256()
-        while let chunk = try handle.read(upToCount: fileChunkSize), !chunk.isEmpty {
-            hasher.update(data: chunk)
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                guard let chunk = try handle.read(upToCount: fileChunkSize), !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                hasher.update(data: chunk)
+            }
         }
         return hex(hasher.finalize())
     }

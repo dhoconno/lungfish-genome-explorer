@@ -141,12 +141,20 @@ struct ClassifierExtractionCopyRoute: Sendable {
         var lines = 0
         var headers = 0
         var atLineStart = true
-        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-            try Task.checkCancellation()
-            for byte in chunk {
-                if atLineStart, byte == UInt8(ascii: ">") { headers += 1 }
-                atLineStart = byte == UInt8(ascii: "\n")
-                if atLineStart { lines += 1 }
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                guard let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                try Task.checkCancellation()
+                for byte in chunk {
+                    if atLineStart, byte == UInt8(ascii: ">") { headers += 1 }
+                    atLineStart = byte == UInt8(ascii: "\n")
+                    if atLineStart { lines += 1 }
+                }
             }
         }
         if !atLineStart { lines += 1 }

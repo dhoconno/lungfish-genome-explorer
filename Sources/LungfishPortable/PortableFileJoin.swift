@@ -23,9 +23,17 @@ public enum PortableFileJoin {
             try sink.seekToEnd()
             let source = try FileHandle(forReadingFrom: tail)
             defer { try? source.close() }
-            while let chunk = try source.read(upToCount: 4 << 20), !chunk.isEmpty {
-                try Task.checkCancellation()
-                try sink.write(contentsOf: chunk)
+            var atEnd = false
+            while !atEnd {
+                // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+                try autoreleasepool { () throws -> Void in
+                    guard let chunk = try source.read(upToCount: 4 << 20), !chunk.isEmpty else {
+                        atEnd = true
+                        return
+                    }
+                    try Task.checkCancellation()
+                    try sink.write(contentsOf: chunk)
+                }
             }
             try sink.close()
         } catch {

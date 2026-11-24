@@ -144,8 +144,16 @@ public enum ENAFASTQDownloadValidator {
         }
         defer { try? handle.close() }
         var hasher = Insecure.MD5()
-        while let piece = try handle.read(upToCount: 4 << 20), !piece.isEmpty {
-            hasher.update(data: piece)
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                guard let piece = try handle.read(upToCount: 4 << 20), !piece.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                hasher.update(data: piece)
+            }
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
