@@ -858,6 +858,7 @@ public class MainWindowController: NSWindowController, NSMenuItemValidation {
 extension MainWindowController: NSWindowDelegate {
 
     public func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard keepFASTQDrawerEditBeforeClose(sender) else { return false }
         if isReenteringManualHaplotypeWindowClose {
             isReenteringManualHaplotypeWindowClose = false
             return true
@@ -904,10 +905,7 @@ extension MainWindowController: NSWindowDelegate {
         manualHaplotypeCloseResolutionTask =
             Task { @MainActor [weak self, weak sender] in
                 guard let self else { return }
-                let allowed =
-                    await self.prepareForManualHaplotypeTransition(
-                        .windowClose
-                    )
+                let allowed = await self.prepareForManualHaplotypeTransition(.windowClose)
                 self.manualHaplotypeCloseResolutionTask = nil
                 guard allowed, let sender else { return }
                 self.isReenteringManualHaplotypeWindowClose = true

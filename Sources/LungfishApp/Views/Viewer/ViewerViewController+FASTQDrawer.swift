@@ -124,16 +124,25 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
     /// path. A sheet could not offer Cancel here, since the selection has already moved. When the write fails, a sheet
     /// says that the edit was not saved and why. A drawer with no edit writes nothing.
     func keepWaitingFASTQDrawerEdit() {
-        guard let drawer = fastqMetadataDrawerView else { return }
+        guard let unkept = keepWaitingFASTQDrawerEditReportingFailure() else { return }
+        Self.presentUnkeptFASTQDrawerEdit(Self.unkeptFASTQDrawerEditAlert(unkept), view.window)
+    }
+
+    /// The keep step every way out of the drawer takes: leaving the dataset, Quit and the close of the window
+    /// (FASTQ-DRAWER-EDIT-LOST-ON-QUIT). It saves a waiting edit through Save's own path and returns what could not be
+    /// saved, for the caller's own sheet. It is nil when the edit was saved or none waits.
+    func keepWaitingFASTQDrawerEditReportingFailure() -> UnkeptFASTQDrawerEdit? {
+        guard let drawer = fastqMetadataDrawerView else { return nil }
         drawer.endCellEditing()
-        guard drawer.hasWaitingEdit, let datasetURL = drawer.datasetURL else { return }
+        guard drawer.hasWaitingEdit, let datasetURL = drawer.datasetURL else { return nil }
         do {
             try writeFASTQDrawerMetadata(drawer.currentMetadata(), to: datasetURL)
             drawer.markSettingsKept()
             fastqDrawerLogger.info("Kept the drawer's edit for \(datasetURL.lastPathComponent, privacy: .public) on leaving it")
+            return nil
         } catch {
             fastqDrawerLogger.warning("Could not keep the drawer's edit for \(datasetURL.lastPathComponent, privacy: .public): \(error)")
-            Self.presentUnkeptFASTQDrawerEdit(Self.unkeptFASTQDrawerEditAlert(datasetURL: datasetURL, error: error), view.window)
+            return UnkeptFASTQDrawerEdit(datasetURL: datasetURL, reason: error.localizedDescription, window: view.window)
         }
     }
 
@@ -143,14 +152,22 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         alert.beginSheetModal(for: window)
     }
 
-    static func unkeptFASTQDrawerEditAlert(datasetURL: URL, error: Error) -> NSAlert {
-        let folder = datasetURL.deletingLastPathComponent()
-        let name = FASTQBundle.isBundleURL(folder)
-            ? folder.deletingPathExtension().lastPathComponent : datasetURL.lastPathComponent
+    /// The same sheet on a project window that is closing, and the close once the person has pressed OK, so the words
+    /// are seen before the window goes. Tests replace it, so no test opens a real sheet.
+    static var presentUnkeptFASTQDrawerEditBeforeClose: @MainActor (NSAlert, NSWindow, @escaping @MainActor () -> Void) -> Void = {
+        alert, window, close in
+        Task { @MainActor in
+            _ = await alert.beginSheetModal(for: window)
+            close()
+        }
+    }
+
+    static func unkeptFASTQDrawerEditAlert(_ unkept: UnkeptFASTQDrawerEdit) -> NSAlert {
+        let name = unkept.name
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "The FASTQ drawer\u{2019}s edits for \(name) were not saved."
-        alert.informativeText = "\(error.localizedDescription) The settings saved earlier are unchanged. Check that \(name) "
+        alert.informativeText = "\(unkept.reason) The settings saved earlier are unchanged. Check that \(name) "
             + "is still in the project and that its folder can be written, then select it and make the edits again."
         alert.addButton(withTitle: "OK")
         return alert

@@ -10,6 +10,8 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+import LungfishKit
+import LungfishKitTestSupport
 import LungfishTestSupport
 
 @MainActor
@@ -76,6 +78,72 @@ final class FASTQDrawerKeepsEditOnQuitTests: XCTestCase {
         XCTAssertEqual(immediate, .terminateNow, "Quit was held with no drawer edit waiting")
         XCTAssertEqual(replies, [])
         XCTAssertEqual(try Data(contentsOf: sidecar), before, "Quit with no drawer edit rewrote the sidecar")
+    }
+
+    /// When the edit cannot be written on Quit, because the reads are gone, Quit waits for an answer in the Quit sheet.
+    /// Don't Quit keeps the app and the edit in the drawer, and Quit Anyway quits.
+    func testQuitWithAnEditThatCannotBeWrittenDoesNotGoOnWithoutAnAnswer() async throws {
+        let (delegate, viewer) = try projectWindow()
+        let first = try await fastq(named: "First", savedSampleName: "Saved name")
+        try openDrawer(on: first, in: viewer)
+        try type("Typed name", intoSampleNameOfRow: 0, in: try XCTUnwrap(viewer.fastqMetadataDrawerView))
+        try FileManager.default.removeItem(at: first)
+        var asked: [(alert: NSAlert, unkept: [UnkeptFASTQDrawerEdit])] = []
+        var answer = false
+        FASTQDrawerEditQuitConfirmation.testingSheetAnswer = { alert, unkept in
+            asked.append((alert, unkept))
+            return answer
+        }
+        defer { FASTQDrawerEditQuitConfirmation.testingSheetAnswer = nil }
+
+        var replies: [Bool] = []
+        XCTAssertEqual(delegate.testingApplicationShouldTerminate { replies.append($0) }, .terminateLater,
+                       "Quit went on with a drawer edit that was not saved and nobody asked the person")
+        let answered = await waitUntil(budget: WaitBudget.standard) { !replies.isEmpty }
+        XCTAssertTrue(answered, "the Quit sheet never answered AppKit")
+        XCTAssertEqual(replies, [false], "Don't Quit did not keep the app")
+        let alert = try XCTUnwrap(asked.first?.alert)
+        XCTAssertEqual(alert.messageText, "The FASTQ drawer\u{2019}s edits for illumina-reads were not saved.")
+        XCTAssertTrue(alert.informativeText.hasSuffix(
+            "Quit Anyway discards the edits. If you choose Don't Quit, they stay in the drawer: check that illumina-reads "
+                + "is still in the project and that its folder can be written, then press Save."), alert.informativeText)
+        XCTAssertEqual(alert.buttons.map(\.title), ["Quit Anyway", "Don't Quit"])
+        XCTAssertTrue(asked.first?.unkept.first?.window === viewer.view.window, "the sheet is not for the drawer's window")
+        XCTAssertEqual(viewer.fastqMetadataDrawerView?.hasWaitingEdit, true, "Don't Quit dropped the edit from the drawer")
+
+        answer = true
+        replies = []
+        XCTAssertEqual(delegate.testingApplicationShouldTerminate { replies.append($0) }, .terminateLater)
+        let quit = await waitUntil(budget: WaitBudget.standard) { !replies.isEmpty }
+        XCTAssertTrue(quit, "the Quit sheet never answered AppKit")
+        XCTAssertEqual(replies, [true], "Quit Anyway did not quit")
+        XCTAssertEqual(asked.count, 2)
+    }
+
+    /// When the edit cannot be written as the window closes, the select route's sheet goes on the window, and the window
+    /// closes once the person has pressed OK.
+    func testClosingTheWindowWithAnEditThatCannotBeWrittenShowsTheSheetThenCloses() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let first = try await fastq(named: "First", savedSampleName: "Saved name")
+        try openDrawer(on: first, in: viewer)
+        try type("Typed name", intoSampleNameOfRow: 0, in: try XCTUnwrap(viewer.fastqMetadataDrawerView))
+        try FileManager.default.removeItem(at: first)
+        var asked: [(alert: NSAlert, window: NSWindow, close: @MainActor () -> Void)] = []
+        let present = ViewerViewController.presentUnkeptFASTQDrawerEditBeforeClose
+        ViewerViewController.presentUnkeptFASTQDrawerEditBeforeClose = { asked.append(($0, $1, $2)) }
+        defer { ViewerViewController.presentUnkeptFASTQDrawerEditBeforeClose = present }
+
+        XCTAssertFalse(harness.controller.windowShouldClose(harness.window), "the window closed over words nobody saw")
+        XCTAssertEqual(asked.count, 1, "the edit that could not be saved was dropped with no sheet")
+        XCTAssertTrue(asked.first?.window === harness.window, "the sheet was not put on the closing window")
+        XCTAssertEqual(asked.first?.alert.messageText, "The FASTQ drawer\u{2019}s edits for illumina-reads were not saved.")
+        XCTAssertEqual(asked.first?.alert.buttons.map(\.title), ["OK"])
+
+        asked.first?.close()
+        XCTAssertEqual(viewer.fastqMetadataDrawerView?.hasWaitingEdit, false, "after OK the edit still holds the close")
+        XCTAssertTrue(harness.controller.windowShouldClose(harness.window), "after OK the window may not close")
     }
 
     // MARK: - Fixture

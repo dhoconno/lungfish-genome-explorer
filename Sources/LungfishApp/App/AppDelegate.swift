@@ -940,18 +940,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
         }
 
-        let dirtyControllers = mainWindowControllers.filter(
-            \.requiresManualHaplotypeTransitionCoordination
-        )
+        let dirtyControllers = mainWindowControllers.filter(\.requiresManualHaplotypeTransitionCoordination)
         let hasPendingProjectTasks = ProjectTaskTerminationRegistry.hasPendingTasks
-        guard !dirtyControllers.isEmpty || hasPendingProjectTasks else {
+        // Quit never reaches a FASTQ drawer's teardown, so its waiting edit is saved here (FASTQ-DRAWER-EDIT-LOST-ON-QUIT).
+        let unkeptDrawerEdits = keepWaitingFASTQDrawerEdits(in: mainWindowControllers)
+        guard !dirtyControllers.isEmpty || hasPendingProjectTasks || !unkeptDrawerEdits.isEmpty else {
             return .terminateNow
         }
         manualHaplotypeTerminationTask =
             Task { [weak self] in
                 guard let self else { return }
-                var allowed = true
-                if !dirtyControllers.isEmpty {
+                var allowed = await FASTQDrawerEditQuitConfirmation.mayQuit(
+                    unkept: unkeptDrawerEdits, hostProvider: { self.windowForFASTQDrawerQuitSheet(unkeptDrawerEdits) })
+                if allowed, !dirtyControllers.isEmpty {
                     allowed = await self.prepareForManualHaplotypeTermination(
                         controllers: { [weak self] in
                             self?.mainWindowControllers ?? []
