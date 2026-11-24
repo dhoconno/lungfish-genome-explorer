@@ -48,15 +48,15 @@ public final class AssemblyResultViewController: NSViewController {
     var failurePresenter: ((FailureReport) -> Void)?
 
     private let summaryStrip = AssemblySummaryStrip()
-    private let splitView = TrackedDividerSplitView()
+    let splitView = TrackedDividerSplitView()
     private let tableContainer = NSView()
-    private let detailContainer = NSView()
+    let detailContainer = NSView()
     let contigTableView = AssemblyContigTableView()
     private let emptyStateView = NSView()
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: EmptyStateCopy.noContigs)
     let detailPane = AssemblyContigDetailPane()
     private let actionBar = AssemblyActionBar()
-    private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
+    let splitCoordinator = TwoPaneTrackedSplitCoordinator()
     let materializationAction = AssemblyContigMaterializationAction()
 
     private var savePanelPresenter: SavePanelPresenting = DefaultSavePanelPresenter()
@@ -254,7 +254,7 @@ public final class AssemblyResultViewController: NSViewController {
         contigTableView.scalarPasteboard = scalarPasteboard
     }
 
-    private func defaultLeadingFraction(for layout: AssemblyPanelLayout) -> CGFloat {
+    func defaultLeadingFraction(for layout: AssemblyPanelLayout) -> CGFloat {
         switch layout {
         case .detailLeading:
             return 0.6
@@ -263,7 +263,7 @@ public final class AssemblyResultViewController: NSViewController {
         }
     }
 
-    private func minimumExtents(for layout: AssemblyPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
+    func minimumExtents(for layout: AssemblyPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
         switch layout {
         case .detailLeading:
             return (260, 320)
@@ -292,7 +292,7 @@ public final class AssemblyResultViewController: NSViewController {
             desiredIsVertical: layout != .stacked,
             desiredFirstPane: detailLeading ? detailContainer : tableContainer,
             desiredSecondPane: detailLeading ? tableContainer : detailContainer,
-            defaultLeadingFraction: defaultLeadingFraction(for: layout),
+            defaultLeadingFraction: placedLeadingFraction(for: layout),
             minimumExtents: minimumExtents(for: layout),
             isViewInWindow: view.window != nil
         )
@@ -311,7 +311,7 @@ public final class AssemblyResultViewController: NSViewController {
                 self?.minimumExtents(for: AssemblyPanelLayout.current()) ?? (260, 320)
             },
             defaultLeadingFraction: { [weak self] in
-                self?.defaultLeadingFraction(for: AssemblyPanelLayout.current()) ?? 0.4
+                self?.placedLeadingFraction(for: AssemblyPanelLayout.current()) ?? 0.4
             }
         )
     }
