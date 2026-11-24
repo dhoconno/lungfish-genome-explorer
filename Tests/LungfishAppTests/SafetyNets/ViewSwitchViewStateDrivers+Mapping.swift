@@ -690,6 +690,20 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertEqual(selectedRecord(in: viewport), "chr2", "the reload keeps the shown record")
     }
 
+    /// VS-MAP-RACE SWIFT SF-1. An own selection inside another, as a row fill that sends the kept selection again while
+    /// the list selects its row by itself, leaves the outer one own when it ends, so the rest of the outer selection
+    /// still notes no person's pick.
+    func testAnOwnSelectionInsideAnotherLeavesTheOuterOneOwn() async {
+        let viewport = ReferenceBundleViewportController()
+        var stillOwn = false
+        viewport.asOwnSelection {
+            viewport.asOwnSelection {}
+            stillOwn = viewport.selectsOwnRow
+        }
+        XCTAssertTrue(stillOwn, "the inner own selection leaves the outer one own")
+        XCTAssertFalse(viewport.selectsOwnRow, "and the outer one ends it")
+    }
+
     /// VS-MAP-2 item 1 (VS B4, BIO R1). The drawer's row comes back by its identity once the drawer's rows load, never a
     /// row that shares its name or its start, after a switch away and back and after a relaunch, and Delete Annotation
     /// then acts on that row only (it reads `selectedAnnotationResults`).
