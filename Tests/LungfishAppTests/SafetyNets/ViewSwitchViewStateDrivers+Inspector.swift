@@ -248,4 +248,63 @@ extension ViewSwitchViewStateTests {
         XCTAssertEqual(try viewport().shownReadFilters, opened, "the viewer shows the open's reads")
         XCTAssertNil(try viewport().readFilterLine, "no filter line stays")
     }
+
+    /// Reset View also returns the genotype minimums, which the viewer does not keep, to their defaults (VS U3, the
+    /// VS-GENO BIO ruling 6), in the Inspector's block and in the viewer.
+    func testResetViewReturnsTheGenotypeMinimumsToTheirDefaults() async throws {
+        let driver = GenotypeViewStateDriver()
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let block = harness.split.inspectorController.viewModel.genotypeResultDisplaySectionViewModel
+        let viewer = try XCTUnwrap(harness.split.viewerController.genotypeResultViewController)
+        let defaults = GenotypeResultDisplayState()
+        block.setMinimumReads(7)
+        block.setMatrixMinimumReads(5)
+        block.setMatrixMinimumPercent(12)
+        block.setMatrixMinimumPrevalencePercent(30)
+        XCTAssertEqual(viewer.displayState.matrixMinimumReads, 5, "the viewer reads the block's minimum")
+
+        chooseResetView(in: harness)
+        for state in [block.displayState, viewer.displayState] {
+            XCTAssertEqual(state.minimumReads, defaults.minimumReads)
+            XCTAssertEqual(state.matrixMinimumReads, defaults.matrixMinimumReads)
+            XCTAssertEqual(state.matrixMinimumPercent, defaults.matrixMinimumPercent)
+            XCTAssertEqual(state.matrixMinimumPrevalencePercent, defaults.matrixMinimumPrevalencePercent)
+        }
+    }
+
+    // MARK: - The Samples & Metadata disclosure
+
+    /// The disclosure draws the item's kept state: a click on it writes the Inspector's model, which the item keeps, and
+    /// the state comes back through a switch away and back (VS-INSP item 2). SwiftUI's accessibility nodes do not
+    /// build while an async test holds the main queue, so the view is read through the binding it draws from.
+    func testInspectorSamplesDisclosureDrawsTheKeptStateThroughASwitch() async throws {
+        let driver = TwelveSViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let model = harness.split.inspectorController.viewModel
+        XCTAssertEqual(model.selectedTab, .resultSummary)
+        let section = MetagenomicsResultSummarySection(
+            viewModel: model.documentSectionViewModel, twelveSViewModel: model.twelveSResultDisplaySectionViewModel,
+            windowStateScope: model.windowStateScope, isSamplesExpanded: Bindable(model).samplesExpanded)
+        XCTAssertTrue(section.isSamplesExpanded, "the disclosure opens open")
+        let read = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+            harness.split.inspectorController.viewMemoryIsSettled
+        }
+        XCTAssertTrue(read, "the Inspector read the item's entry")
+        section.isSamplesExpanded = false // a click on the disclosure
+
+        try await leave(for: other, in: harness, driver: driver)
+        XCTAssertTrue(model.samplesExpanded, "another item opens the disclosure at its default")
+        try await show(fixture, in: harness, driver: driver)
+        let kept = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { !model.samplesExpanded }
+        XCTAssertTrue(kept, "the disclosure as left")
+        XCTAssertFalse(section.isSamplesExpanded, "the disclosure draws the kept state")
+    }
 }
