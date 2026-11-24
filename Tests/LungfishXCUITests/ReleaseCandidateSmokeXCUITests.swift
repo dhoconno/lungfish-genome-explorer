@@ -244,6 +244,168 @@ final class ReleaseCandidateSmokeXCUITests: XCTestCase {
             previous = kind
         }
     }
+
+    /// View-state exit check X4 (lane VS-PROOF item 3). A person's place in a reference comes back after a switch, and
+    /// after a quit and a relaunch on the same Mac (VS S1, the owner's request of 2026-11-23). The task opens chr1 of the
+    /// reference in Focus, types a place into the ruler's position field and zooms in once, switches to the tree and back
+    /// and reads the place, then zooms in once more and quits with no switch, so only the quit's capture keeps that last
+    /// zoom. It launches the candidate again in the same isolated home and reads the last place. The place,
+    /// `chr1:<start>-<end>` as the status bar's position and the ruler's field say it, holds the locus and the zoom, its
+    /// span. The smoke launches the candidate in no UI-test mode and with an isolated home, so the candidate keeps its
+    /// views in the default store under that home and never in a `LUNGFISH_UI_TEST_VIEW_STATE_PATH` folder (VS Q3). The
+    /// task lists that store after the quit and names its folder in the run's log, which answers Q-Q2: whether the
+    /// candidate's Application Support follows `CFFIXED_USER_HOME`.
+    @MainActor
+    func testReleaseCandidateReferenceKeepsItsPlaceThroughASwitchAndAQuitAndRelaunch() throws {
+        let robot = try ReleaseAppSmokeRobot()
+        let cli = robot.candidateURL.appendingPathComponent("Contents/MacOS/lungfish-cli")
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: cli.path), "The candidate embeds lungfish-cli")
+        setenv("LUNGFISH_TEST_CLI", cli.path, 1)
+        let project = try ReleaseSmokeViewMemory.makeProject(named: "ReleaseViewMemory-\(UUID().uuidString)")
+        defer { robot.app.terminate(); try? FileManager.default.removeItem(at: project.deletingLastPathComponent()) }
+        let app = robot.app
+        let browser = BundleBrowserRobot(app: app)
+        try robot.launch()
+        robot.openProject(project)
+        browser.openBundle(named: "TestGenome.lungfishref")
+        browser.selectBrowserRow(named: "chr1")
+        browser.openSelectedSequence()
+        guard let opened = ReleaseSmokeViewMemory.waitForPlace(in: app, otherThan: nil) else {
+            robot.failShowingScreen("chr1 of the reference shows no place in Focus")
+            return
+        }
+        guard ReleaseSmokeViewMemory.typePlace(ReleaseSmokeViewMemory.typedPlace, in: app),
+              let typed = ReleaseSmokeViewMemory.waitForPlace(in: app, otherThan: opened) else {
+            robot.failShowingScreen("The reference still shows \(opened) after \(ReleaseSmokeViewMemory.typedPlace) was typed")
+            return
+        }
+        robot.menu("View", item: "Zoom In")
+        guard let zoomed = ReleaseSmokeViewMemory.waitForPlace(in: app, otherThan: typed) else {
+            robot.failShowingScreen("The reference still shows \(typed) after View > Zoom In")
+            return
+        }
+        XCTAssertLessThan(ReleaseSmokeViewMemory.span(of: zoomed) ?? .max, ReleaseSmokeViewMemory.span(of: typed) ?? 0,
+                          "View > Zoom In shows less of chr1: \(typed), then \(zoomed)")
+
+        browser.openBundle(named: "MHC Tree.lungfishtree")
+        guard browser.treeNodeTable.waitForExistence(timeout: 15) else {
+            robot.failShowingScreen("The tree bundle shows no phylogenetic-tree-node-table")
+            return
+        }
+        browser.openBundle(named: "TestGenome.lungfishref")
+        XCTAssertTrue(ReleaseSmokeViewMemory.waitForPlace(in: app, equalTo: zoomed),
+                      "Back from the tree the reference shows \(zoomed) as left, not \(ReleaseSmokeViewMemory.shownPlaces(in: app))")
+
+        // The last zoom has no switch after it, so only the quit can keep it (VS S1).
+        robot.menu("View", item: "Zoom In")
+        guard let last = ReleaseSmokeViewMemory.waitForPlace(in: app, otherThan: zoomed) else {
+            robot.failShowingScreen("The reference still shows \(zoomed) after the second View > Zoom In")
+            return
+        }
+        app.typeKey("q", modifierFlags: .command)
+        guard app.wait(for: .notRunning, timeout: 30) else {
+            robot.failShowingScreen("Lungfish did not quit within 30 s of Command-Q")
+            return
+        }
+        let store = ReleaseSmokeViewMemory.storeRecords(under: robot.launchHome)
+        let words = "View memory under the isolated home \(robot.launchHome.path): "
+            + "\(store.folders.isEmpty ? "no ViewMemory folder" : store.folders.joined(separator: ", ")) "
+            + "holds \(store.records.count) records"
+        let listing = XCTAttachment(string: store.records.joined(separator: "\n"))
+        listing.name = words
+        listing.lifetime = .keepAlways
+        XCTContext.runActivity(named: words) { $0.add(listing) }
+        print(words)
+        XCTAssertFalse(store.records.isEmpty, "The candidate kept no view in the default store under its home (VS Q3, Q-Q2)")
+
+        try robot.launch()
+        if robot.window(project).waitForExistence(timeout: 5) {
+            robot.closeSheetRecordingIt(on: robot.window(project))
+        } else {
+            robot.openProject(project)
+        }
+        browser.openBundle(named: "TestGenome.lungfishref")
+        XCTAssertTrue(ReleaseSmokeViewMemory.waitForPlace(in: app, equalTo: last),
+                      "After the relaunch the reference shows \(last) as left at the quit, not \(ReleaseSmokeViewMemory.shownPlaces(in: app))")
+    }
+}
+
+/// The fixture, the reading and the store listing of the view memory relaunch task (VS-PROOF item 3).
+@MainActor
+enum ReleaseSmokeViewMemory {
+    /// A place inside chr1 of the bundle browser project's reference, whose chr1 holds 200 bases. Each View > Zoom In
+    /// halves its span about its middle (`ViewerViewController.zoomIn`).
+    static let typedPlace = "chr1:41-160"
+
+    /// The bundle browser project, whose reference `TestGenome` holds chr1, with the tree of the alignment and tree
+    /// project beside it.
+    static func makeProject(named name: String) throws -> URL {
+        let project = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(named: name)
+        let trees = try LungfishProjectFixtureBuilder.makeAlignmentTreeBundleProject(named: "ViewMemoryTree")
+        defer { try? FileManager.default.removeItem(at: trees.deletingLastPathComponent()) }
+        try FileManager.default.copyItem(at: trees.appendingPathComponent("MHC Tree.lungfishtree", isDirectory: true),
+                                         to: project.appendingPathComponent("MHC Tree.lungfishtree", isDirectory: true))
+        return project
+    }
+
+    /// The status bar's position and the ruler's position field while they show a place on chr1.
+    static func places(in app: XCUIApplication) -> XCUIElementQuery {
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier IN %@ AND value BEGINSWITH %@", ["position-label", "ruler-position-field"], "chr1:"))
+    }
+
+    /// The place once it differs from `old`, or any place when `old` is nil, or nil when none came within `timeout`.
+    static func waitForPlace(in app: XCUIApplication, otherThan old: String?, timeout: TimeInterval = 15) -> String? {
+        let query = old.map { places(in: app).matching(NSPredicate(format: "value != %@", $0)) } ?? places(in: app)
+        let element = query.firstMatch
+        guard element.waitForExistence(timeout: timeout) else { return nil }
+        return element.value as? String
+    }
+
+    /// Whether the place `expected` shows within `timeout`.
+    static func waitForPlace(in app: XCUIApplication, equalTo expected: String, timeout: TimeInterval = 15) -> Bool {
+        places(in: app).matching(NSPredicate(format: "value == %@", expected)).firstMatch.waitForExistence(timeout: timeout)
+    }
+
+    /// Every place shown now, for a failure's words.
+    static func shownPlaces(in app: XCUIApplication) -> String {
+        let shown = places(in: app).allElementsBoundByIndex.compactMap { $0.value as? String }
+        return shown.isEmpty ? "no place" : shown.joined(separator: " and ")
+    }
+
+    /// Types `place` into the ruler's position field and returns, as a person does.
+    static func typePlace(_ place: String, in app: XCUIApplication) -> Bool {
+        let field = app.descendants(matching: .any)["ruler-position-field"].firstMatch
+        guard field.waitForExistence(timeout: 10) else { return false }
+        field.click()
+        field.typeKey("a", modifierFlags: .command)
+        field.typeText(place)
+        field.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        return true
+    }
+
+    /// The number of bases `chr1:<start>-<end>` shows, its zoom.
+    nonisolated static func span(of place: String) -> Int? {
+        guard let range = place.split(separator: ":").last else { return nil }
+        let bounds = range.replacingOccurrences(of: ",", with: "").split(separator: "-").compactMap { Int($0) }
+        return bounds.count == 2 ? bounds[1] - bounds[0] + 1 : nil
+    }
+
+    /// The `ViewMemory` folders under `home`'s Application Support and the records they hold, as full paths.
+    nonisolated static func storeRecords(under home: URL) -> (folders: [String], records: [String]) {
+        let support = home.appendingPathComponent("Library/Application Support", isDirectory: true)
+        var folders: [String] = []
+        var records: [String] = []
+        for name in ((try? FileManager.default.contentsOfDirectory(atPath: support.path)) ?? []).sorted() {
+            let folder = support.appendingPathComponent(name, isDirectory: true)
+                .appendingPathComponent("ViewMemory", isDirectory: true)
+            guard let paths = try? FileManager.default.subpathsOfDirectory(atPath: folder.path) else { continue }
+            folders.append(folder.path)
+            records += paths.filter { $0.hasSuffix(".json") && !URL(fileURLWithPath: $0).lastPathComponent.hasPrefix(".") }
+                .sorted().map { folder.appendingPathComponent($0).path }
+        }
+        return (folders, records)
+    }
 }
 
 @MainActor
