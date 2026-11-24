@@ -98,13 +98,21 @@ enum ReadFileWriters {
         defer { try? input.close() }
         let lineBreak = UInt8(ascii: "\n")
         var last: UInt8?
-        while let chunk = try readChunk(of: input, from: source), !chunk.isEmpty {
-            if checkingCancellation { try Task.checkCancellation() }
-            if last == nil, let previous, previous != lineBreak, let first = chunk.first, recordStarts.contains(first) {
-                try stage.write(Data([lineBreak]))
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                guard let chunk = try readChunk(of: input, from: source), !chunk.isEmpty else {
+                    atEnd = true
+                    return
+                }
+                if checkingCancellation { try Task.checkCancellation() }
+                if last == nil, let previous, previous != lineBreak, let first = chunk.first, recordStarts.contains(first) {
+                    try stage.write(Data([lineBreak]))
+                }
+                try stage.write(chunk)
+                last = chunk.last
             }
-            try stage.write(chunk)
-            last = chunk.last
         }
         return last
     }

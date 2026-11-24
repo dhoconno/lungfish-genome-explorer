@@ -630,12 +630,17 @@ public actor ClassifierReadResolver {
         var lineCount = 0
         var sawAnyBytes = false
         var lastByteWasNewline = false
-        while true {
-            let chunk = try ReadFileWriters.readChunk(of: handle, from: url, upTo: 1 << 20) ?? Data()
-            if chunk.isEmpty { break }
-            sawAnyBytes = true
-            lineCount += chunk.reduce(0) { $0 + ($1 == 0x0A ? 1 : 0) }
-            lastByteWasNewline = chunk.last == 0x0A
+        var atEnd = false
+        while !atEnd {
+            // A plain file's read hands back an autoreleased chunk, so each pass has a pool and its chunk dies with it.
+            try autoreleasepool { () throws -> Void in
+                let chunk = try ReadFileWriters.readChunk(of: handle, from: url, upTo: 1 << 20) ?? Data()
+                atEnd = chunk.isEmpty
+                guard !atEnd else { return }
+                sawAnyBytes = true
+                lineCount += chunk.reduce(0) { $0 + ($1 == 0x0A ? 1 : 0) }
+                lastByteWasNewline = chunk.last == 0x0A
+            }
         }
         if sawAnyBytes && !lastByteWasNewline {
             lineCount += 1
