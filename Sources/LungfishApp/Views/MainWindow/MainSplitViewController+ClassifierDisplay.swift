@@ -281,7 +281,7 @@ extension MainSplitViewController {
     /// observes to reload the filtered view.
     func filterBatchViewToSingleSample(sampleId: String) {
         if let taxTriageVC = viewerController.taxTriageViewController {
-            taxTriageVC.samplePickerState?.selectedSamples = [sampleId]
+            taxTriageVC.selectSampleFromRoute(sampleId)
             NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil, userInfo: ScopedEventFilter.scopedUserInfo(scope: windowStateScope))
             return
         }

@@ -178,7 +178,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - Data
 
     /// The SQLite database backing this view (when opened from a pre-built DB).
-    private var taxTriageDatabase: TaxTriageDatabase?
+    private(set) var taxTriageDatabase: TaxTriageDatabase?
 
     /// The TaxTriage result driving this view.
     private(set) var taxTriageResult: TaxTriageResult?
@@ -265,7 +265,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Selects the first SQLite-backed row once rows arrive so the detail pane
     /// is populated on initial TaxTriage load.
-    private var shouldSelectTopDatabaseRowAfterLoad = false
+    var shouldSelectTopDatabaseRowAfterLoad = false
 
     /// Currently selected row state for action-bar/detail updates.
     private var selectedOrganismName: String?
@@ -292,7 +292,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// segment) asked for the organism-by-sample overview grid. The grid is
     /// only shown while more than one sample is ticked; see
     /// `isDatabaseOverviewVisible`.
-    public private(set) var isShowingDatabaseOverview = false
+    public internal(set) var isShowingDatabaseOverview = false
 
     /// Database mode: the Sample Filter selection the loaded rows belong to.
     private var loadedDatabaseSampleSelection: Set<String>?
@@ -410,7 +410,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         UnavailableClassifierAlignmentViewer()
     }
     private var alignmentEvidenceViewer: (any ClassifierAlignmentViewerProviding)?
-    private let organismTableView = TaxTriageOrganismTableView()
+    let organismTableView = TaxTriageOrganismTableView()
     private let batchOverviewView = TaxTriageBatchOverviewView()
     /// The shared classifier actions (lane 3E): the bar, BLAST Results, the BLAST results pane and the extraction hand-off.
     public let resultActions = ClassifierResultActions()
@@ -492,7 +492,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - Organism Search
 
     /// Current organism search text for filtering.
-    private var organismSearchText: String = ""
+    var organismSearchText: String = ""
 
     /// Debounce work item for organism search field changes.
     private var organismFilterWorkItem: DispatchWorkItem?
@@ -1280,7 +1280,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     // MARK: - Setup: Organism Search Field
 
-    private lazy var organismSearchField: NSSearchField = {
+    lazy var organismSearchField: NSSearchField = {
         let field = NSSearchField()
         field.placeholderString = "Filter organisms\u{2026}"
         field.controlSize = .small
@@ -2189,7 +2189,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 case .success(let snapshot):
                     self.mergeDatabasePageSnapshot(snapshot)
                     self.batchFlatTableView.configure(rows: self.allBatchGroupRows)
-                    self.selectTopDatabaseRowAfterInitialPageIfNeeded()
+                    self.finishDatabasePage(complete: self.allBatchGroupRows.count >= snapshot.totalMatchingRows)
                     if self.isDatabaseOverviewVisible {
                         self.reconfigureDatabaseOverviewGrid()
                     }
@@ -2228,7 +2228,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         taxIDToAccessions = mergedTaxIDToAccessions
     }
 
-    private func selectTopDatabaseRowAfterInitialPageIfNeeded() {
+    func selectTopDatabaseRowAfterInitialPageIfNeeded() {
         guard shouldSelectTopDatabaseRowAfterLoad else { return }
         // The overview grid replaces the list; selecting a hidden list row
         // would reveal the alignment pane behind it. The flag stays set so
@@ -2493,7 +2493,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Mirrors the Sample Filter state into the segmented control or popup:
     /// the overview grid selects "All Samples", one ticked sample selects its
     /// segment, and any other combination selects nothing.
-    private func syncSampleFilterControlToPickerState() {
+    func syncSampleFilterControlToPickerState() {
         guard isBatchGroupMode else { return }
         let index: Int
         if isDatabaseOverviewVisible {
@@ -2513,7 +2513,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     /// Swaps between the flat organism list and the overview grid.
-    private func applyDatabaseOverviewPresentation() {
+    func applyDatabaseOverviewPresentation() {
         guard isBatchGroupMode else { return }
         let showOverview = isDatabaseOverviewVisible
         let wasShowingOverview = !batchOverviewView.isHidden

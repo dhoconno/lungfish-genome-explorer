@@ -18,6 +18,14 @@ public final class TaxTriageSurface: ResultViewport {
     /// The result viewer the host installs, the one the load adopted.
     public private(set) var controller: TaxTriageResultViewController?
 
+    /// Where the result lives, read once in `load` (`TaxTriageSurface+ViewMemory.swift`).
+    public internal(set) var viewMemoryItem: ViewMemoryItem?
+
+    /// The host's handle for the late restore, which the viewer runs once the open's first page is in.
+    public var viewMemoryHandle: ViewMemoryHandle<ViewState>? {
+        didSet { wireViewMemoryHandle() }
+    }
+
     /// Called whenever the host removes this viewer, so the App can take the TaxTriage
     /// block out of the Inspector. It runs for its own kind too: the App gives the
     /// Inspector a new result's block only after that result's show.
@@ -64,5 +72,6 @@ public final class TaxTriageSurface: ResultViewport {
         adopted.view.setAccessibilityElement(true)
         adopted.view.setAccessibilityRole(.group)
         controller = adopted
+        readViewMemoryIdentity(of: adopted)
     }
 }

@@ -44,7 +44,7 @@ extension ViewerViewController {
         clearSurfaceForNewContent()
         contentMode = .metagenomics
 
-        let controller = TaxTriageResultViewController()
+        let controller = TaxTriageResultViewController.keepingViewMemory()
         controller.classifierAlignmentViewerFactory = { [weak self] in
             guard let split = self?.parent as? MainSplitViewController else {
                 return UnavailableClassifierAlignmentViewer()
