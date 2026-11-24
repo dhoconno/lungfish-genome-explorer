@@ -14,6 +14,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 @testable import LungfishKit
 @testable import LungfishWorkflow
 import LungfishTestSupport
@@ -253,7 +254,8 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
     }
 
     /// SWIFT-EVIDENCE-HASH item 3. Before the person picks or clicks the restored contig, Extract Reads in Selected
-    /// Region says the evidence is unavailable. It is never a silent no-op.
+    /// Region says so and is never a silent no-op. Since VS-MAP-2 item 6 its words are the cue that says how to load
+    /// the evidence, in place of "Alignment evidence is unavailable." (predicted move of this pin).
     func testExtractReadsBeforeThePickKeepsItsWordsForMissingEvidence() async throws {
         let store = makeStore()
         let first = try bundle("First", Self.two)
@@ -271,7 +273,109 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         viewer.extractReadsInSelectedAlignmentRegion()
         XCTAssertEqual(alerts.entries.count, 1, "Extract Reads before the pick says so and is never a silent no-op")
         XCTAssertEqual(alerts.entries.first?.title, "Extract Selected Region Failed")
-        XCTAssertEqual(alerts.entries.first?.message, AlignmentScientificActionError.contextUnavailable.localizedDescription)
+        XCTAssertEqual(alerts.entries.first?.message, ViewMemoryWords.alignmentEvidenceCue)
+    }
+
+    /// VS-MAP-2 item 6 (VS-MAP BIO SF-1, R7(b)). Until the person clicks the restored row, one string says how to load
+    /// its evidence beside the consensus row's label, in the Inspector's consensus line and in both Extract alerts. It
+    /// starts nothing, and the click's context task ends it in all four places. A person's own pick shows none.
+    func testARestoredContigSaysHowToLoadItsEvidenceUntilTheClick() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        pick("chr2", in: viewport)
+        XCTAssertNil(viewport.testEmbeddedViewerController.alignmentEvidenceCue, "a person's pick shows no cue")
+        viewport.testEmbeddedViewerController.zoomIn() // a user event handler, which marks the view changed
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(mapping: first, store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        let cue = ViewMemoryWords.alignmentEvidenceCue
+        let unavailable = AlignmentScientificActionError.contextUnavailable.localizedDescription
+        XCTAssertEqual(selectedContig(in: viewport), "chr2", "the contig as left")
+        XCTAssertEqual(viewer.alignmentEvidenceCue, cue, "the restored row says how to load its evidence")
+        XCTAssertEqual(viewer.viewerView.consensusRowCue, cue, "beside the consensus row's label")
+        XCTAssertEqual(viewport.consensusScopeState().unavailableMessage, cue, "the Inspector's consensus line")
+        XCTAssertEqual(extractAlertMessages(in: viewer), [cue, cue], "both Extract alerts")
+        XCTAssertNil(viewport.alignmentActionContextTask, "the cue starts nothing")
+
+        click(theSelectedRowOf: viewport)
+        XCTAssertNotNil(viewport.alignmentActionContextTask, "the click starts the row's context task")
+        XCTAssertNil(viewer.alignmentEvidenceCue, "the cue goes once the context task starts")
+        XCTAssertNil(viewer.viewerView.consensusRowCue, "and the consensus row's label shows it no more")
+        XCTAssertEqual(viewport.consensusScopeState().unavailableMessage, unavailable, "the Inspector while it loads")
+        XCTAssertEqual(extractAlertMessages(in: viewer), [unavailable, unavailable], "the alerts while it loads")
+    }
+
+    /// A restored record of a reference with no alignment track has no evidence to load, so it shows no cue.
+    func testARestoredRecordWithNoAlignmentTrackShowsNoCue() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(reference: first, store: store)
+        pick("chr2", in: viewport)
+        viewport.testEmbeddedViewerController.zoomIn()
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(reference: first, store: store)
+        XCTAssertEqual(selectedRecord(in: viewport), "chr2", "the record as left")
+        XCTAssertNil(viewport.testEmbeddedViewerController.alignmentEvidenceCue, "no evidence, so no cue")
+    }
+
+    /// VS-MAP-2 item 2 (VS B6, BIO R2). Read filters set on a mapping result come back on an equal data key through the
+    /// path the Inspector's block takes, start no evidence hash, and show word 5a in a line in flow that meets no other
+    /// view. The Extract Reads argv of the clicked row carries exactly the filters the view shows.
+    func testAMappingResultKeepsItsReadFiltersShowsTheirLineAndExtractsWithThem() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        pick("chr2", in: viewport)
+        viewport.applyEmbeddedReadDisplaySettings(Self.readFilters)
+        XCTAssertNil(viewport.readFilterLine, "a filter the person sets in this visit shows no line")
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        try writeAlignmentFiles(forMapping: first)
+        viewport = try await open(mapping: first, store: store)
+        viewport.view.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
+        viewport.view.layoutSubtreeIfNeeded()
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertEqual(selectedContig(in: viewport), "chr2", "the contig as left")
+        XCTAssertEqual(viewer.viewerView.minMapQSetting, 30, "the confidence as left")
+        XCTAssertEqual(viewer.viewerView.excludeFlagsSetting, 0x904, "duplicates shown as left")
+        XCTAssertNil(viewport.alignmentActionContextTask, "the filters' restore starts no evidence hash")
+        let line = try XCTUnwrap(viewport.readFilterLine, "restored filters that hide reads show a line")
+        XCTAssertEqual(line.displayedText, Self.word5a)
+        XCTAssertFalse(line.frame.intersects(viewer.view.frame), "the line sits in flow above the viewer")
+
+        click(theSelectedRowOf: viewport)
+        await viewport.testAwaitAlignmentActionContext()
+        let context = try XCTUnwrap(viewer.alignmentActionContext, "the click builds the row's context")
+        let region = ResolvedAlignmentRegion(scope: .selectedRegion, contig: "chr2", start: 0, end: 100)
+        let output = root.appendingPathComponent("reads.fastq")
+        let argv = ViewerViewController.alignmentReadExtractionCLIArguments(
+            ViewerViewController.alignmentRegionExtractionInvocation(
+                context: context, region: region, destination: .file(output), outputBaseName: "reads"))
+        let expected = AlignmentReadExtractionInvocation(
+            alignmentURL: context.alignmentURL, indexURL: context.indexURL, decodingReferenceURL: nil,
+            selection: .regions(["chr2:1-100"], minimumMapQ: 30, excludedFlags: 0x904, readGroups: []),
+            readsName: "reads", outputURL: output.standardizedFileURL)
+        XCTAssertEqual(argv, expected.arguments + ["--format", "json"], "Extract Reads runs with the filters shown")
+    }
+
+    /// The same filters on a changed mapping result are dropped, the view starts at the defaults, and the line says
+    /// the filters were not restored (VS B6), with no filter line.
+    func testAChangedMappingResultDropsItsReadFiltersAndSaysSo() async throws {
+        let store = makeStore()
+        var viewport = try await open(mapping: try bundle("First", Self.two), store: store)
+        viewport.applyEmbeddedReadDisplaySettings(Self.readFilters)
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(
+            mapping: try bundle("First", Self.two + [.init(name: "chr3", length: 2_000)]), store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertEqual(viewer.viewerView.minMapQSetting, 0, "a changed result starts its read filters at the default")
+        XCTAssertEqual(viewer.viewerView.excludeFlagsSetting, 0xD04)
+        XCTAssertNil(viewport.readFilterLine, "filters not restored show no filter line")
+        XCTAssertEqual(resetLine(in: viewer), ViewMemoryWords.dataChanged([.filters]))
     }
 
     /// SWIFT SF-3. A change to the list alone sets no pending save. The Inspector's reload of the same bundle ends the
@@ -340,6 +444,36 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
     }
 
     // MARK: - Support
+
+    /// A confidence of 30 and duplicates shown, as the Inspector's block sends them.
+    private static let readFilters: [AnyHashable: Any] = [
+        NotificationUserInfoKey.minMapQ: 30, NotificationUserInfoKey.excludeFlags: UInt16(0x904),
+    ]
+    private static let word5a = ViewMemoryFilterLineForm.hiddenWithoutCount(kind: "Read", noun: "reads").text
+
+    /// A click on the selected row, sent as the table sends it (see the click test above).
+    private func click(theSelectedRowOf viewport: ReferenceBundleViewportController) {
+        let table: NSTableView = viewport.contigTableView.tableView
+        let click = ClickedRowStandIn(clickedRow: table.selectedRow)
+        let sent = table.action.map { NSApplication.shared.sendAction($0, to: table.target, from: click) } ?? false
+        XCTAssertTrue(sent, "the click reaches the table's target")
+    }
+
+    /// The messages of both Extract alerts as the viewer shows them now.
+    private func extractAlertMessages(in viewer: ViewerViewController) -> [String] {
+        let alerts = AlertLog()
+        viewer.extractionFailureAlertPresenter = { title, message in alerts.entries.append((title, message)) }
+        viewer.extractReadsInSelectedAlignmentRegion()
+        viewer.extractSelectedReads([])
+        return alerts.entries.map(\.message)
+    }
+
+    /// Stand-in alignment and index files for the mapping result on `bundle`, so a click can build its context.
+    private func writeAlignmentFiles(forMapping bundle: URL) throws {
+        let result = root.appendingPathComponent("mapping-\(try BundleManifest.load(from: bundle).name)", isDirectory: true)
+        try Data("BAM stand-in".utf8).write(to: result.appendingPathComponent("sample.sorted.bam"))
+        try Data("BAI stand-in".utf8).write(to: result.appendingPathComponent("sample.sorted.bam.bai"))
+    }
 
     private func makeStore() -> ViewMemoryStore {
         ViewMemoryStore(root: root.appendingPathComponent("view-memory-\(UUID().uuidString)", isDirectory: true))

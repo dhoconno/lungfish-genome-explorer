@@ -447,6 +447,93 @@ final class ReadConfidenceAcrossBundlesTests: XCTestCase {
     }
 }
 
+// MARK: - The view memory store as the one source when the bundle reopens (VS-MAP-2 item 2, VS B6)
+
+extension ReadConfidenceAcrossBundlesTests {
+    private static let word5a = ViewMemoryFilterLineForm.hiddenWithoutCount(kind: "Read", noun: "reads").text
+
+    private func filterLineText(_ viewer: ViewerViewController) -> String? {
+        viewer.referenceBundleViewportController?.readFilterLine?.displayedText
+    }
+
+    private func embeddedSettled(_ viewer: ViewerViewController) -> Bool {
+        viewer.referenceBundleViewportController?.testEmbeddedViewerController.viewMemoryIsSettled ?? false
+    }
+
+    /// Selects `row` and waits until its reference shows, its block is wired and its view memory has restored.
+    private func open(_ row: RoutingRowFixture, in harness: ViewSwitchWindowHarness) async throws -> URL {
+        let viewer = harness.split.viewerController!
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+        let before = viewer.referenceBundleViewportController?.testEmbeddedViewerController.viewMemory
+        harness.select(row.item)
+        await harness.split.bundleOpenTask?.value
+        let opened = await waitUntil(budget: .lookup) {
+            guard let visit = viewer.referenceBundleViewportController?.testEmbeddedViewerController.viewMemory,
+                  visit !== before, self.openedBundleURL(viewer) != nil else { return false }
+            return visit.applied && readStyle.onSettingsChanged != nil
+        }
+        XCTAssertTrue(opened, "the reference never opened, wired its read filter and restored its view")
+        return try XCTUnwrap(openedBundleURL(viewer))
+    }
+
+    /// A confidence set on a reference comes back after a relaunch, from the store: the Inspector's block and the
+    /// viewport agree, and the viewport says the filter hides reads (word 5a). Another bundle opens at the default.
+    func testAConfidenceComesBackFromTheStoreAfterARelaunchOfTheSameBundle() async throws {
+        let storeRoot = root.appendingPathComponent("view-memory", isDirectory: true)
+        let rows = try await twoReferenceRows()
+        do {
+            let harness = try ViewSwitchWindowHarness()
+            defer { harness.close() }
+            let store = ViewMemoryStore(root: storeRoot)
+            harness.keepViews(in: store)
+            let viewer = harness.split.viewerController!
+            let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+            _ = try await open(rows.first, in: harness)
+            readStyle.minMapQ = 30
+            readStyle.onSettingsChanged?()
+            XCTAssertEqual(viewportConfidence(viewer), 30, "the Inspector's confidence never reached the viewport")
+            XCTAssertNil(filterLineText(viewer), "a filter set in this visit shows no line")
+            _ = try await open(rows.second, in: harness)
+            XCTAssertEqual(readStyle.minMapQ, 0, "another bundle opens at the default (W-27)")
+            XCTAssertEqual(viewportConfidence(viewer), 0, "another bundle's reads are not filtered by the first's")
+            store.flushSynchronously()
+        }
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: ViewMemoryStore(root: storeRoot))
+        let viewer = harness.split.viewerController!
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+        _ = try await open(rows.first, in: harness)
+        XCTAssertEqual(viewportConfidence(viewer), 30, "the confidence comes back from the store after the relaunch")
+        XCTAssertEqual(readStyle.minMapQ, 30, "the Inspector shows the filter the viewport shows")
+        XCTAssertEqual(filterLineText(viewer), Self.word5a, "the viewport says the restored filter hides reads")
+    }
+
+    /// The URL carry through another kind and the store give the same filter, and the viewport says so (word 5a).
+    func testAConfidenceCarriedThroughAnotherKindShowsItsLineInTheViewport() async throws {
+        let rows = try await twoReferenceRows()
+        let kind = try XCTUnwrap(ViewSwitchKinds.all.first { $0.name == "Kraken2" })
+        let otherRoot = try SafetyNetFiles.makeDirectory(root.appendingPathComponent("other", isDirectory: true))
+        let other = try await XCTUnwrap(ViewSwitchKinds.row(of: kind)).build(
+            RoutingRowContext(root: otherRoot, paths: SafetyNetPathRenderer(root: otherRoot)))
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: ViewMemoryStore(root: root.appendingPathComponent("view-memory", isDirectory: true)))
+        let viewer = harness.split.viewerController!
+        let readStyle = harness.split.inspectorController.viewModel.readStyleSectionViewModel
+        _ = try await open(rows.first, in: harness)
+        readStyle.minMapQ = 30
+        readStyle.onSettingsChanged?()
+
+        harness.select(other.item)
+        await harness.split.bundleOpenTask?.value
+        _ = try await open(rows.first, in: harness)
+        XCTAssertEqual(viewportConfidence(viewer), 30, "the same bundle keeps its confidence")
+        XCTAssertEqual(readStyle.minMapQ, 30, "the Inspector and the viewport agree")
+        XCTAssertEqual(filterLineText(viewer), Self.word5a, "the viewport says the carried filter hides reads")
+    }
+}
+
 /// The six consensus settings as one value, so a test reads and compares them as the block and the viewport hold them.
 private struct ConsensusSix: Equatable {
     var masking: Bool
