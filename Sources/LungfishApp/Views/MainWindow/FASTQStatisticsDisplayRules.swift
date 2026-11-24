@@ -35,6 +35,16 @@ enum FASTQStatisticsDisplayRules {
         return notCounted ? nil : statistics
     }
 
+    /// `statistics` as a view shows them for `manifest`. Reads that carry placeholder scores keep no quality figure, so a
+    /// bundle stored before the mark existed (a Fluidigm bundle whose manifest holds Mean Q 40, Q20 100% and Q30 100%)
+    /// reads "No quality scores" as a new one does (`FASTQQualityScoreOrigin`, QUALITY-2 BIO review B1).
+    static func statisticsToShow(
+        _ statistics: FASTQDatasetStatistics,
+        of manifest: FASTQDerivedBundleManifest
+    ) -> FASTQDatasetStatistics {
+        statistics
+    }
+
     /// Whether the reads carry no quality scores at all, as FASTA records and bridged reads do (ONT-BIO Backlog 3).
     /// A record with a mean Q, Q20 or Q30 above 0 has scores whichever producer built it, and `seqkit stats -a -T`
     /// gives those three numbers with no score histogram, so the empty histogram alone does not say the reads have no

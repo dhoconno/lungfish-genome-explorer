@@ -4,7 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
-import LungfishIO
+@testable import LungfishIO
 import LungfishTestSupport
 
 /// A derived bundle's manifest stores statistics that the FASTQ view, its charts and the Inspector show. Bundles
@@ -273,6 +273,42 @@ final class DerivedFASTQStatisticsDisplayTests: XCTestCase {
             FASTQStatisticsDisplayRules.hasQualityReport(Self.counted([:], mean: 0, perPositionQuality: [Self.flatSummary(30)])),
             "no score histogram, no report"
         )
+    }
+
+    /// The manifest a Fluidigm materializer wrote before the mark existed: a demultiplex of Mean Q 40, Q20 and Q30 of
+    /// 100 percent and flat per-position summaries, with the library prep the legacy clause reads. `libraryPrep` nil
+    /// gives the same record with no Fluidigm library prep.
+    private func storedFluidigmManifest(libraryPrep: String?) -> FASTQDerivedBundleManifest {
+        let operation = FASTQDerivativeOperation(kind: .demultiplex, toolUsed: "fluidigm-sample-materializer", toolVersion: nil)
+        return FASTQDerivedBundleManifest(
+            name: "LF2871", parentBundleRelativePath: ".", rootBundleRelativePath: ".",
+            rootFASTQFilename: "LF2871.fastq.gz", payload: .full(fastqFilename: "LF2871.fastq.gz"),
+            lineage: [operation], operation: operation,
+            cachedStatistics: Self.counted([40: 400], mean: 40, q20: 100, q30: 100, perPositionQuality: [Self.flatSummary(40)]),
+            pairingMode: .singleEnd,
+            provenance: libraryPrep.map { SampleProvenance(libraryPrep: $0) }
+        )
+    }
+
+    /// A Fluidigm bundle made before the mark existed holds the written Q40 in its manifest, and a view reads "No
+    /// quality scores" for it with no rerun (QUALITY-2 BIO review B1, ruling BIO-QUALITY Q2). The control is the same
+    /// record with no Fluidigm library prep, which a view still shows as stored.
+    func testABundleStoredBeforeTheMarkReadsNoQualityScores() {
+        let old = storedFluidigmManifest(libraryPrep: "Fluidigm Access Array")
+        let shown = FASTQStatisticsDisplayRules.statisticsToShow(old.cachedStatistics, of: old)
+        XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(shown), "No quality scores", "Mean Q of the stored Fluidigm bundle")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.q20Text(shown), "No quality scores", "Q20 of the stored Fluidigm bundle")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.q30Text(shown), "No quality scores", "Q30 of the stored Fluidigm bundle")
+        XCTAssertFalse(FASTQStatisticsDisplayRules.hasQualityReport(shown), "a written Q40 draws no quality charts")
+        XCTAssertEqual(shown.readCount, 4)
+        XCTAssertEqual(shown.baseCount, 400)
+        XCTAssertEqual(shown.gcContent, 0.51, accuracy: 1e-9)
+
+        let measured = storedFluidigmManifest(libraryPrep: nil)
+        let kept = FASTQStatisticsDisplayRules.statisticsToShow(measured.cachedStatistics, of: measured)
+        XCTAssertEqual(FASTQStatisticsDisplayRules.meanQualityText(kept), "40.0", "reads with no Fluidigm library prep keep their numbers")
+        XCTAssertEqual(FASTQStatisticsDisplayRules.q20Text(kept), "100.0%")
+        XCTAssertTrue(FASTQStatisticsDisplayRules.hasQualityReport(kept), "measured reads keep their charts")
     }
 
     /// The overlay and the failure alert name the object ("the read statistics for NAME"), put the next step before the
