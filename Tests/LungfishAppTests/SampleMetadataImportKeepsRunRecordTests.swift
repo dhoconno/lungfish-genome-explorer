@@ -83,6 +83,24 @@ final class SampleMetadataImportKeepsRunRecordTests: XCTestCase {
         XCTAssertEqual(after.steps.count, 0)
     }
 
+    /// A run record that exists and cannot be read stops the import with words that say what happened, and the bundle is as it
+    /// was: the old import overwrote the record, and the new one must not lose it (BIO review of RECORDS, SF2).
+    func testAnUnreadableRunRecordStopsTheImportAndLeavesTheBundleAsItWas() throws {
+        try writeTwelveSBundle()
+        let recordURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try Data("{".utf8).write(to: recordURL)
+
+        XCTAssertThrowsError(try importMetadata()) {
+            XCTAssertEqual($0 as? SampleMetadataBundleImportError, .unreadableRecord(recordURL.path))
+        }
+
+        XCTAssertEqual(try Data(contentsOf: recordURL), Data("{".utf8), "the record is as it was")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("metadata/sample_metadata.tsv").path),
+            "the metadata the import wrote is gone"
+        )
+    }
+
     // MARK: - Fixtures
 
     /// A 12S result bundle with its manifest and sample table, and no run record yet.

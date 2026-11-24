@@ -13,6 +13,7 @@ struct SampleMetadataBundleImportResult {
 enum SampleMetadataBundleImportError: Error, LocalizedError, Equatable {
     case duplicateCanonicalIdentity(String)
     case identityInputOutsideFinalResult(String)
+    case unreadableRecord(String)
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +21,8 @@ enum SampleMetadataBundleImportError: Error, LocalizedError, Equatable {
             return "Multiple metadata rows resolve to sample \(sampleID)."
         case .identityInputOutsideFinalResult(let path):
             return "A BAM sample-identity input is outside the final result: \(path)."
+        case .unreadableRecord(let path):
+            return "The metadata was not imported, because the run record of this result could not be read: \(path). The result is unchanged. Run the analysis again to make a new record."
         }
     }
 }
@@ -155,7 +158,15 @@ struct SampleMetadataBundleImportService {
             // A record that stands in the bundle is the run that made it, such as the 12S matching, and the import joins
             // it as a later step, as an edit does. The import writes its own record only when the bundle has none
             // (TWELVES-IMPORT-REPLACES-RUN-RECORD). A throw here restores the bundle as the snapshot holds it.
-            let recorded = try ProvenanceEnvelopeReader.load(from: bundleURL).map {
+            let existing: ProvenanceEnvelope?
+            do {
+                existing = try ProvenanceEnvelopeReader.load(from: bundleURL)
+            } catch {
+                throw SampleMetadataBundleImportError.unreadableRecord(
+                    bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+                )
+            }
+            let recorded = existing.map {
                 appending(envelope, to: $0, startedAt: runClock.startedAt, endedAt: endedAt)
             } ?? envelope
             let provenanceURL = try ProvenanceWriter().write(recorded, to: bundleURL)
