@@ -5861,7 +5861,9 @@ private final class SpyFASTQOutputIngestor: @unchecked Sendable, FASTQOutputInge
             at: config.outputDirectory,
             withIntermediateDirectories: true
         )
-        try Data("compressed-fastq\n".utf8).write(to: outputURL)
+        // The real re-ingestion stores the staged reads compressed, and the import measures the stored file and fails
+        // when it cannot (FASTQOperationOutputImporter, UX-LAND16 QUALITY), so the stored file holds the staged reads in gzip.
+        try DurableGzip.compress(source: config.inputFiles[0], to: outputURL)
         if config.deleteOriginals {
             try? FileManager.default.removeItem(at: config.inputFiles[0])
         }
