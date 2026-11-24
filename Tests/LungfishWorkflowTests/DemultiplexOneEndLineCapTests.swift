@@ -286,4 +286,34 @@ final class DemultiplexOneEndLineCapTests: XCTestCase {
         XCTAssertEqual([pairs, five, three, lines], [1, 54, 54, 6_050])
         XCTAssertNil(over.file)
     }
+
+    // MARK: - The words for pairs (DEMUX-CAP-2-UX fix 1)
+
+    /// A sample sheet at one end and a dual kit off Both Ends give each pair two strands (`linkedStrandCount`), so the lines are
+    /// twice the pairs times one more than the distance, and the words name the pairs and their strands, not "one for each
+    /// barcode". 96 pairs at 5' and a distance of 31 are 96 x 2 x 32 = 6,144 lines. Head: red, the words say "the 96 barcodes"
+    /// and "one for each barcode and start distance".
+    func testTheRefusalOfPairsNamesTheStrandsOfEachPair() {
+        let error = DemultiplexError.tooManyOneEndSearchLines(kitName: "Pair Kit", barcodes: 96, fromThreePrime: false, distance: 31, lines: 6_144)
+        XCTAssertEqual(
+            error.errorDescription,
+            "Searching the 96 barcode pairs of \"Pair Kit\" up to 31 bases from the start of the read takes 6,144 Cutadapt search lines, one for each strand of each pair and start distance. "
+                + "That is more than the 6,000 a run can take, since Cutadapt spends time on every line before it reads the first read, so nothing was run. "
+                + "If the barcodes sit inside a known adapter sequence, trim that sequence from the reads first and run again with the 5' Distance at 0, "
+                + "or lower the 5' Distance until the lines fit (on the command line, --max-distance-5prime)."
+        )
+    }
+
+    /// One pair at 3' End and a distance of 3,000 is 2 x 3,001 = 6,002 lines: "the barcode pair", "one for each strand and end
+    /// distance". Head: red, the words say "the barcode" and "one for each end distance".
+    func testTheRefusalOfOnePairNamesTheStrands() {
+        let error = DemultiplexError.tooManyOneEndSearchLines(kitName: "Pair Kit", barcodes: 1, fromThreePrime: true, distance: 3_000, lines: 6_002)
+        XCTAssertEqual(
+            error.errorDescription,
+            "Searching the barcode pair of \"Pair Kit\" up to 3000 bases from the end of the read takes 6,002 Cutadapt search lines, one for each strand and end distance. "
+                + "That is more than the 6,000 a run can take, since Cutadapt spends time on every line before it reads the first read, so nothing was run. "
+                + "If the barcodes sit inside a known adapter sequence, trim that sequence from the reads first and run again with the 3' Distance at 0, "
+                + "or lower the 3' Distance until the lines fit (on the command line, --max-distance-3prime)."
+        )
+    }
 }

@@ -126,13 +126,27 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
                 ? "the barcode pair of \"\(kitName)\"" : "the \(Self.grouped(pairs)) barcode pairs of \"\(kitName)\""
             return "Searching \(searched) up to \(fivePrime) bases from the start of the read and up to \(threePrime) bases from the end takes \(Self.grouped(lines)) Cutadapt search lines, one for each pair, strand and combination of start and end distance. That is more than the \(Self.grouped(DemultiplexingPipeline.observedPairLineCap)) a run can take, since Cutadapt spends time on every line before it reads the first read, so nothing was run. If the barcodes sit inside a known adapter sequence, trim that sequence from the reads first and run again with both distances at 0, or lower the 5' Distance and 3' Distance until the lines fit (on the command line, --max-distance-5prime and --max-distance-3prime)."
         case .tooManyOneEndSearchLines(let kitName, let barcodes, let fromThreePrime, let distance, let lines):
-            let searched = barcodes == 1
-                ? "the barcode of \"\(kitName)\"" : "the \(Self.grouped(barcodes)) barcodes of \"\(kitName)\""
             let side = fromThreePrime ? "end" : "start"
             let name = fromThreePrime ? "3' Distance" : "5' Distance"
             let flag = fromThreePrime ? "--max-distance-3prime" : "--max-distance-5prime"
-            let each = barcodes == 1 ? "one for each \(side) distance" : "one for each barcode and \(side) distance"
-            return "Searching \(searched) up to \(distance) bases from the \(side) of the read takes \(Self.grouped(lines)) Cutadapt search lines, \(each). That is more than the \(Self.grouped(DemultiplexingPipeline.observedPairLineCap)) a run can take, since Cutadapt spends time on every line before it reads the first read, so nothing was run. If the barcodes sit inside a known adapter sequence, trim that sequence from the reads first and run again with the \(name) at 0, or lower the \(name) until the lines fit (on the command line, \(flag))."
+            // A single-index kit gives one line for each barcode and distance. A sample sheet or a dual kit gives a line for each
+            // strand of each pair, more than that product, so the words then name the pairs and their strands.
+            let (steps, stepsOverflowed) = max(0, distance).addingReportingOverflow(1)
+            let (product, productOverflowed) = barcodes.multipliedReportingOverflow(by: steps)
+            let pairs = !stepsOverflowed && !productOverflowed && lines != Int.max && lines != product
+            let searched: String
+            let each: String
+            if pairs {
+                searched = barcodes == 1
+                    ? "the barcode pair of \"\(kitName)\"" : "the \(Self.grouped(barcodes)) barcode pairs of \"\(kitName)\""
+                each = barcodes == 1 ? "one for each strand and \(side) distance" : "one for each strand of each pair and \(side) distance"
+            } else {
+                searched = barcodes == 1
+                    ? "the barcode of \"\(kitName)\"" : "the \(Self.grouped(barcodes)) barcodes of \"\(kitName)\""
+                each = barcodes == 1 ? "one for each \(side) distance" : "one for each barcode and \(side) distance"
+            }
+            let sits = "If the barcodes sit"
+            return "Searching \(searched) up to \(distance) bases from the \(side) of the read takes \(Self.grouped(lines)) Cutadapt search lines, \(each). That is more than the \(Self.grouped(DemultiplexingPipeline.observedPairLineCap)) a run can take, since Cutadapt spends time on every line before it reads the first read, so nothing was run. \(sits) inside a known adapter sequence, trim that sequence from the reads first and run again with the \(name) at 0, or lower the \(name) until the lines fit (on the command line, \(flag))."
         case .exactBareBarcodesInReadNames(let kitName, let present):
             return "The read names carry \(present) of the barcodes of the kit \"\(kitName)\", so these barcodes were read as an index. Exact Bare Barcode searches the read sequences, where it would find them only by chance, so nothing was run. To split the reads by the barcodes in their names, choose the engine Read Names (on the command line, --engine header-index). If the read sequences carry these barcodes too, run it again with Keep Unchecked Samples (on the command line, --keep-unchecked-samples), then check each sample against your sample sheet."
         case .searchRouteRefused(let words):
