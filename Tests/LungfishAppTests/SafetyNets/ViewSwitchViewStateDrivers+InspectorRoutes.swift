@@ -238,4 +238,25 @@ extension ViewSwitchViewStateTests {
         try await settledShow(fixture, in: harness, driver: driver)
         await assertShownTab(.analysis, in: harness, "a pick after a rescan of the same row is the item's")
     }
+
+    /// A deselect shows no item, so a pick made then is kept for none and the item before keeps its own tab (SWIFT B1).
+    func testInspectorPickAfterADeselectIsNotKeptForTheItemBefore() async throws {
+        let driver = ReferenceViewStateDriver(route: .reference)
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await settledShow(fixture, in: harness, driver: driver)
+        pick(.provenance, in: harness)
+        let sidebar: SidebarViewController = harness.split.sidebarController
+        let scope = try XCTUnwrap(sidebar.windowStateScope, "the sidebar has no window scope")
+        NotificationCenter.default.post(
+            name: .sidebarSelectionChanged, object: sidebar,
+            userInfo: ["items": [SidebarItem](), NotificationUserInfoKey.windowStateScope: scope])
+        pick(.analysis, in: harness)
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await settledShow(fixture, in: harness, driver: driver)
+        await assertShownTab(.provenance, in: harness, "a pick made with nothing selected is no item's")
+    }
 }
