@@ -3,7 +3,7 @@ title: BLAST Verification
 chapter_id: 06-classification/06-blast-verification
 audience: bench-scientist
 prereqs: [06-classification/02-running-kraken2]
-estimated_reading_min: 24
+estimated_reading_min: 27
 task: Send a sample of a classifier's reads to NCBI BLAST and read the verdict it comes back with.
 tags: [classification, blast, verification]
 tools: [blast]
@@ -32,7 +32,7 @@ A [read](../../GLOSSARY.md#read) is a short stretch of DNA sequence from a seque
 
 [BLAST](../../GLOSSARY.md#blast) is a sequence search method available online from NCBI, the United States National Center for Biotechnology Information. Use BLAST verification to check whether those reads match sequences from the group the classifier named. BLAST lines up matching stretches of a read with sequences in NCBI's public collection, base by base. It ranks the matching records by score. A record is an entry in the collection, such as a genome or gene. Each record returned is a hit.
 
-Lungfish Genome Explorer (LGE) draws a small sample of reads the classifier assigned to a [taxon](../../GLOSSARY.md#taxon), a named group of organisms. LGE sends the reads to NCBI, checks whether their best matches belong to the selected group, and summarizes the evidence in one verdict. Use the verdict as a second check. The source organism may be missing from NCBI's collection, and a draw of twenty reads can miss a small group with different matches.
+Lungfish Genome Explorer (LGE) draws a small sample of reads the classifier assigned to a [taxon](../../GLOSSARY.md#taxon), a named group of organisms. LGE sends the reads to NCBI, checks whether their best matches belong to the selected group, and summarizes the evidence in one verdict when it can look up the selected group's species, as [Before you start](#before-you-start) explains. Use the verdict as a second check. The source organism may be missing from NCBI's collection, and a draw of twenty reads can miss a small group with different matches.
 
 ## Why you would do this
 
@@ -50,7 +50,9 @@ For this example, open Pathogen Detection with **Help > Demo Projects…**. It h
 
 Open the finished classification in its [viewport](../../GLOSSARY.md#viewport), the panel that shows one result. If you only have a [FASTQ](../../GLOSSARY.md#fastq) file, a text file of reads, classify those reads first. CZ ID is a web service for metagenomics, the study of genetic material from a mixture of organisms. Imported CZ ID results lack the read identifiers LGE needs to send a search.
 
-The search runs at NCBI. You can start without a plugin pack, an optional set of tools LGE installs, or a database download. LGE sends each sampled read's sequence and identifier, its own tool name, and a contact address. LGE uses the identifier as stored in the reads file, dropping a trailing `/1` or `/2`. The identifier can include the run accession or the names of the sequencer and its flow cell, where sequencing takes place. LGE sends no separate sample or project details or other parts of the file.
+You can start without a plugin pack, an optional set of tools LGE installs. A verdict needs one optional database download, NCBI Taxonomy, NCBI's catalog of named groups. LGE uses it to find the species of the row you verify, so that a record of another species whose name holds the row's name does not count for the row. Install it in the **Databases** tab of **Tools > Plugin Manager…**, the window that installs tools and databases. Without it, or when your copy does not list the row's taxon, LGE gives no verdict. The result reads **Not judged** and lists each read's best match with no counts for or against.
+
+The search runs at NCBI. LGE sends each sampled read's sequence and identifier, its own tool name, and a contact address. LGE uses the identifier as stored in the reads file, dropping a trailing `/1` or `/2`. The identifier can include the run accession or the names of the sequencer and its flow cell, where sequencing takes place. LGE sends no separate sample or project details or other parts of the file.
 
 Treat submission as a disclosure. LGE cannot call the reads back, and **Verify with BLAST…** has no local mode. A [request ID](../../GLOSSARY.md#rid) is the tracking number NCBI assigns each search. NCBI says it keeps a search for 36 hours and makes it available to anyone with its request ID. Before you click **Run BLAST**, check whether the data-use agreement, the contract that came with the data, allows you to send sequences and identifiers. Always check before sending reads from human samples, since reads assigned to a virus can still carry human sequence. The human cornea reads are already public in the Sequence Read Archive.
 
@@ -76,7 +78,7 @@ NCBI controls how long the search takes. Most searches in LGE's tests came back 
 
 You can also follow the search on the `BLAST Simplexvirus humanalpha1` row in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), the list of tasks LGE is running or has run. Open it with **Operations > Show Operations Panel** (Cmd-Shift-P).
 
-When NCBI answers, LGE saves the result and the drawer shows the verdict and one row per read. Start with the supporting and contradicting counts beside the verdict. See an earlier run's counts in [What good looks like](#what-good-looks-like) for an example. Click **BLAST Results** in the action bar to show or hide the drawer.
+When NCBI answers, LGE saves the result and the drawer shows the verdict and one row per read. Start with the supporting and contradicting counts beside the verdict. If the verdict reads **Not judged**, the drawer shows no counts and a line under the summary says why. See an earlier run's counts in [What good looks like](#what-good-looks-like) for an example. Click **BLAST Results** in the action bar to show or hide the drawer.
 
 ### Follow a search that NCBI holds
 
@@ -108,7 +110,7 @@ What LGE sends depends on the viewport. A [fragment](../../GLOSSARY.md#fragment)
 | [Novel Virus Diagnostics](09-novel-virus-detection.md) | The selected contig, judged against the taxon named by NVD's adjusted tax ID | A sheet titled **Run BLAST at NCBI?** |
 | [12S Amplicon Metabarcoding](10-twelve-s-metabarcoding.md) | Unresolved sequences from the Unresolved view | A sheet titled **Run BLAST at NCBI?** |
 
-The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsViritu, TaxTriage, NAO-MGS, and NVD use the NCBI Taxonomy, NCBI's catalog of named groups, to find a row's species. It is an optional download in the **Databases** tab of the Plugin Manager, where LGE manages optional tools and data. Without it, LGE judges reads from these viewports by the row's own tax ID or by organism names. Check the line under the summary to see which they used.
+The 12S drawer displays `BLAST results for <name>` and gives no verdict. EsViritu, TaxTriage, NAO-MGS, and NVD find a row's species in NCBI Taxonomy, the download that [Before you start](#before-you-start) describes, as Kraken 2 does. Without it, or when its copy does not hold the row's species, LGE gives no verdict. The summary bar shows **Not judged**, and the line under the summary says why.
 
 ## Settings
 
@@ -191,11 +193,13 @@ A Verified read can count as supporting or contradicting. Verified describes the
 
 LGE checks for ties only when it judges by taxonomy ID, as it does for every Kraken 2 result. When it judges by organism names alone, LGE uses the first record NCBI returns.
 
-A Verified read is **supporting** if a best match belongs to the selected taxon's [clade](../../GLOSSARY.md#clade), the group and everything below it in the [Kraken 2 report](../../GLOSSARY.md#kreport), a table of counts per taxon. LGE checks all records tied for best among those NCBI returned. A record ties if its bit score matches the first record's exactly as printed in NCBI's reply. A stretch of 76 bases shared across HSV-1 genomes can tie across many HSV-1 records. A Verified read is **contradicting** if the best match, or all tied best matches, are outside the clade and the result meets none of the placement exceptions below.
+A Verified read is **supporting** if a best match belongs to the selected taxon's [clade](../../GLOSSARY.md#clade), the group and everything below it in the [Kraken 2 report](../../GLOSSARY.md#kreport), a table of counts per taxon, and in NCBI Taxonomy. LGE checks all records tied for best among those NCBI returned. A record ties if its bit score matches the first record's exactly as printed in NCBI's reply. A stretch of 76 bases shared across HSV-1 genomes can tie across many HSV-1 records. A Verified read is **contradicting** if the best match, or all tied best matches, are outside the clade and the result meets none of the placement exceptions below.
 
-LGE judges a species or any group below it at species level. A strain is a variant within a species, so a match to another strain of the same species supports the selection. For a group above species, such as a genus, which groups related species, a match to any species in that group can support the selection. With HSV-1 selected, matches to Human alphaherpesvirus 2 or Human gammaherpesvirus 4 are outside the clade.
+LGE judges a species or any group below it at species level. In the EsViritu, TaxTriage, NAO-MGS, and NVD viewports, the exception is a species whose scientific name ends in `sp.`, NCBI's catch-all for records whose species nobody named. A row below it is judged at its own taxon and the groups below that, and a row on the `sp.` species itself is judged at that taxon alone.
 
-LGE checks taxonomy IDs first. If the report lacks a record's ID, LGE checks whether the organism name contains the full name of any taxon in the clade. The report lists Human alphaherpesvirus 1 (taxonomy ID 10298) below *Simplexvirus humanalpha1*, so a record containing that full name can also join the species clade by name.
+A strain is a variant within a species, so a match to another strain of the same species supports the selection. For a group above species, such as a genus, which groups related species, a match to any species in that group can support the selection. With HSV-1 selected, matches to Human alphaherpesvirus 2 or Human gammaherpesvirus 4 are outside the clade.
+
+LGE checks taxonomy IDs first. If neither the report nor NCBI Taxonomy lists a record's ID, LGE checks whether the organism name contains the full name of any taxon in the clade. As a rule, a name that the scientific name of a taxon outside the clade also contains does not count, so a record of Woolly monkey hepatitis B virus does not join a Hepatitis B virus row by name. The report lists Human alphaherpesvirus 1 (taxonomy ID 10298) below *Simplexvirus humanalpha1*, so a record containing that full name can also join the species clade by name.
 
 When a tie includes records inside and outside the clade, the read supports and shows an outline triangle. Point to it to see `Tied with <n> other records at the best score: <n> more in this taxon, <n> outside. NCBI returned <n>.`
 
@@ -209,7 +213,9 @@ Ambiguous, Unverified, and Error reads count as neither supporting nor contradic
 
 ### The summary bar and the verdict
 
-The bar reads `BLAST for <taxon>: <n> supporting, <n> contradicting (<n> reads)`, or `(<n> fragments, <m> reads)` when both mates went out. It also shows ten symbols and the verdict. If reads came back Error, it adds a count such as `2 with no BLAST result`.
+When LGE gives a verdict, the bar reads `BLAST for <taxon>: <n> supporting, <n> contradicting (<n> reads)`, or `(<n> fragments, <m> reads)` when both mates went out. It also shows ten symbols and the verdict. If reads came back Error, it adds a count such as `2 with no BLAST result`.
+
+A result that is **Not judged** has no counts for or against and no symbols. Its bar reads `BLAST for <taxon>: not judged, <k> of <n> reads with a significant hit. NCBI Taxonomy is needed to judge them.` where `<k>` is the number of Verified reads. The Operations Panel row for the search shows the words after the colon.
 
 Divide the supporting count by the sum of the supporting and contradicting counts. LGE uses this share and the ties outside the clade to set the verdict. One supporting read and 19 Ambiguous reads give a 100 percent share. Compare the sum of the two counts with the number submitted to see how many reads the verdict rests on.
 
@@ -220,12 +226,13 @@ Divide the supporting count by the sum of the supporting and contradicting count
 | 40% up to but not including 80% | **Mixed** |
 | Below 40% | **Unsupported** |
 | No read supporting or contradicting | **Inconclusive** |
+| Reads count, but LGE cannot look up the row's species, so it gives no share | **Not judged** |
 
 [Not specific](../../GLOSSARY.md#not-specific) means every supporting read fits at least one record outside the clade equally well. The bar adds a sentence such as `Every supporting read also matches other records equally, such as <name> and <name>. These reads cannot tell <taxon> apart from them.`
 
 The ten symbols split submitted reads into rounded tenths. With 20 reads, each symbol represents two. A filled circle means supporting, a diamond means contradicting, and a hollow circle means neither.
 
-Beside the verdict, `<n> also match other records equally` counts supporting reads tied outside the clade. LGE judges by organism names alone if the best record has no taxonomy ID or LGE has no taxonomy ID for the row. If LGE cannot look up the row's species but knows the row's own tax ID, it judges by that ID and the row's name. When LGE judges by names alone, the bar adds a read to `<n> with conflicting organisms` if the five records have more than one first word across their organism names.
+Beside the verdict, `<n> also match other records equally` counts supporting reads tied outside the clade. LGE judges a read by organism names alone if its best record has no taxonomy ID. If LGE cannot look up the row's species in NCBI Taxonomy, or the row has no tax ID, it gives no verdict and the summary bar shows **Not judged**. When LGE judges a read by names alone, the bar adds a read to `<n> with conflicting organisms` if the five records have more than one first word across their organism names.
 
 If the drawer says `NCBI searched <database>, not the <database> this search asked for.`, record the database NCBI actually used when you compare or report results. A line starting with `Collected` gives the time since the first send, the number of sends, and the request ID that answered.
 
@@ -239,7 +246,7 @@ FASTA is a text format with a name line followed by a sequence. To copy a sequen
 
 **Export** offers **Export as CSV...** for comma-separated text and **Export as TSV...** for tab-separated text. LGE runs `lungfish-cli blast export table` and shows it in the Operations Panel. The export writes one line for each record of each read, so count each read once when checking a Kraken 2 verdict.
 
-The export's **Verdict** column holds the per-read label, which grades the quality of the best match with the placement exceptions. A read can show `verified` there and `contradicting` under Taxon Check. Taxon Check also uses `supporting` or `inconclusive`. The tied, tied_in_taxon, and tied_outside columns count ties, and Judged At says how LGE judged the result.
+The export's **Verdict** column holds the per-read label, which grades the quality of the best match with the placement exceptions. A read can show `verified` there and `contradicting` under Taxon Check. Taxon Check also uses `supporting` or `inconclusive`, and `not judged` for a Verified read in a result that is **Not judged**. The tied, tied_in_taxon, and tied_outside columns count ties, and Judged At says how LGE judged the result, `species` when it could look up the row's species and `rowTaxId` or `names` when it could not.
 
 ### Saved verifications
 
@@ -260,6 +267,8 @@ Reads that still carry adapter, a short synthetic sequence added during library 
 For Inconclusive, check the per-read labels first. No read was Verified, so every read was Ambiguous, Unverified, or Error. An Ambiguous read may have a strong match LGE could not place. Short or poor-quality reads can give weak matches. In this search, even a perfect match shorter than about 40 bases falls short of the `1e-10` cutoff and comes back Unverified. A source organism can be too distant from every record in `core_nt` for megablast to find a match. If read length or quality is the problem, more reads help only if some are longer or cleaner. A longer sequence, such as a contig assembled from the reads, can give stronger evidence.
 
 For Mixed, see how many reads counted before acting on the share. Two supporting reads out of three give a 67 percent share. To add evidence, reopen **Verify with BLAST…**, raise **Reads to submit**, and run again. After a 20-read search, up to 30 reads remain in the rolling hour, depending on what else you sent. The larger draw includes the original reads.
+
+For **Not judged**, install NCBI Taxonomy in the **Databases** tab of **Tools > Plugin Manager…**, or update it if your copy does not list the row's tax ID, then run **Verify with BLAST…** again. The drawer still lists each read's best match, so you can read the organism names yourself.
 
 ## On the command line
 
@@ -285,6 +294,8 @@ Replace `<timestamp>` with the rest of the Viral result's folder name. The first
 `--kreport` names the Kraken 2 report. Taxonomy ID 10298 is the Human alphaherpesvirus 1 row, one level below *Simplexvirus humanalpha1*. Both rows hold 886,221 pairs, as [Running Kraken 2](02-running-kraken2.md#reading-the-results) explains. `--result-dir` saves the verification under `blast-verifications` in the result folder. LGE finds saved verifications by taxonomy ID. For this command, select Human alphaherpesvirus 1 to see the result.
 
 `--kraken-output` names the per-read file used to choose mates by k-mer count. `--source` names the reads and can repeat. It accepts a `.lungfishfastq` bundle, whose files have assigned roles, or loose files in this order, R1, R2, then merged or single reads. `--format json` prints JSON, a structured text format other programs can read. Omit it for a readable summary that counts how many reads went as mate 2 and gives the BLAST verdict on a line labeled Confidence.
+
+The command reads the NCBI Taxonomy you have installed and never downloads it. Without it, or when it does not list the taxon, the Confidence line reads **Not judged**, the summary gives a line that starts `Verification: NOT JUDGED`, and the JSON has `"confidence": "notJudged"` with `null` for `supporting` and `contradicting`.
 
 The command draws reads assigned to the named taxon. Add `--include-children` to include taxa below it. Here all 886,221 pairs were assigned to 10298 itself. `--seed` takes a whole number that sets the random draw. The default is 0, the same seed LGE uses in the window.
 
