@@ -38,20 +38,30 @@ enum FASTQStatisticsDisplayRules {
     /// Whether the reads carry no quality scores at all, as FASTA records and bridged reads do (ONT-BIO Backlog 3).
     /// A record with a mean Q, Q20 or Q30 above 0 has scores whichever producer built it, and `seqkit stats -a -T`
     /// gives those three numbers with no score histogram, so the empty histogram alone does not say the reads have no
-    /// scores (DEMUX-STATS BIO review B1).
+    /// scores (DEMUX-STATS BIO review B1). One placeholder score on every base counts as none.
     static func hasNoQualityScores(_ statistics: FASTQDatasetStatistics) -> Bool {
-        statistics.readCount > 0
-            && statistics.qualityScoreHistogram.isEmpty
+        guard statistics.readCount > 0 else { return false }
+        let neverScored = statistics.qualityScoreHistogram.isEmpty
             && statistics.meanQuality == 0
             && statistics.q20Percentage == 0
             && statistics.q30Percentage == 0
+        return neverScored || holdsOnlyAPlaceholderScore(statistics)
     }
 
-    /// Whether the cached score histogram and per-position summaries describe scores the reads carry.
-    /// Red stub (QUALITY-2, QUALITY-BIO SF1): it holds the condition both chart guards test today, so the tests that
-    /// need the name compile and fail on what they assert. The next commit makes it read `hasNoQualityScores`.
+    /// One score of Q2 or below on every counted base. Reads that never had scores carry a placeholder, and the storage
+    /// pass writes a called Q0 or Q1 as Q2 (`BBToolsQualityArguments.keepEveryScore`), so they read Q0 on the parent and
+    /// Q2 on every bundle made from them (walk 2026.11.6 rows 7 and 9, WALK-BIO 2.4, QUALITY-BIO B1).
+    static func holdsOnlyAPlaceholderScore(_ statistics: FASTQDatasetStatistics) -> Bool {
+        let scores = statistics.qualityScoreHistogram.filter { $0.value > 0 }.map(\.key)
+        return scores.count == 1 && scores[0] <= 2
+    }
+
+    /// Whether the cached score histogram and per-position summaries describe scores the reads carry. Both chart
+    /// guards (the sparkline strip and the Inspector) ask this, so a flat Q2 that stands for no scores draws no chart
+    /// beside a card that says "No quality scores" (QUALITY-BIO SF1).
     static func hasQualityReport(_ statistics: FASTQDatasetStatistics) -> Bool {
         !statistics.perPositionQuality.isEmpty && !statistics.qualityScoreHistogram.isEmpty
+            && !hasNoQualityScores(statistics)
     }
 
     static func meanQualityText(_ statistics: FASTQDatasetStatistics) -> String {

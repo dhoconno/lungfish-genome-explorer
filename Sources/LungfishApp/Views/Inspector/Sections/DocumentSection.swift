@@ -1049,7 +1049,7 @@ public struct DocumentSection: View {
     }
 
     private func hasCachedQualityReport(_ stats: FASTQDatasetStatistics) -> Bool {
-        !stats.perPositionQuality.isEmpty && !stats.qualityScoreHistogram.isEmpty
+        FASTQStatisticsDisplayRules.hasQualityReport(stats)
     }
 
     @ViewBuilder

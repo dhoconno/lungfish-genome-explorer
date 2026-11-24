@@ -347,7 +347,7 @@ final class FASTQSparklineStrip: NSView {
 
     private var hasQualityData: Bool {
         guard let stats = statistics else { return false }
-        return !stats.perPositionQuality.isEmpty && !stats.qualityScoreHistogram.isEmpty
+        return FASTQStatisticsDisplayRules.hasQualityReport(stats)
     }
 
     // MARK: - Popovers
