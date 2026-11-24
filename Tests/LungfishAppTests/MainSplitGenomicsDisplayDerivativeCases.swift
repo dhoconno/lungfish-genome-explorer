@@ -185,7 +185,7 @@ enum GenomicsDisplayDerivativeCases {
                 XCTAssertEqual(command.input, input)
                 XCTAssertEqual(command.minOverlap, 15)
                 XCTAssertTrue(command.strict)
-                XCTAssertTrue(command.countDuplicates)
+                XCTAssertFalse(command.countDuplicates, "the app's merge no longer counts duplicates (MERGE-COUNTED-INVENTED-Q, BIO-MERGE fix (b))")
                 XCTAssertEqual(command.output.output, "<derived>")
             },
             GenomicsDisplayDerivativeCase("paired-end repair", .pairedEndRepair) { parsed, input in
