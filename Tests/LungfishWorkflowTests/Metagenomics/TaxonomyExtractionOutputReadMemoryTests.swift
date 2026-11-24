@@ -77,6 +77,37 @@ final class TaxonomyExtractionOutputReadMemoryTests: XCTestCase {
         )
     }
 
+    // MARK: - The 1 MiB pass of the FASTA conversion
+
+    /// The conversion of the joined file to FASTA, which the route takes when a person asks for FASTA. It reads the whole
+    /// joined file through the line reader, in 1 MiB chunks of `read(upToCount:)`, in one synchronous call, the same API
+    /// and loop as the join and the count above. READID-MEM-2 review SF1.
+    func testTheFASTAConversionOfTheJoinedFileKeepsNoChunkOfTheOutputAfterItIsRead() async throws {
+        let root = try TestTempDirectory.make(prefix: "extraction-output-fasta")
+        addTeardownBlock { TestTempDirectory.cleanup(root) }
+        let output = root.appendingPathComponent("kraken2-concat.fastq")
+        let converted = root.appendingPathComponent("kraken2-concat.fasta")
+        let written = try Self.writeOutput(to: output)
+        XCTAssertGreaterThanOrEqual(written.bytes, 200 << 20, "the output is at least 200 MiB")
+        let resolver = ClassifierReadResolver()
+
+        let rise = try await peakRise {
+            try await resolver.convertFASTQToFASTA(input: output, output: converted)
+        }
+
+        // A record of 356 B less its 2 B plus line and its 151 B quality line is 203 B in FASTA.
+        XCTAssertEqual(
+            try Self.size(of: converted), UInt64(written.records * 203),
+            "the FASTA holds the name line and the bases line of every record"
+        )
+        print("TaxonomyExtractionOutputReadMemoryTests fasta: footprint rise \(rise) B over an output of \(written.bytes) B")
+        XCTAssertLessThanOrEqual(
+            rise, Self.allowedRise,
+            "the FASTA conversion of an output of \(written.bytes) B raised the footprint by \(rise) B, over the "
+                + "\(Self.allowedRise) B that a chunk in hand and the line reader's buffers allow, so it kept its chunks"
+        )
+    }
+
     // MARK: - Helpers
 
     /// Runs `pass` while a thread reads the footprint, and returns how far the largest reading rose above the footprint
