@@ -138,7 +138,10 @@ final class VariantGeneAliasFilterTests: XCTestCase {
     func testAPlainGeneKeyIsComparedByItsWholeValueAndTheListKeysByTheirMembers() throws {
         let genes = [400: "GENEC", 500: "GENEB", 700: "GENEB2"]
         let database = try VariantDatabase(url: try importDatabase(Self.vcf(plainGeneKeys: genes), name: "plain-gene"))
-        XCTAssertEqual(typedCount("gene=GENEB", in: database), Self.bcftoolsThreeKeysGeneB, "gene=GENEB")
+        // A typed GENE or Gene is the alias in any case, so a file that holds a GENE key still reads every gene key.
+        for text in ["gene=GENEB", "GENE=GENEB", "Gene=GENEB"] {
+            XCTAssertEqual(typedCount(text, in: database), Self.bcftoolsThreeKeysGeneB, text)
+        }
         XCTAssertEqual(typedCount("gene=GENEC", in: database), Self.bcftoolsThreeKeysGeneC, "gene=GENEC")
         XCTAssertEqual(typedCount("gene=GENEB2", in: database), Self.bcftoolsThreeKeysGeneB2, "gene=GENEB2")
     }
