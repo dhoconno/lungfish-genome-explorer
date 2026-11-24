@@ -72,7 +72,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private var metadataPresentationContext: SampleMetadataPresentationContext?
     private var metadataPresentationObserverToken: SampleMetadataPresentationContext.ObserverToken?
     private var alignmentActionContextGeneration = 0
-    var alignmentActionContextTask: Task<Void, Never>?
+    var alignmentActionContextTask: Task<Void, Never>? { didSet { alignmentActionContextTaskDidChange() } }
     /// The running mapping row refresh, `nil` once it finishes. A newer refresh cancels it,
     /// which stops its samtools children, and the ready announcement waits for it.
     var mappingRowsRefreshTask: Task<Void, Never>?
@@ -140,7 +140,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private let splitView = TrackedDividerSplitView()
     let listContainer = NSView()
     private let detailContainer = NSView()
-    private let detailContentContainer = NSView()
+    let detailContentContainer = NSView()
     private var detailContentContainerConstraints: [NSLayoutConstraint] = []
     let contigTableView = MappingContigTableView()
     let sequenceTableView = ReferenceBundleRecordTable()
@@ -845,7 +845,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         // The context is an immutable scientific snapshot. Never leave it
         // installed while any display/scientific filter is being replaced.
         clearAlignmentActionContext()
-        embeddedViewerController.applyReadDisplaySettings(userInfo)
+        applyReadDisplaySettingsToViewer(userInfo)
 
         guard currentInput?.kind == .mappingResult else {
             if let row = currentSelectedSequence(),
@@ -1011,7 +1011,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     func consensusScopeState() -> (scope: AlignmentConsensusScope, unavailableMessage: String?) {
         let scope = embeddedViewerController.alignmentConsensusScope
         guard let context = embeddedViewerController.alignmentActionContext else {
-            return (scope, AlignmentScientificActionError.contextUnavailable.localizedDescription)
+            return (scope, embeddedViewerController.alignmentEvidenceCue ?? AlignmentScientificActionError.contextUnavailable.localizedDescription)
         }
         do {
             _ = try scope.resolve(in: context, selection: embeddedViewerController.explicitAlignmentSelection)
@@ -1546,7 +1546,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     private func scheduleAlignmentActionContext(_ seed: AlignmentActionContextSeed) {
         clearAlignmentActionContext()
-        if embeddedViewerController.isRestoringViewportMemory { return } // no hash until a pick (SWIFT-EVIDENCE-HASH)
+        if embeddedViewerController.withholdsAlignmentActionContext() { return } // no hash until a pick (SWIFT-EVIDENCE-HASH)
         let generation = alignmentActionContextGeneration
         alignmentActionContextTask = Task { @MainActor [weak self] in
             do {

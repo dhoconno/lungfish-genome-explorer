@@ -63,6 +63,9 @@ struct ReferenceViewerMemory: ViewMemoryState {
 struct ReferenceViewportMemory: Codable, Sendable, Equatable {
     var focused: Bool
     var table: BatchTableMemory
+    /// The read filters the viewer shows, VS B6, restored on an equal data key only (VS-MAP-2). Nil for a record
+    /// an older build kept.
+    var reads: ReferenceReadFilters? = nil
 
     /// What a person picks: the mode, the sort, the filters and the selected sequences by name.
     struct Choices: Equatable {
@@ -94,6 +97,10 @@ protocol ReferenceViewportMemoryOwner: AnyObject {
     /// while it shows none or shows All Alignments.
     var viewMemoryOwnSelection: [String] { get }
     func viewMemoryRowsSettled() async
+    /// A row is selected with no alignment action context and none being built (VS-MAP-2 item 6).
+    var selectedRowAwaitsItsContext: Bool { get }
+    /// Shows word 5a while the filters the restore or the block's carry left hide reads (VS B6).
+    func showReadFilterLineIfKept()
 }
 
 /// The presentation fields of a reference view, the only fields an older bundle's `.viewstate.json` gives as a starting
@@ -209,6 +216,11 @@ final class ReferenceViewerMemorySession {
     var resetBeforeApply = false
     /// The viewport's list and mode as last read while it showed this bundle (VS-MAP).
     var viewport: ReferenceViewportMemory?
+    /// The restore withheld the selected row's alignment action context, so the row shows the cue until the
+    /// person's click starts its context task (VS-MAP-2 item 6).
+    var contextWithheld = false
+    /// The read filters the filter line speaks of, so a person's change of them ends it (VS B6).
+    var restoredReads: ReferenceReadFilters?
     /// The restore waits for, or has waited for, the viewport's own row refresh.
     var awaitingRows = false
     var rowsSettled = false
@@ -352,6 +364,7 @@ extension ViewerViewController {
             announceViewMemory()
         }
         if case .folderChanged = read.kept { words = ViewMemoryWords.viewReset }
+        viewMemoryViewport?.showReadFilterLineIfKept()
         if let words { showViewMemoryLine(words, in: session) }
     }
 
@@ -543,8 +556,24 @@ extension ViewerViewController {
         viewMemoryLogger.info("resetBundleViewToDefaults: left the item's retire mark in the view memory store")
     }
 
-    /// The cue a restored row shows until the person clicks it, nil otherwise (VS-MAP-2 item 6).
-    var alignmentEvidenceCue: String? { nil }
+    /// While the restore applies the viewport's list, a restored row's alignment action context is withheld until
+    /// the person picks or clicks it (SWIFT-EVIDENCE-HASH). The visit notes it, and the viewer and the Inspector
+    /// redraw, so they can say how to load it (VS-MAP-2 item 6).
+    func withholdsAlignmentActionContext() -> Bool {
+        guard let session = viewMemory, session.restoringViewport else { return false }
+        session.contextWithheld = true
+        viewerView?.needsDisplay = true
+        onAlignmentConsensusActionStateChanged?()
+        return true
+    }
+
+    /// The cue a restored row shows until the person clicks it, nil otherwise (VS-MAP-2 item 6): the restore withheld
+    /// the row's context, and the row is still selected with no context and no context task. It starts nothing.
+    var alignmentEvidenceCue: String? {
+        guard viewMemory?.contextWithheld == true, alignmentActionContext == nil,
+              viewMemoryViewport?.selectedRowAwaitsItsContext == true else { return nil }
+        return ViewMemoryWords.alignmentEvidenceCue
+    }
 }
 
 extension SequenceViewerView {

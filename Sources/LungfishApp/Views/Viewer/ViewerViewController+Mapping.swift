@@ -28,7 +28,7 @@ extension ViewerViewController {
     /// evidence; missing evidence/selection is reported instead of ignored.
     func extractReadsInSelectedAlignmentRegion() {
         guard let context = alignmentActionContext else {
-            presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: AlignmentScientificActionError.contextUnavailable.localizedDescription)
+            presentExtractionFailureAlert(title: "Extract Selected Region Failed", message: alignmentEvidenceCue ?? AlignmentScientificActionError.contextUnavailable.localizedDescription)
             return
         }
         guard let selection = explicitAlignmentSelection else {
@@ -284,7 +284,7 @@ extension ViewerViewController {
     /// so the distinct contig set is logged.
     func extractSelectedReads(_ reads: [AlignedRead]) {
         guard let context = alignmentActionContext else {
-            presentExtractionFailureAlert(title: "Extract Selected Reads Failed", message: AlignmentScientificActionError.contextUnavailable.localizedDescription)
+            presentExtractionFailureAlert(title: "Extract Selected Reads Failed", message: alignmentEvidenceCue ?? AlignmentScientificActionError.contextUnavailable.localizedDescription)
             return
         }
         guard !reads.isEmpty else {

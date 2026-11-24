@@ -20,8 +20,10 @@ extension ReferenceBundleViewportController: ReferenceViewportMemoryOwner {
     func captureViewportMemory() -> ReferenceViewportMemory? {
         let focused = presentationMode == .focusedDetail
         switch currentInput?.kind {
-        case .mappingResult: return ReferenceViewportMemory(focused: focused, table: contigTableView.captureViewMemory())
-        case .directBundle: return ReferenceViewportMemory(focused: focused, table: sequenceTableView.captureViewMemory())
+        case .mappingResult:
+            return ReferenceViewportMemory(focused: focused, table: contigTableView.captureViewMemory(), reads: shownReadFilters)
+        case .directBundle:
+            return ReferenceViewportMemory(focused: focused, table: sequenceTableView.captureViewMemory(), reads: shownReadFilters)
         case nil: return nil
         }
     }
@@ -47,6 +49,12 @@ extension ReferenceBundleViewportController: ReferenceViewportMemoryOwner {
         table.target = self
         table.action = #selector(viewMemoryRowClicked(_:))
         var loss: ViewMemoryLoss = []
+        // The read filters restore on an equal data key only; else the view and the block start at the defaults and the
+        // line says "filters" (VS B6). Through the block's path, under the no-hash flag the caller holds (BIO R2).
+        if let reads = memory.reads, !(dataChanged && reads == .defaults) {
+            applyRestoredReadFilters(dataChanged ? .defaults : reads)
+            if dataChanged { loss.insert(.filters) }
+        }
         if report.filtersDropped { loss.insert(.filters) }
         if report.selection?.lostAny == true { loss.insert(.selection) }
         return loss
@@ -116,7 +124,115 @@ extension ViewMemoryWords {
     static let alignmentEvidenceCue = "Click the selected row to load its alignment evidence."
 }
 
+/// The read filters a reference or mapping view keeps (VS B6): the confidence, the two consensus quality limits and the
+/// flags the duplicate, secondary and supplementary toggles set. They restore on an equal data key only. The read group
+/// filter is not kept, since a restored row applies its own sample's groups (VS B4).
+struct ReferenceReadFilters: Codable, Sendable, Equatable {
+    var minMapQ: Int
+    var consensusMinMapQ: Int
+    var consensusMinBaseQ: Int
+    var excludeFlags: UInt16
+
+    /// The values a bundle opens with, the block's declared defaults (`resetDepthFilters`).
+    static let defaults = ReferenceReadFilters(minMapQ: 0, consensusMinMapQ: 0, consensusMinBaseQ: 0, excludeFlags: 0xD04)
+
+    /// Word 5a while the filters hide reads the defaults show, 5c while they only show more, none at the defaults.
+    var lineForm: ViewMemoryFilterLineForm? {
+        let excludesMore = excludeFlags & ~Self.defaults.excludeFlags != 0
+        if minMapQ > 0 || consensusMinMapQ > 0 || consensusMinBaseQ > 0 || excludesMore {
+            return .hiddenWithoutCount(kind: "Read", noun: "reads")
+        }
+        return self == .defaults ? nil : .changesValues
+    }
+
+    /// The keys the Inspector's block sends for these filters (`makeReadDisplaySettingsPayload`).
+    var payload: [AnyHashable: Any] {
+        [NotificationUserInfoKey.minMapQ: minMapQ, NotificationUserInfoKey.consensusMinMapQ: consensusMinMapQ,
+         NotificationUserInfoKey.consensusMinBaseQ: consensusMinBaseQ, NotificationUserInfoKey.excludeFlags: excludeFlags]
+    }
+}
+
 extension ReferenceBundleViewportController {
+    /// The read filters the viewer shows now, which Extract and the consensus read too (`currentAlignmentFilters`).
+    var shownReadFilters: ReferenceReadFilters? {
+        guard let view = embeddedViewerController.viewerView else { return nil }
+        return ReferenceReadFilters(
+            minMapQ: view.minMapQSetting, consensusMinMapQ: view.consensusMinMapQSetting,
+            consensusMinBaseQ: view.consensusMinBaseQSetting, excludeFlags: view.excludeFlagsSetting)
+    }
+
+    /// Applies restored read filters as the Inspector's block would, and shows the same values in the block, so the
+    /// store and the block's carry never disagree (VS B6). The caller holds the no-hash flag (VS-MAP BIO R2).
+    func applyRestoredReadFilters(_ filters: ReferenceReadFilters) {
+        var next = parent
+        while let controller = next, !(controller is MainSplitViewController) { next = controller.parent }
+        if let block = (next as? MainSplitViewController)?.inspectorController.readStyleSectionViewModel {
+            block.minMapQ = Double(filters.minMapQ)
+            block.consensusMinMapQ = Double(filters.consensusMinMapQ)
+            block.consensusMinBaseQ = Double(filters.consensusMinBaseQ)
+            block.showSecondary = filters.excludeFlags & 0x100 == 0
+            block.showDuplicates = filters.excludeFlags & 0x400 == 0
+            block.showSupplementary = filters.excludeFlags & 0x800 == 0
+        }
+        applyEmbeddedReadDisplaySettings(filters.payload)
+    }
+
+    /// The viewer takes read display settings from the block or a restore. A person's change ends the filter line once
+    /// the filters differ from those it spoke of, and the visit takes the list as it stands, so a leave keeps it.
+    func applyReadDisplaySettingsToViewer(_ userInfo: [AnyHashable: Any]) {
+        embeddedViewerController.applyReadDisplaySettings(userInfo)
+        guard !embeddedViewerController.isRestoringViewportMemory else { return }
+        if let line = filterLineView, shownReadFilters != embeddedViewerController.viewMemory?.restoredReads {
+            line.removeFromSuperview()
+            embeddedViewerController.view.topAnchor.constraint(equalTo: detailContentContainer.topAnchor).isActive = true
+        }
+        _ = embeddedViewerController.captureViewerMemory()
+    }
+
+    private var filterLineView: ViewMemoryFilterLineView? {
+        detailContentContainer.subviews.lazy.compactMap { $0 as? ViewMemoryFilterLineView }.first
+    }
+
     /// The in-view line (word 5a) for restored read filters, nil while none shows.
-    var readFilterLine: ViewMemoryFilterLineView? { nil }
+    var readFilterLine: ViewMemoryFilterLineView? { filterLineView.flatMap { $0.isHidden ? nil : $0 } }
+
+    /// After a restore, or the block's carry, the viewport says that filters from the last visit hide reads (VS B6).
+    /// The line sits in flow above the viewer and moves it down (LESSONS 4).
+    func showReadFilterLineIfKept() {
+        guard let filters = shownReadFilters, let form = filters.lineForm else { return }
+        let line = filterLineView ?? {
+            let line = ViewMemoryFilterLineView()
+            let detailView = embeddedViewerController.view
+            detailContentContainer.addSubview(line)
+            detailContentContainer.constraints.first {
+                $0.firstItem === detailView && $0.firstAttribute == .top && $0.secondItem === detailContentContainer
+            }?.isActive = false
+            NSLayoutConstraint.activate([
+                line.topAnchor.constraint(equalTo: detailContentContainer.topAnchor),
+                line.leadingAnchor.constraint(equalTo: detailContentContainer.leadingAnchor),
+                line.trailingAnchor.constraint(equalTo: detailContentContainer.trailingAnchor),
+                detailView.topAnchor.constraint(equalTo: line.bottomAnchor),
+            ])
+            return line
+        }()
+        embeddedViewerController.viewMemory?.restoredReads = filters
+        line.showRestored(form)
+    }
+
+    var selectedRowAwaitsItsContext: Bool {
+        guard embeddedViewerController.alignmentActionContext == nil, alignmentActionContextTask == nil else { return false }
+        switch currentInput?.kind {
+        case .mappingResult: return currentSelectedContig() != nil
+        case .directBundle: return currentSelectedSequence() != nil
+        case nil: return false
+        }
+    }
+
+    /// A context task that starts ends the cue in the consensus row, the Inspector and the alerts (VS-MAP-2 item 6).
+    func alignmentActionContextTaskDidChange() {
+        guard alignmentActionContextTask != nil else { return }
+        embeddedViewerController.viewMemory?.contextWithheld = false
+        embeddedViewerController.viewerView?.needsDisplay = true
+        onConsensusActionStateChanged?()
+    }
 }

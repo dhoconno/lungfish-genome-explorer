@@ -589,10 +589,8 @@ extension SequenceViewerView {
             .font: NSFont.systemFont(ofSize: 9, weight: .medium),
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
-        ("Consensus" as NSString).draw(
-            at: CGPoint(x: 4, y: rect.minY + 2),
-            withAttributes: labelAttrs
-        )
+        let label = consensusRowCue.map { "Consensus   \($0)" } ?? "Consensus" // the cue before the click
+        (label as NSString).draw(at: CGPoint(x: 4, y: rect.minY + 2), withAttributes: labelAttrs)
 
         guard let sequenceString,
               let region,
