@@ -32,7 +32,7 @@ glossary_refs: [accession, adapter, alignment, amplicon, assembly, bam, blast, b
 features_refs: [classify.esviritu, classify.esviritu-cli-route]
 fixtures_refs: [sarscov2-srr36291587]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
