@@ -52,8 +52,9 @@ extension AffectedResults {
         // record names the build that wrote it, as for NAOMGS-UNALIGNED-MATE-HIT (``AffectedResults/builds(of:)``).
         AffectedResultRow(
             backlogID: "NAOMGS-DEDUP-READ-COUNT", kinds: [.naoMgs], firstBuild: nil, lastBuild: 14223,
-            sentence: "The version that imported this result could leave out of Unique Reads a mate that two different "
-                + "NAO-MGS read pairs shared, so Unique Reads can read low.",
+            sentence: "The version that imported this result counted a NAO-MGS read as a PCR duplicate when it shared its "
+                + "place, strand and length with a read of a different pair, so Unique Reads can read low and PCR "
+                + "duplicates can read high.",
             whatToDo: "Import the original results file again, which makes a second result beside this one, then "
                 + "remove this result.",
             fixCommit: "ca94c5f41"
