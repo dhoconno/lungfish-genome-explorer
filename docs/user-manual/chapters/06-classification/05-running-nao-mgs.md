@@ -187,7 +187,7 @@ To document your input, record the source file name and its [checksum](../../GLO
 
 ## On the command line
 
-In Terminal, the first command imports the table and the second extracts reads by sample and accession. The Import Center also adds `--format json`, which prints the import's progress as JSON, a structured text format other programs can read. See [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) for help. Every flag of the import is listed in [`import nao-mgs`](../appendices/cli-reference.md#import-nao-mgs) in the CLI Reference, and every flag of extraction in [`extract reads`](../appendices/cli-reference.md#extract-reads).
+In Terminal, the first command imports the table and the second extracts reads by sample and accession. The Import Center also adds `--format json`, which prints the import's progress as JSON, a structured text format other programs can read. See [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) for help. The CLI Reference describes the import in [`import nao-mgs`](../appendices/cli-reference.md#import-nao-mgs) and extraction in [`extract reads`](../appendices/cli-reference.md#extract-reads).
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Pathogen Detection.lungfish"
