@@ -30,7 +30,7 @@ glossary_refs: [nvd, contig, blast, e-value, percent-identity, bit-score, access
 features_refs: [import.nvd]
 fixtures_refs: [nvd-demo]
 brand_reviewed: true
-lead_approved: false
+lead_approved: true
 ---
 
 ## What it is
