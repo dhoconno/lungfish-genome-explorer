@@ -376,6 +376,23 @@ extension ViewSwitchViewStateTests {
         assertNoLayoutKeyWritten()
     }
 
+    /// A restored row's actions show as a pick's do: the bar's Extract acts on the row shown selected (lesson 8).
+    func testNaoMgsRestoredRowEnablesExtractOnTheBar() async throws {
+        let driver = NaoMgsViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try await driver.change(in: harness)
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        let viewer = try XCTUnwrap(driver.viewer(in: harness))
+        XCTAssertEqual(viewer.testTaxonomyTableView.selectedRowIndexes.count, 1, "the row comes back selected")
+        XCTAssertTrue(viewer.actionBar.extractButton.isEnabled, "Extract acts on the restored row")
+        assertNoLayoutKeyWritten()
+    }
+
     // MARK: NVD
 
     /// The view comes back as left, and the restore of the selected hit starts no alignment evidence load: the return
