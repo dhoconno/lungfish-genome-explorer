@@ -2763,7 +2763,7 @@ public class SequenceViewerView: NSView {
         let modificationDate = attributes?[.modificationDate] as? Date
         return (size, modificationDate)
     }
-    nonisolated private static func checksumSnapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
+    nonisolated internal static func checksumSnapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         let size = (attributes[.size] as? NSNumber)?.int64Value ?? 0
         let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }; var hash = SHA256()

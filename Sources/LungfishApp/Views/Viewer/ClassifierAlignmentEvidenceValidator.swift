@@ -316,7 +316,7 @@ struct ClassifierAlignmentEvidenceValidator: @unchecked Sendable {
         return digest.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func snapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
+    internal static func snapshot(_ url: URL) throws -> ClassifierAlignmentEvidenceFileSnapshot {
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         let size = Int64(values.fileSize ?? 0)
         let mtime = values.contentModificationDate ?? .distantPast

@@ -62,6 +62,46 @@ final class ChunkLoopMemoryTests: XCTestCase {
         assertKeepsNoChunk("SequenceExportStaging.stage copy (SequenceExportStaging.swift:229)", input: written.bytes, rise: rise)
     }
 
+    /// The classifier alignment viewer takes a SHA-256 snapshot of each evidence file (the BAM, its index and the
+    /// reference) in the app before it shows the reads.
+    func testTheClassifierEvidenceSnapshotKeepsNoChunkOfTheFile() throws {
+        let root = try makeRoot()
+        let evidence = root.appendingPathComponent("evidence.bam")
+        let written = try Self.writeBlocks(of: String(repeating: "ACGTTGCAAC", count: 9) + "\n", to: evidence)
+
+        var size: Int64 = 0
+        var digest = ""
+        let rise = try peakRise {
+            let snapshot = try ClassifierAlignmentEvidenceValidator.snapshot(evidence)
+            size = snapshot.size
+            digest = snapshot.sha256
+        }
+
+        XCTAssertEqual(size, Int64(written.bytes), "the snapshot is the size of the whole file")
+        XCTAssertEqual(digest.count, 64, "the snapshot holds a SHA-256 digest")
+        assertKeepsNoChunk("ClassifierAlignmentEvidenceValidator.snapshot (ClassifierAlignmentEvidenceValidator.swift:328)", input: written.bytes, rise: rise)
+    }
+
+    /// The sequence viewer hashes each evidence file of a detached alignment in the app, to see that none changed
+    /// since the viewer opened it.
+    func testTheViewerEvidenceChecksumKeepsNoChunkOfTheFile() throws {
+        let root = try makeRoot()
+        let evidence = root.appendingPathComponent("detached.bam")
+        let written = try Self.writeBlocks(of: String(repeating: "ACGTTGCAAC", count: 9) + "\n", to: evidence)
+
+        var size: Int64 = 0
+        var digest = ""
+        let rise = try peakRise {
+            let snapshot = try SequenceViewerView.checksumSnapshot(evidence)
+            size = snapshot.size
+            digest = snapshot.sha256
+        }
+
+        XCTAssertEqual(size, Int64(written.bytes), "the snapshot is the size of the whole file")
+        XCTAssertEqual(digest.count, 64, "the snapshot holds a SHA-256 digest")
+        assertKeepsNoChunk("SequenceViewerView.checksumSnapshot (SequenceViewerView.swift:2770)", input: written.bytes, rise: rise)
+    }
+
     // MARK: - Helpers
 
     private func makeRoot() throws -> URL {
