@@ -651,9 +651,11 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertEqual(viewport.alignmentActionContextTask, built, "and start no new evidence hash")
     }
 
-    /// VS-MAP-RACE SWIFT B1. A return to the same reference in the same viewport, as the route makes it, configures the
-    /// list's rows again, and the list sends its kept selection again. That is the list's own selection, not a
-    /// person's pick, so the late restore still brings back the kept view.
+    /// VS-MAP-RACE SWIFT B1. A return to the same reference in the same viewport, as the route makes it
+    /// (`displayReferenceBundleViewportFromSidebar`: the loading state, the rows, then the sample metadata columns),
+    /// configures the list's rows again and installs its metadata columns, and each time the list sends its kept
+    /// selection again. That is the list's own selection, not a person's pick, so the late restore still brings back
+    /// the kept view.
     func testAReturnToTheSameReferenceInTheSameViewportStillRestoresTheKeptView() async throws {
         let first = try bundle("First", Self.two)
         let viewport = try await open(reference: first, store: makeStore())
@@ -662,7 +664,9 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         let kept = try XCTUnwrap(viewer.referenceFrame)
         viewer.clearBundleDisplay()
 
+        viewport.showOpenLoading(title: "First", documentURL: first)
         try viewport.configureForTesting(input: .directBundle(bundleURL: first, manifest: try BundleManifest.load(from: first)))
+        viewport.applySampleMetadata(try SampleMetadataStore(csvData: Data("sample,group\nS1,A\n".utf8), knownSampleIds: ["S1"]))
         XCTAssertFalse(viewer.viewMemoryIsSettled, "the read is held")
         let settled = await waitUntil(budget: .lookup) {
             viewer.currentBundleURL?.standardizedFileURL == first.standardizedFileURL && viewer.viewMemoryIsSettled
