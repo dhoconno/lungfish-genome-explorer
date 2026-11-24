@@ -318,6 +318,38 @@ extension ViewSwitchViewStateTests {
         assertNoLayoutKeyWritten()
     }
 
+    /// Reset View made before the route's database lands stands: the late restore brings nothing back, and the next
+    /// visit opens at the starting view (VS A2, the reset side of lesson 1).
+    func testNaoMgsKeepsAResetMadeBeforeItsLateRestore() async throws {
+        let driver = NaoMgsViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        await driver.settle(in: harness)
+        let start = try driver.read(in: harness)
+        try await driver.change(in: harness)
+        await driver.settle(in: harness)
+        XCTAssertNotEqual(try driver.read(in: harness), start, "the change shows in the view's controls")
+        try await leave(for: other, in: harness, driver: driver)
+
+        harness.select(fixture.item)
+        let loading = try XCTUnwrap(driver.viewer(in: harness), "the viewer shows before its load")
+        XCTAssertNil(loading.database, "the route's load has not landed")
+        harness.split.viewerController.surfaceHost.resetViewMemory()
+        let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
+        XCTAssertTrue(shown, "NAO-MGS did not show")
+        await driver.settle(in: harness)
+        XCTAssertEqual(try driver.read(in: harness), start, "the reset stands over the late restore")
+        XCTAssertNil(harness.resetLineWords, "a reset shows no line")
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(try driver.read(in: harness), start, "the next visit opens at the starting view")
+        assertNoLayoutKeyWritten()
+    }
+
     /// The NAO-MGS table declares view memory, so its column layout reaches neither the account's defaults nor the
     /// test's suite (VS A10, QA 6).
     func testNaoMgsTableDeclaresViewMemoryAndWritesNoLayout() async throws {
@@ -437,6 +469,44 @@ extension ViewSwitchViewStateTests {
         try await show(fixture, in: harness, driver: driver)
         reading = try driver.read(in: harness)
         XCTAssertEqual(reading[NvdViewStateDriver.searchLine], "search NODE_5", "the next visit keeps the search")
+        assertNoLayoutKeyWritten()
+    }
+
+    /// Reset View made before the route's database lands stands: the late restore brings nothing back, and the next
+    /// visit opens at the starting view (VS A2, the reset side of lesson 1). The split line is not compared, since the
+    /// divider moves a few hundredths between two opens.
+    func testNvdKeepsAResetMadeBeforeItsLateRestore() async throws {
+        let driver = NvdViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        func withoutSplit(_ reading: [String]) -> [String] {
+            var lines = reading
+            lines.remove(at: NvdViewStateDriver.splitLine)
+            return lines
+        }
+        try await show(fixture, in: harness, driver: driver)
+        await driver.settle(in: harness)
+        let start = withoutSplit(try driver.read(in: harness))
+        try await driver.change(in: harness)
+        await driver.settle(in: harness)
+        XCTAssertNotEqual(withoutSplit(try driver.read(in: harness)), start, "the change shows in the view's controls")
+        try await leave(for: other, in: harness, driver: driver)
+
+        harness.select(fixture.item)
+        let loading = try XCTUnwrap(driver.viewer(in: harness), "the viewer shows before its database")
+        XCTAssertNil(loading.database, "the route's load has not landed")
+        harness.split.viewerController.surfaceHost.resetViewMemory()
+        let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
+        XCTAssertTrue(shown, "NVD did not show")
+        await driver.settle(in: harness)
+        XCTAssertEqual(withoutSplit(try driver.read(in: harness)), start, "the reset stands over the late restore")
+        XCTAssertNil(harness.resetLineWords, "a reset shows no line")
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(withoutSplit(try driver.read(in: harness)), start, "the next visit opens at the starting view")
         assertNoLayoutKeyWritten()
     }
 
