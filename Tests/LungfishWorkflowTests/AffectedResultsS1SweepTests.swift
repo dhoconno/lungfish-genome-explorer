@@ -321,8 +321,8 @@ final class AffectedResultsS1SweepTests: XCTestCase {
     func testTheRowsOfM2SayTheirRulingsWords() {
         let words: [String: (sentence: String, whatToDo: String)] = [
             "DEMUXPLAN-LIMITS-S3-GROUP": (
-                "This run used the kit's barcode sequences and the default Min Overlap, Allow Indels and reverse-complement "
-                    + "search, whatever the Demux tab showed.",
+                "This run used the kit's barcode sequences and the default Min Overlap and Allow Indels, whatever the "
+                    + "Demux tab showed.",
                 "If you changed any of them, demultiplex again from the tab."),
             "DERIVED-STATS-PRESTORAGE": (
                 "Mean Q and the quality charts describe the reads before Lungfish stored them, which raised every score of "

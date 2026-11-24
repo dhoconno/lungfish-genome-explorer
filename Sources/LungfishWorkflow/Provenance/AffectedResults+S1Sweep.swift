@@ -88,8 +88,8 @@ extension AffectedResults {
         // rows showed a typed sequence (DEMUX, Affected facts K5), so the row holds every run a plan started.
         AffectedResultRow(
             backlogID: "DEMUXPLAN-LIMITS-S3-GROUP", kinds: [.fastqDemultiplexPlanRun], firstBuild: nil, lastBuild: 14223,
-            sentence: "This run used the kit's barcode sequences and the default Min Overlap, Allow Indels and "
-                + "reverse-complement search, whatever the Demux tab showed.",
+            sentence: "This run used the kit's barcode sequences and the default Min Overlap and Allow Indels, "
+                + "whatever the Demux tab showed.",
             whatToDo: "If you changed any of them, demultiplex again from the tab.",
             fixCommit: "3a78e2507"
         ),
