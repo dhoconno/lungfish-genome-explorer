@@ -115,6 +115,20 @@ def extract_dynamic_category_titles(text: str) -> set[str]:
     return titles
 
 
+RESET_VIEW_WORDS_SWIFT = REPO_ROOT / "Sources/LungfishApp/Views/Inspector/InspectorViewController+ViewMemory.swift"
+
+
+def extract_reset_view_title(text: str) -> set[str]:
+    """Pull the View menu's Reset View title. MainMenu.swift builds that item
+    with `ResetViewWords.menuTitle`, the one string the menu and the Inspector
+    share (VS U3), so it never appears as a `withTitle:` literal there. Anchor
+    on the enum so another type's `menuTitle` cannot shadow it."""
+    match = re.search(
+        r'enum ResetViewWords\b.*?static let menuTitle\s*=\s*"((?:[^"\\]|\\.)*)"',
+        text, re.DOTALL)
+    return {normalize(match.group(1))} if match else set()
+
+
 def load_known_titles() -> set[str]:
     titles = set()
     # MainMenu.swift plus its MainMenu+*.swift extension files, which build
@@ -125,6 +139,8 @@ def load_known_titles() -> set[str]:
             titles |= extract_literal_titles(menu_file.read_text())
     if OPERATIONS_CATALOG_SWIFT.is_file():
         titles |= extract_dynamic_category_titles(OPERATIONS_CATALOG_SWIFT.read_text())
+    if RESET_VIEW_WORDS_SWIFT.is_file():
+        titles |= extract_reset_view_title(RESET_VIEW_WORDS_SWIFT.read_text())
     return titles
 
 
