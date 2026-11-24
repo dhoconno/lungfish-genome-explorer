@@ -72,9 +72,120 @@ final class ReadTimeWriteTests: XCTestCase {
         try await super.tearDown()
     }
 
+    // MARK: - Viewing every kind with a change in each
+
+    /// The plan's acceptance case with input (VS-PROOF item 1, exit check X1, UX 6). One project holds the fixture of
+    /// every kind of `ViewSwitchKinds.all`. A window that keeps its views in a store under the test's folder shows each
+    /// kind in turn and makes a person's change in each kind that keeps its view, with a tab picked in the Inspector of
+    /// the reference (the store kind `inspector` of VS-INSP), and the switch to the next kind keeps it. A second walk
+    /// comes back to each changed kind and reads the view as left, so the change sat in the store, and the quit's capture
+    /// and flush end the run. Every file of the project keeps its bytes and its date, and the declared app state of view
+    /// memory stays empty. A kind with no driver, each a row of `ViewStateDeclaredGaps`, is shown with no change. The
+    /// classifier kinds make their change with no row click, since the NAO-MGS detail load can write the sample's BAM
+    /// into the result, a write older than view memory (`ReadTimeWriteTests+Classifiers.swift`).
+    func testViewingEveryKindWithAChangeInEachWritesNoByteIntoTheProject() async throws {
+        // The alignment's bottom pane keeps its tab and open flag in a suite the test owns.
+        isolateAlignmentPaneDefaults()
+        XCTAssertEqual(DeclaredAppState.viewStateWithNoInput, [], "view memory declares no app state in the project")
+        let project = try SafetyNetFiles.makeDirectory(scratch.appendingPathComponent("Every Kind.lungfish", isDirectory: true))
+        let drivers = Self.acceptanceDrivers
+        var fixtures: [ViewSwitchFixture] = []
+        for kind in ViewSwitchKinds.all {
+            let fixture = try await ViewSwitchFixtures.build(kind, in: project)
+            try drivers[kind.name]?.prepare(fixture)
+            fixtures.append(fixture)
+        }
+        XCTAssertEqual(
+            Set(ViewSwitchKinds.all.map(\.name)).subtracting(drivers.keys).sorted(),
+            ViewStateDeclaredGaps.all.map(\.kind).sorted(),
+            "every kind shown with no change is a declared gap"
+        )
+        let storeRoot = scratch.appendingPathComponent("view-memory", isDirectory: true)
+        // The digest comes before the store reads the project, so a write by that read shows too.
+        let before = try ProjectDigest(of: project)
+        let store = ViewMemoryStore(root: storeRoot)
+        store.loadProject(at: project)
+
+        let harness = try ViewSwitchWindowHarness()
+        harness.keepViews(in: store)
+        var left: [String: [String]] = [:]
+        for fixture in fixtures {
+            let kind = fixture.kind.name
+            harness.select(fixture.item)
+            guard let driver = drivers[kind] else {
+                let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+                    ViewSwitchKinds.outcome(of: harness.read(kindRoot: fixture.root, matrixRoot: project).observation)
+                        == fixture.kind.outcome
+                }
+                XCTAssertTrue(shown, "\(kind) did not show")
+                continue
+            }
+            let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
+            XCTAssertTrue(shown, "\(kind) did not show")
+            await driver.settle(in: harness)
+            let start = try driver.read(in: harness)
+            try await driver.change(in: harness)
+            await driver.settle(in: harness)
+            let changed = try driver.read(in: harness)
+            XCTAssertNotEqual(changed, start, "\(kind): the change shows in the view's controls")
+            left[kind] = changed
+            if let tab = Self.inspectorPicks[kind] {
+                harness.split.inspectorController.viewModel.selectedTab = tab
+            }
+        }
+        XCTAssertEqual(left.count, drivers.count, "every kind with a driver was changed: \(left.keys.sorted())")
+        for fixture in fixtures {
+            let kind = fixture.kind.name
+            guard let driver = drivers[kind], let changed = left[kind] else { continue }
+            harness.select(fixture.item)
+            let back = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
+            XCTAssertTrue(back, "\(kind) did not show again")
+            await driver.settle(in: harness)
+            // NVD's divider is read where the overview shows it (MANAGER-RULING-VS-CLASS-NVD-DIVIDER).
+            let expected = try driver.readingAfterRestore(changed: changed, in: harness)
+            XCTAssertEqual(try driver.read(in: harness), expected, "\(kind): the view as left")
+            if let tab = Self.inspectorPicks[kind] {
+                let kept = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+                    harness.split.inspectorController.viewModel.selectedTab == tab
+                }
+                XCTAssertTrue(kept, "\(kind): the Inspector's \(tab.rawValue) tab as left")
+            }
+        }
+        // The quit keeps the installed view with no switch and writes the store (VS S1).
+        harness.split.viewerController.surfaceHost.captureActive()
+        store.flushSynchronously()
+        harness.close()
+
+        let after = try ProjectDigest(of: project)
+        XCTAssertEqual(
+            after.differences(from: before).map(\.summary), [],
+            "viewing every kind with a change in each, the switches and the quit write nothing into the project (UX 6)"
+        )
+        let kept = try FileManager.default.subpathsOfDirectory(atPath: storeRoot.path).filter {
+            $0.hasSuffix(".json") && !URL(fileURLWithPath: $0).lastPathComponent.hasPrefix(".")
+        }
+        XCTAssertGreaterThanOrEqual(kept.count, left.count, "each view sits in the store outside the project: \(kept)")
+        XCTAssertEqual(
+            MetadataLayoutDefaults.hostKeys(naming: scratch.lastPathComponent), [],
+            "a table wrote its column layout to the account's defaults (QA 6)"
+        )
+    }
+
+    /// One driver for each kind that keeps its view, with the classifier drivers that click no row.
+    private static var acceptanceDrivers: [String: any ViewStateDriver] {
+        var drivers: [String: any ViewStateDriver] = [:]
+        for driver in ViewStateDrivers.all { drivers[driver.kind] = driver }
+        for driver in ClassifierReadTimeDrivers.all { drivers[driver.kind] = driver }
+        return drivers
+    }
+
+    /// The Inspector tab the acceptance case picks on a kind, away from the tab its content opens on
+    /// (`testInspectorTabKeepsThroughARelaunch`).
+    private static let inspectorPicks: [String: InspectorTab] = ["Reference": .provenance]
+
     // MARK: - Opening a project and viewing bundles
 
-    /// The plan's acceptance case. Open the project, then view two reference bundles, a multiple
+    /// The acceptance case with no input. Open the project, then view two reference bundles, a multiple
     /// sequence alignment, a tree and a FASTQ bundle that has no cached statistics, all through the
     /// code the sidebar and the split view run. No byte outside the declared app state may change.
     /// The alignment and the tree keep the `.viewstate.json` that their creation wrote, because
