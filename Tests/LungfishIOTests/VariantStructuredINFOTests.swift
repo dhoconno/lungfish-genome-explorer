@@ -235,7 +235,7 @@ final class VariantStructuredINFOTests: XCTestCase {
         let writable = try VariantDatabase(url: dbURL, readWrite: true)
         XCTAssertTrue(writable.warmHighImpactCache(), "read-write warm")
         assertEveryFilter(writable, "read-write")
-        XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [["member"]], "read-write stamp")
+        XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [[VariantDatabase.highImpactMatchStamp]], "read-write stamp")
         XCTAssertEqual(try StructuredINFOFixture.positions(dbURL, selectingIDs: tablePositions), [100, 200], "table")
 
         // A later open finds the stamped table ready and does not build it again.
@@ -276,7 +276,7 @@ final class VariantStructuredINFOTests: XCTestCase {
         let writable = try VariantDatabase(url: dbURL, readWrite: true)
         writable.warmSmartTokenCaches(availableInfoKeys: keys)
         XCTAssertEqual(writable.tokenCacheState["highImpactBiological"]?.ready, true, "read-write token")
-        XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [["member"]], "read-write stamp")
+        XCTAssertEqual(try StructuredINFOFixture.rows(dbURL, stampQuery), [[VariantDatabase.highImpactMatchStamp]], "read-write stamp")
         let rebuilt = try StructuredINFOFixture.positions(dbURL, selectingIDs: tablePositions)
         let expected = try StructuredINFOFixture.positions(dbURL, selectingIDs: biologicalSQL)
         XCTAssertFalse(expected.isEmpty, "member SQL finds a variant")

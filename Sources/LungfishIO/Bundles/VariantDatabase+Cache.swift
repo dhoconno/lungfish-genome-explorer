@@ -48,10 +48,10 @@ extension VariantDatabase {
         return """
         SELECT DISTINCT variant_id FROM (
             SELECT variant_id FROM variant_info
-            WHERE key IN (\(impactKeyList)) AND instr(',' || value || ',', ',HIGH,') > 0
+            WHERE key COLLATE NOCASE IN (\(impactKeyList)) AND instr(',' || value || ',', ',HIGH,') > 0
             UNION
             SELECT variant_id FROM variant_info
-            WHERE key IN (\(consequenceKeyList))
+            WHERE key COLLATE NOCASE IN (\(consequenceKeyList))
               AND (\(consequenceMatch))
         )
         """
@@ -79,10 +79,20 @@ extension VariantDatabase {
         """
     }
 
-    /// The `db_metadata` row that marks `_high_impact` and `_tok_bio_hi` as built with the list-member match. A database
-    /// imported before the stamp holds both tables built with `value = 'HIGH'` and has no row.
+    /// The impact keys of `infoKeys` that a typed `key` names, compared without case and in one fixed order, as the High
+    /// Impact token orders them. The typed key `impact` stands for the impact of a variant whichever tool wrote it, so
+    /// it names all of them. A key typed in full, such as `ANN_IMPACT`, reads that key alone and names none.
+    public static func heldImpactKeys(typed key: String, among infoKeys: [String]) -> [String] {
+        guard key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "impact" else { return [] }
+        let names = Set(impactInfoKeys.map { $0.uppercased() })
+        return infoKeys.filter { names.contains($0.uppercased()) }.sorted()
+    }
+
+    /// The `db_metadata` row that marks `_high_impact` and `_tok_bio_hi` as built with the list-member match over keys
+    /// compared without case, as the filters compare them. A database imported before holds both tables built with
+    /// `value = 'HIGH'` and has no row, or built over exact-case keys and has the row `member`.
     static let highImpactMatchKey = "high_impact_match"
-    static let highImpactMatchStamp = "member"
+    static let highImpactMatchStamp = "member-nocase"
     static let highImpactTableNames: Set<String> = ["_high_impact", "_tok_bio_hi"]
     static let highImpactMatchStampSQL =
         "INSERT OR REPLACE INTO db_metadata VALUES ('\(highImpactMatchKey)', '\(highImpactMatchStamp)')"
@@ -165,7 +175,7 @@ extension VariantDatabase {
         let sql = """
         CREATE TABLE IF NOT EXISTS _high_impact AS
         SELECT DISTINCT variant_id FROM variant_info
-        WHERE key IN (\(keyList))
+        WHERE key COLLATE NOCASE IN (\(keyList))
         AND instr(',' || value || ',', ',HIGH,') > 0
         """
         var err: UnsafeMutablePointer<CChar>?
