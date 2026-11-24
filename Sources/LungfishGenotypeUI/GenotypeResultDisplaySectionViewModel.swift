@@ -442,23 +442,6 @@ public final class GenotypeResultDisplaySectionViewModel {
         notifyStateChanged()
     }
 
-    /// View > Reset View (VS U3): the count filters, which the viewer does not keep, return to their defaults in one
-    /// change: the low-support switch and its percent, the minimum reads, and the matrix minimums and prevalence.
-    public func resetCountFilters() {
-        cancelPendingNumericFilterCommit()
-        let start = GenotypeResultDisplayState()
-        displayState.hideLowSupport = start.hideLowSupport
-        displayState.minimumSupportPercent = start.minimumSupportPercent
-        displayState.minimumReads = start.minimumReads
-        displayState.matrixMinimumReads = start.matrixMinimumReads
-        displayState.matrixMinimumPercent = start.matrixMinimumPercent
-        displayState.matrixMinimumPrevalencePercent = start.matrixMinimumPrevalencePercent
-        matrixMinimumReadsDraft.applyCommittedValue(Double(start.matrixMinimumReads))
-        matrixMinimumPercentDraft.applyCommittedValue(start.matrixMinimumPercent)
-        matrixMinimumPrevalencePercentDraft.applyCommittedValue(start.matrixMinimumPrevalencePercent)
-        notifyStateChanged()
-    }
-
     func updateMatrixMinimumReadsDraft(_ value: String) {
         matrixMinimumReadsDraft.updateDraftText(value)
         dirtyNumericFilterFields.insert(.minimumReads)
