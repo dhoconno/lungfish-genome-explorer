@@ -7,6 +7,7 @@
 // ReadExtractionService.extractByReadIDs keeps the argv it ran before.
 
 import XCTest
+import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
 
@@ -35,6 +36,44 @@ final class ReadIDMatchingArgvTests: XCTestCase {
         XCTAssertEqual(Array(argv[3...]), [
             source.path, "-o", output.appendingPathComponent("picked.fastq.gz").path, "--threads", "4",
         ])
+    }
+
+    /// FLUIDIGM-CHILDREN F7 (ruling BIO-FLUIDIGM-CHILDREN item 7). A read-ID extraction (`lungfish extract reads` by ID or
+    /// classifier, and the taxonomy extraction) from the reads of a bundle that holds placeholder scores wrote a FASTQ
+    /// child of written `I` characters into a plain bundle with no mark, which the dashboard measures as Mean Q 40.0. The
+    /// extraction refuses those sources with words before any tool runs.
+    func testExtractionFromPlaceholderReadsIsRefusedBeforeAnyToolRuns() async throws {
+        let (service, _, output, log) = try fakeSeqkitService()
+        let bundle = root.appendingPathComponent("counted.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let reads = bundle.appendingPathComponent("reads.fastq")
+        try "@r1\nACGTACGT\n+\nIIIIIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        let operation = FASTQDerivativeOperation(kind: .subsampleCount, count: 1)
+        try FASTQBundle.saveDerivedManifest(
+            FASTQDerivedBundleManifest(
+                name: "counted", parentBundleRelativePath: ".", rootBundleRelativePath: ".",
+                rootFASTQFilename: "reads.fastq", payload: .full(fastqFilename: "reads.fastq"),
+                lineage: [operation], operation: operation, cachedStatistics: .empty, pairingMode: .singleEnd,
+                qualityScoresArePlaceholders: true
+            ),
+            in: bundle
+        )
+        let config = ReadIDExtractionConfig(
+            sourceFASTQs: [reads], readIDs: ["r1"], outputDirectory: output, outputBaseName: "picked"
+        )
+
+        var refusal: Error?
+        do {
+            _ = try await service.extractByReadIDs(config: config)
+        } catch {
+            refusal = error
+        }
+
+        XCTAssertNotNil(refusal, "the extraction of placeholder reads ran and wrote \(output.lastPathComponent)")
+        let words = try XCTUnwrap((refusal as? LocalizedError)?.errorDescription, "the extraction refuses with words")
+        XCTAssertTrue(words.contains("counted.lungfishfastq"), "the words name the bundle: \(words)")
+        XCTAssertTrue(words.contains("built from sequence counts"), "the words say where the reads come from: \(words)")
+        XCTAssertEqual(try grepCalls(in: log).count, 0, "no tool ran")
     }
 
     func testFragmentNameMatchingAddsOnlyTheIDRegexp() async throws {
