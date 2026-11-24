@@ -1092,6 +1092,25 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertNil(harness.resetLineWords)
     }
 
+    /// A visit with no change keeps nothing: the host writes an entry only when the live capture differs from the start
+    /// it took before the restore, and a layout of the window alone moves no field of either kind (VS S3).
+    func testAlignmentKeepsNothingForAVisitWithNoChange() async throws {
+        try await assertNoChangeKeepsNothing(AlignmentViewStateDriver())
+    }
+
+    func testTreeKeepsNothingForAVisitWithNoChange() async throws {
+        try await assertNoChangeKeepsNothing(TreeViewStateDriver())
+    }
+
+    /// Reset View shows the view the open made, for both kinds (VS S3).
+    func testAlignmentResetViewShowsTheOpensView() async throws {
+        try await assertResetViewShowsTheOpensView(AlignmentViewStateDriver())
+    }
+
+    func testTreeResetViewShowsTheOpensView() async throws {
+        try await assertResetViewShowsTheOpensView(TreeViewStateDriver())
+    }
+
     // MARK: - The three cases
 
     func assertSwitchAwayAndBack(_ driver: any ViewStateDriver) async throws {
@@ -1288,6 +1307,36 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await leave(for: other, in: harness, driver: driver)
         try await show(fixture, in: harness, driver: driver)
         XCTAssertEqual(try driver.read(in: harness), start, "\(driver.kind): the next visit opens at the start")
+    }
+
+    /// Shows the kind and leaves with no change of a person's, after the window's layout, and finds no entry written. A
+    /// store folder that was never created holds none.
+    private func assertNoChangeKeepsNothing(_ driver: any ViewStateDriver) async throws {
+        let (fixture, other) = try await fixtures(for: driver)
+        let store = loadedStore()
+        let harness = try ViewSwitchWindowHarness()
+        harness.keepViews(in: store)
+        try await show(fixture, in: harness, driver: driver)
+        harness.window.layoutIfNeeded()
+        try await leave(for: other, in: harness, driver: driver)
+        store.flushSynchronously()
+        harness.close()
+        let kept = ((try? FileManager.default.subpathsOfDirectory(atPath: storeRoot.path)) ?? [])
+            .filter { $0.hasSuffix(".json") }
+        XCTAssertTrue(kept.isEmpty, "\(driver.kind): a visit with no change writes no entry: \(kept)")
+    }
+
+    /// Makes a person's change, then Reset View, and reads the controls as the open left them.
+    private func assertResetViewShowsTheOpensView(_ driver: any ViewStateDriver) async throws {
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let start = try driver.read(in: harness)
+        try await driver.change(in: harness)
+        harness.split.viewerController.surfaceHost.resetViewMemory()
+        XCTAssertEqual(try driver.read(in: harness), start, "\(driver.kind): Reset View shows the view the open made")
     }
 
     // MARK: - Support
