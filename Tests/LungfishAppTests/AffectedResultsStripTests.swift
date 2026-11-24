@@ -280,8 +280,9 @@ final class AffectedResultsStripTests: XCTestCase {
             .label.stringValue
         XCTAssertTrue(words.hasPrefix("The version that made these trimmed reads gave fastp the read pairs in the order "
                                       + "the import stored them, so fastp could choose the wrong adapter"), words)
-        XCTAssertTrue(words.hasSuffix(" 1 more note is under Warnings on the Inspector's Provenance tab."),
-                      "the single-read row is under Warnings, found \(words)")
+        // The single-read row and DERIVED-STATS-PRESTORAGE (AFFECTED-S1 m2), which holds every trim up to 14223.
+        XCTAssertTrue(words.hasSuffix(" 2 more notes are under Warnings on the Inspector's Provenance tab."),
+                      "the single-read row and the stored-statistics row are under Warnings, found \(words)")
     }
 
     func testMoreThanOneRowCountsTheOthersAndLeavesThemToTheInspector() throws {

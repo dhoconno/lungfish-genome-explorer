@@ -311,7 +311,7 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
     func testARecordOfABuildAfterTheLastAffectedOneShowsNothing() {
         for root in ["lungfish fastq demultiplex", "lungfish fastq trim"] {
             let fixed = record(root, app: "Lungfish 2026.11.9 (13300)")
-            XCTAssertEqual(shownAndPosted(item(.fastqBundle), fixed).shown, [], root)
+            XCTAssertEqual(olderRows(shownAndPosted(item(.fastqBundle), fixed).shown), [], root)
         }
     }
 

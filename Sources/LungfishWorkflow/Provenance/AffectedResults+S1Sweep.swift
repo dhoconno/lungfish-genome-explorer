@@ -100,7 +100,7 @@ extension AffectedResults {
             backlogID: "DERIVED-STATS-PRESTORAGE", kinds: [.fastqTrim], firstBuild: nil, lastBuild: 14223,
             sentence: "Mean Q and the quality charts describe the reads before Lungfish stored them, which raised every "
                 + "score of 0 or 1 to 2, so if the reads held scores of 0 or 1, they can read a little lower than the "
-                + "stored reads. Q20 and Q30 are not changed.",
+                + "stored reads, while Q20 and Q30 are not changed.",
             whatToDo: "Run the operation again to measure the stored reads.",
             fixCommit: "c9e13ce99"
         ),
@@ -110,7 +110,7 @@ extension AffectedResults {
             backlogID: "MERGE-COUNTED-INVENTED-Q", kinds: [.fastqCountedMerge], firstBuild: nil, lastBuild: 14223,
             sentence: "The version that made these merged reads kept one copy of each read sequence and wrote a quality "
                 + "score of 40 on every base in place of the scores bbmerge and the sequencer gave, so the quality shown "
-                + "for them, and any trimming or filtering by quality, used scores no instrument measured. Reads that did "
+                + "for them, and any trimming or filtering by quality, used scores no instrument measured, reads that did "
                 + "not merge lost their mate pairing, and each copy stands for several reads that later steps count once.",
             whatToDo: "Merge the original read pairs again with this version, and redo any trimming, filtering, assembly, "
                 + "mapping or variant calling that used these merged reads.",
@@ -143,8 +143,8 @@ extension AffectedResults {
         AffectedResultRow(
             backlogID: "PAIRING-RECORD-LOST", kinds: [.fastqIngestDroppedExtractionRecord], firstBuild: nil,
             lastBuild: 14223,
-            sentence: "Ingesting this file in place may have dropped the record of the extraction it came from: the source "
-                + "file, its digest and the per-taxon counts.",
+            sentence: "Ingesting this file in place may have dropped the record of the extraction it came from, with the "
+                + "source file, its digest and the per-taxon counts.",
             whatToDo: "Extract the reads again if you need that record.",
             fixCommit: "cc18a4e12"
         ),
