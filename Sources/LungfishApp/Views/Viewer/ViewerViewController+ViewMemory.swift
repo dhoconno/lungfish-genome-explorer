@@ -542,5 +542,13 @@ extension ViewerViewController {
         session.store.reset(key, kind: ReferenceViewerMemory.kind, folder: read.item.folder)
         viewMemoryLogger.info("resetBundleViewToDefaults: left the item's retire mark in the view memory store")
     }
+
+    /// The cue a restored row shows until the person clicks it, nil otherwise (VS-MAP-2 item 6).
+    var alignmentEvidenceCue: String? { nil }
+}
+
+extension SequenceViewerView {
+    /// The words drawn beside the consensus row's label (VS-MAP-2 item 6).
+    var consensusRowCue: String? { viewController?.alignmentEvidenceCue }
 }
 

@@ -107,3 +107,16 @@ extension ReferenceBundleViewportController: ReferenceViewportMemoryOwner {
         }
     }
 }
+
+// MARK: - Restored read filters and the cue before the click (VS-MAP-2)
+
+extension ViewMemoryWords {
+    /// The cue a restored row shows while its alignment evidence waits for the person's click (VS-MAP-2 item 6,
+    /// VS-MAP BIO SF-1 and R7(b)). Draft words until the UX review approves them as row 7 of the words table.
+    static let alignmentEvidenceCue = "Click the selected row to load its alignment evidence."
+}
+
+extension ReferenceBundleViewportController {
+    /// The in-view line (word 5a) for restored read filters, nil while none shows.
+    var readFilterLine: ViewMemoryFilterLineView? { nil }
+}
