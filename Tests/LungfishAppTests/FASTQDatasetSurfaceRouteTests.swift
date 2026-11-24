@@ -160,9 +160,10 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         try assertAPlanInTheDrawerReachesTheOperation(harness.split.viewerController)
     }
 
-    /// An edit the person did not save goes with the drawer, at the base and at the head, and a saved one comes back.
-    /// The test holds the drawer weakly, so a drawer that something kept cannot look like a plan that came back.
-    func testAnUnsavedPlanGoesWithTheDrawerAndASavedOneComesBack() async throws {
+    /// The drawer goes with the dashboard, and an edit the person did not save is saved as they leave
+    /// (FASTQ-DRAWER-EDIT-LOST-ON-SELECT, lane DRAWERS), so it comes back, as a saved one does. The test holds the
+    /// drawer weakly, so a drawer that something kept cannot look like a plan that came back.
+    func testAnUnsavedPlanIsKeptWhenTheDrawerGoesAndASavedOneComesBack() async throws {
         let harness = try ViewSwitchWindowHarness()
         defer { harness.close() }
         let viewer = harness.split.viewerController!
@@ -186,7 +187,7 @@ final class FASTQDatasetSurfaceRouteTests: XCTestCase {
         XCTAssertTrue(settled, "the dashboard never came back")
         viewer.openDemuxSetupDrawer()
         var plan = try XCTUnwrap(viewer.fastqMetadataDrawerView).currentDemuxPlan()
-        XCTAssertEqual(plan.steps.first?.sampleAssignments.count, 0, "an edit that was never saved came back")
+        XCTAssertEqual(plan.steps.first?.sampleAssignments.first?.sampleName, Self.assignment.sampleName, "the edit made before leaving was lost")
 
         // Save, as the drawer's Save button does, and leave again.
         let drawer = try XCTUnwrap(viewer.fastqMetadataDrawerView)

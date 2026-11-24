@@ -80,6 +80,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
     }
 
     func teardownFASTQMetadataDrawer() {
+        keepWaitingFASTQDrawerEdit()
         fastqMetadataDrawerView?.removeFromSuperview()
         fastqMetadataDrawerView = nil
         fastqMetadataDrawerBottomConstraint = nil
@@ -89,6 +90,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
 
     func refreshFASTQMetadataDrawerContent() {
         guard let drawer = fastqMetadataDrawerView else { return }
+        keepWaitingFASTQDrawerEdit()
         let metadata = currentFASTQDatasetURL.flatMap { FASTQMetadataStore.load(for: $0)?.demultiplexMetadata }
         drawer.configure(fastqURL: currentFASTQDatasetURL, metadata: metadata)
         syncDemuxConfigToController()
@@ -100,12 +102,58 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         metadata: FASTQDemultiplexMetadata
     ) {
         guard let targetURL = fastqURL ?? currentFASTQDatasetURL else { return }
+        do {
+            try writeFASTQDrawerMetadata(metadata, to: targetURL)
+            drawer.markSettingsKept()
+            fastqDrawerLogger.info("Saved FASTQ demultiplex metadata for \(targetURL.lastPathComponent, privacy: .public)")
+        } catch {
+            fastqDrawerLogger.warning("Failed to save FASTQ demultiplex metadata for \(targetURL.lastPathComponent, privacy: .public): \(error)")
+        }
+    }
 
+    /// Save's one path into the dataset's sidecar, also taken when the person leaves a drawer that holds an edit.
+    func writeFASTQDrawerMetadata(_ metadata: FASTQDemultiplexMetadata, to targetURL: URL) throws {
         var persisted = FASTQMetadataStore.load(for: targetURL) ?? PersistedFASTQMetadata()
         persisted.demultiplexMetadata = metadata
-        FASTQMetadataStore.save(persisted, for: targetURL)
+        try FASTQMetadataStore.write(persisted, for: targetURL)
         syncDemuxConfigToController()
-        fastqDrawerLogger.info("Saved FASTQ demultiplex metadata for \(targetURL.lastPathComponent, privacy: .public)")
+    }
+
+    /// FASTQ-DRAWER-EDIT-LOST-ON-SELECT. The drawer goes, or loads another dataset, only after the person has selected
+    /// something else, so an edit that waits in it is saved then, to the dataset it was made on, through Save's own
+    /// path. A sheet could not offer Cancel here, since the selection has already moved. When the write fails, a sheet
+    /// says that the edit was not saved and why. A drawer with no edit writes nothing.
+    func keepWaitingFASTQDrawerEdit() {
+        guard let drawer = fastqMetadataDrawerView else { return }
+        drawer.endCellEditing()
+        guard drawer.hasWaitingEdit, let datasetURL = drawer.datasetURL else { return }
+        do {
+            try writeFASTQDrawerMetadata(drawer.currentMetadata(), to: datasetURL)
+            drawer.markSettingsKept()
+            fastqDrawerLogger.info("Kept the drawer's edit for \(datasetURL.lastPathComponent, privacy: .public) on leaving it")
+        } catch {
+            fastqDrawerLogger.warning("Could not keep the drawer's edit for \(datasetURL.lastPathComponent, privacy: .public): \(error)")
+            Self.presentUnkeptFASTQDrawerEdit(Self.unkeptFASTQDrawerEditAlert(datasetURL: datasetURL, error: error), view.window)
+        }
+    }
+
+    /// The sheet for a drawer edit that could not be saved on leaving. Tests replace it, so no test opens a real sheet.
+    static var presentUnkeptFASTQDrawerEdit: @MainActor (NSAlert, NSWindow?) -> Void = { alert, window in
+        guard let window else { return }
+        alert.beginSheetModal(for: window)
+    }
+
+    static func unkeptFASTQDrawerEditAlert(datasetURL: URL, error: Error) -> NSAlert {
+        let folder = datasetURL.deletingLastPathComponent()
+        let name = FASTQBundle.isBundleURL(folder)
+            ? folder.deletingPathExtension().lastPathComponent : datasetURL.lastPathComponent
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "The FASTQ drawer\u{2019}s edits for \(name) were not saved."
+        alert.informativeText = "\(error.localizedDescription) The settings saved earlier are unchanged. Check that \(name) "
+            + "is still in the project and that its folder can be written, then select it and make the edits again."
+        alert.addButton(withTitle: "OK")
+        return alert
     }
 
     public func fastqMetadataDrawerViewDidRequestScout(

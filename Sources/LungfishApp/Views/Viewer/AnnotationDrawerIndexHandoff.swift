@@ -36,13 +36,71 @@ enum AnnotationDrawerIndexHandoff {
             + "or cannot be read. Reopen the bundle, and if this repeats, import its annotations again."
     }
 
-    /// Whether the build ended with no table to show. The manifest names an annotation database, and the
-    /// finished index opened no annotation database and no variant database. A bundle with no annotation
-    /// database named, or with a database that opened and holds no rows, is a legitimate empty drawer.
+    /// Whether the build ended with no table to show. A listed track's annotations are not in the table
+    /// (`tracksNotInTable`), and the finished index opened no annotation database and no variant database. A bundle
+    /// whose tracks list no annotations and name no database, or whose database opened and holds no rows, is a
+    /// legitimate empty drawer.
     static func endedWithNoIndex(_ index: AnnotationSearchIndex, bundle: ReferenceBundle) -> Bool {
-        guard !index.isBuilding, index.bundleIdentifier == bundle.manifest.identifier else { return false }
-        guard bundle.manifest.annotations.contains(where: { $0.databasePath != nil }) else { return false }
+        guard !tracksNotInTable(index, bundle: bundle).isEmpty else { return false }
         return index.annotationDatabaseHandles.isEmpty && index.variantDatabaseHandles.isEmpty
+    }
+
+    /// DRAWER-PARTIAL-INDEX-SILENT, folding DRAWER-ZERO-ANNOTATIONS-NO-DATABASE. The listed annotation tracks whose
+    /// annotations are not in the table: a track that names a database the finished index did not open, and a track
+    /// that lists annotations and names no database. An index still building, or built for another bundle, has none.
+    static func tracksNotInTable(_ index: AnnotationSearchIndex, bundle: ReferenceBundle) -> [AnnotationTrackInfo] {
+        guard !index.isBuilding, index.bundleIdentifier == bundle.manifest.identifier else { return [] }
+        let opened = Set(index.annotationDatabaseHandles.map(\.trackId))
+        return bundle.manifest.annotations.filter { track in
+            !opened.contains(track.id) && (track.databasePath != nil || (track.featureCount ?? 0) > 0)
+        }
+    }
+
+    /// One line for a track whose annotations are not in the table.
+    static func trackNotInTableLine(_ track: AnnotationTrackInfo) -> String {
+        guard track.databasePath == nil else {
+            return "\(track.name): its annotation database is missing or cannot be read, so its annotations are not in this table."
+        }
+        let count = track.featureCount ?? 0
+        return "\(track.name): this bundle has no annotation database for its \(count.formatted()) "
+            + (count == 1 ? "annotation, so it is not in this table." : "annotations, so they are not in this table.")
+    }
+
+    /// The last line under the track lines of a drawer that shows the tracks that did open.
+    static let tracksNotInTableRemedy = "Reopen the bundle, and if this repeats, import those annotations again."
+
+    /// Marks the track lines of a drawer whose table shows the tracks that did open, at the foot of the drawer.
+    static let missingTracksIdentifier = NSUserInterfaceItemIdentifier("annotationDrawerMissingTracksNotice")
+
+    /// Shows `words` at the foot of the drawer under the table, which gives up the room, or removes them when nil.
+    static func setMissingTracksNotice(_ words: String?, in drawer: AnnotationTableDrawerView) {
+        let existing = drawer.subviews.first { $0.identifier == missingTracksIdentifier } as? NSTextField
+        guard let words else {
+            existing?.removeFromSuperview()
+            return
+        }
+        if let existing {
+            existing.stringValue = words
+            return
+        }
+        let label = NSTextField(wrappingLabelWithString: words)
+        label.identifier = missingTracksIdentifier
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = .secondaryLabelColor
+        label.preferredMaxLayoutWidth = noticeMaximumWidth
+        label.translatesAutoresizingMaskIntoConstraints = false
+        drawer.addSubview(label)
+        // Above the drawer's own pin of the table to its foot, which yields, and below every required constraint, so a
+        // collapsed drawer keeps its own layout.
+        let tableGivesRoom = drawer.scrollView.bottomAnchor.constraint(lessThanOrEqualTo: label.topAnchor, constant: -4)
+        tableGivesRoom.priority = NSLayoutConstraint.Priority(NSLayoutConstraint.Priority.defaultHigh.rawValue + 1)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: drawer.scrollView.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: drawer.scrollView.trailingAnchor, constant: -12),
+            label.widthAnchor.constraint(lessThanOrEqualToConstant: noticeMaximumWidth),
+            label.bottomAnchor.constraint(equalTo: drawer.bottomAnchor, constant: -4),
+            tableGivesRoom,
+        ])
     }
 
     /// Shows `words` centered over the drawer's table, or removes the words when `words` is nil.
@@ -104,14 +162,24 @@ extension ViewerViewController {
         }
     }
 
+    /// A drawer with no table shows the no-index words over it with one line for each track under them. A drawer that
+    /// shows the tracks that did open names each one that did not at its foot.
     private func refreshAnnotationIndexNotice(for index: AnnotationSearchIndex, bundle: ReferenceBundle?) {
         guard let drawer = annotationDrawerView else { return }
+        let missing = bundle.map { AnnotationDrawerIndexHandoff.tracksNotInTable(index, bundle: $0) } ?? []
+        let lines = missing.map(AnnotationDrawerIndexHandoff.trackNotInTableLine)
         guard let bundle, AnnotationDrawerIndexHandoff.endedWithNoIndex(index, bundle: bundle) else {
             AnnotationDrawerIndexHandoff.setNotice(nil, in: drawer)
+            AnnotationDrawerIndexHandoff.setMissingTracksNotice(
+                lines.isEmpty ? nil : (lines + [AnnotationDrawerIndexHandoff.tracksNotInTableRemedy]).joined(separator: "\n"),
+                in: drawer
+            )
             return
         }
+        AnnotationDrawerIndexHandoff.setMissingTracksNotice(nil, in: drawer)
         AnnotationDrawerIndexHandoff.setNotice(
-            AnnotationDrawerIndexHandoff.noIndexWords(bundleName: bundle.manifest.name), in: drawer
+            ([AnnotationDrawerIndexHandoff.noIndexWords(bundleName: bundle.manifest.name)] + lines).joined(separator: "\n"),
+            in: drawer
         )
     }
 }

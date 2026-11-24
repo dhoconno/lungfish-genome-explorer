@@ -323,6 +323,47 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         statusLabel.stringValue = sampleAssignments.isEmpty
             ? "No FASTQ sample metadata loaded."
             : "Loaded \(sampleAssignments.count) sample assignment(s)."
+        markSettingsKept()
+    }
+
+    /// The drawer's settings as they were loaded or last saved, so leaving the drawer can tell that an edit waits
+    /// (FASTQ-DRAWER-EDIT-LOST-ON-SELECT).
+    private struct KeptSettings: Equatable {
+        let sampleAssignments: [FASTQSampleBarcodeAssignment]
+        let customBarcodeSets: [BarcodeKitDefinition]
+        let preferredBarcodeSetID: String?
+        let plan: DemultiplexPlan
+        let primerTrimConfiguration: FASTQPrimerTrimConfiguration?
+    }
+
+    private var keptSettings: KeptSettings?
+
+    private func currentSettings() -> KeptSettings {
+        KeptSettings(
+            sampleAssignments: sampleAssignments, customBarcodeSets: customBarcodeSets,
+            preferredBarcodeSetID: preferredBarcodeSetID, plan: currentDemuxPlan(),
+            primerTrimConfiguration: primerTrimConfiguration
+        )
+    }
+
+    /// The dataset the drawer's settings were loaded for, where an edit made in it belongs.
+    public var datasetURL: URL? { fastqURL }
+
+    /// Whether the sample table, the plan, the kits or the primer-trim settings differ from what was loaded or saved.
+    public var hasWaitingEdit: Bool {
+        guard let keptSettings else { return false }
+        return keptSettings != currentSettings()
+    }
+
+    /// Records the settings shown now as saved. Called after a load and after a save that wrote the sidecar.
+    public func markSettingsKept() {
+        keptSettings = currentSettings()
+    }
+
+    /// Ends a table cell edit still being typed, so the table holds the text before the drawer is saved or left.
+    public func endCellEditing() {
+        guard tableView.editedRow >= 0 else { return }
+        _ = window?.makeFirstResponder(nil)
     }
 
     public func currentMetadata() -> FASTQDemultiplexMetadata {
@@ -1994,6 +2035,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     @objc private func stepDemultiplexClicked(_ sender: NSButton) { onDemultiplex?(currentDemuxPlan(), allKits) }
 
     @objc private func saveClicked(_ sender: NSButton) {
+        endCellEditing()
         delegate?.fastqMetadataDrawerViewDidSave(self, fastqURL: fastqURL, metadata: currentMetadata())
         statusLabel.stringValue = "Saved with this dataset. Demultiplex\u{2026} runs it."
     }

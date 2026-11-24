@@ -70,6 +70,34 @@ final class FASTQDrawerKeepsEditOnSelectTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: sidecar), before, "leaving a drawer with no edit rewrote the sidecar")
     }
 
+    /// When the edit cannot be written on leaving, because the reads are gone, a sheet on the window says so and why,
+    /// and names the dataset. The seam stands in for the sheet, so no real sheet opens in a test.
+    func testAnEditThatCannotBeSavedOnLeavingIsSaidInASheet() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let viewer = harness.split.viewerController!
+        let first = try await fastq(named: "First", savedSampleName: "Saved name")
+        let second = try await fastq(named: "Second", savedSampleName: nil)
+        var asked: [(alert: NSAlert, window: NSWindow?)] = []
+        let present = ViewerViewController.presentUnkeptFASTQDrawerEdit
+        ViewerViewController.presentUnkeptFASTQDrawerEdit = { asked.append(($0, $1)) }
+        defer { ViewerViewController.presentUnkeptFASTQDrawerEdit = present }
+
+        try show(first, in: viewer)
+        viewer.toggleFASTQMetadataDrawer()
+        try type("Typed name", intoSampleNameOfRow: 0, in: try XCTUnwrap(viewer.fastqMetadataDrawerView))
+        try FileManager.default.removeItem(at: first)
+        try show(second, in: viewer)
+
+        XCTAssertEqual(asked.count, 1, "the edit that could not be saved was dropped with no sheet")
+        let alert = try XCTUnwrap(asked.first?.alert)
+        XCTAssertTrue(asked.first?.window === harness.window, "the sheet was not put on the dataset's window")
+        XCTAssertEqual(alert.messageText, "The FASTQ drawer\u{2019}s edits for illumina-reads were not saved.")
+        XCTAssertTrue(alert.informativeText.contains("The settings saved earlier are unchanged."), alert.informativeText)
+        XCTAssertTrue(alert.informativeText.hasSuffix("then select it and make the edits again."), alert.informativeText)
+        XCTAssertEqual(alert.buttons.map(\.title), ["OK"])
+    }
+
     // MARK: - Fixture
 
     /// A FASTQ bundle with cached statistics, and a saved sample row named `savedSampleName` when one is given.
