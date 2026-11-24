@@ -243,11 +243,38 @@ extension ViewSwitchViewStateTests {
         try await leave(for: other, in: harness, driver: driver)
         try await show(fixture, in: harness, driver: driver)
         XCTAssertNotNil(try viewport().readFilterLine, "the kept filter shows its line")
+        let inspector = harness.split.inspectorController!
+        XCTAssertTrue(inspector.openViewDiffersFromItsStart, "a carried filter with its line enables Reset View (UX B2)")
 
         chooseResetView(in: harness)
         XCTAssertEqual(block.minMapQ, 0, "the block reads the open's filter")
         XCTAssertEqual(try viewport().shownReadFilters, opened, "the viewer shows the open's reads")
         XCTAssertNil(try viewport().readFilterLine, "no filter line stays")
+        XCTAssertFalse(inspector.openViewDiffersFromItsStart, "Reset View disables the item")
+
+        // The next restore finds no read filter and no line (SWIFT SF-3).
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(block.minMapQ, 0, "the next visit finds no read filter")
+        XCTAssertNil(try viewport().readFilterLine, "the next visit shows no filter line")
+    }
+
+    /// A genotype minimum alone enables Reset View, which returns it to its default (BIO SF-2, SWIFT SF-2).
+    func testResetViewIsEnabledWhileAGenotypeMinimumIsSet() async throws {
+        let driver = GenotypeViewStateDriver()
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let inspector = harness.split.inspectorController!
+        let block = inspector.viewModel.genotypeResultDisplaySectionViewModel
+        XCTAssertFalse(inspector.openViewDiffersFromItsStart, "a first visit shows its starting view")
+        block.setMinimumReads(7)
+        XCTAssertTrue(inspector.openViewDiffersFromItsStart, "a minimum alone enables the item")
+        chooseResetView(in: harness)
+        XCTAssertEqual(block.displayState.minimumReads, GenotypeResultDisplayState().minimumReads)
+        XCTAssertFalse(inspector.openViewDiffersFromItsStart, "Reset View disables the item")
     }
 
     /// The item is enabled while the view differs from its starting view: off at a first visit, on after a zoom, and
