@@ -950,6 +950,33 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertNil(harness.resetLineWords, "every row came back, so no line shows (lesson 11)")
     }
 
+    /// Whole rows come back by row id, never by the index the row had, and a row that is gone is dropped (VS B4).
+    /// Word 2 says the data changed, so a loss shows only on a changed key (lesson 11).
+    func testAlignmentRestoredRowsFollowTheirRowIDsAndAGoneRowIsDropped() async throws {
+        let driver = AlignmentViewStateDriver()
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let viewer = try XCTUnwrap(driver.viewer(in: harness))
+        let ids = viewer.rowIDsByIndex
+        XCTAssertGreaterThanOrEqual(ids.count, 3)
+        let kept = MultipleSequenceAlignmentViewState.Selection(
+            rowIDs: [ids[2], "row-999999-0000000000", ids[1]], activeRowID: ids[2], columns: nil)
+        XCTAssertTrue(viewer.restoreViewMemorySelection(kept, dataChanged: true), "a gone row is a loss on a changed key")
+        XCTAssertEqual(viewer.testingSelectedRowIndices, IndexSet([1, 2]), "the rows that still exist come back by id")
+        XCTAssertEqual(viewer.selectedRowIndex, 2, "the active row is the one kept by id")
+        XCTAssertTrue(viewer.isWholeRowSelection)
+        XCTAssertFalse(viewer.restoreViewMemorySelection(kept, dataChanged: false), "an equal key reports no loss")
+        // Unit-level only: the ids stand where a reordered alignment would put them.
+        viewer.rowIDsByIndex.swapAt(1, 2)
+        XCTAssertFalse(viewer.restoreViewMemorySelection(
+            MultipleSequenceAlignmentViewState.Selection(rowIDs: [ids[1]], activeRowID: ids[1], columns: nil),
+            dataChanged: true))
+        XCTAssertEqual(viewer.testingSelectedRowIndices, IndexSet(integer: 2), "by id, never by the index the row had")
+    }
+
     /// The selection the open makes is never kept as a person's (VS S3), so a changed bundle after a zoom alone keeps
     /// the zoom and says nothing about a selection.
     func testAlignmentKeepsNoSelectionTheOpenMadeAndDrawsNoLineForIt() async throws {
