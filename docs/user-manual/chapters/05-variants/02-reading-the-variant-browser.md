@@ -218,7 +218,7 @@ Position 2,078 is too far from 250,527 to share a view, so go to `chr20_10.0-10.
 
 ## Settings
 
-Seven controls sit in the drawer toolbar on the Variants tab, beside the **All** and **None** buttons that switch every variant-type chip on or off. The Query Builder sheet adds three fields, and the Sample Groups sheet one. Only the Query Builder has a command-line counterpart, the `--filter` flag of `variants query`, and that flag follows its own typing rules, which accept only tests on samples, such as one sample's genotype, a count across samples, or a comparison between two samples, as the last section sets out.
+Seven controls sit in the drawer toolbar on the Variants tab, beside the **All** and **None** buttons that switch every variant-type chip on or off. The Query Builder sheet adds three fields, and the Sample Groups sheet one. Only the Query Builder has a command-line counterpart, the `--filter` flag of `variants query`, and that flag follows its own typing rules, which accept only tests on samples, such as a sample's genotype, depth, or allele frequency, as the last section sets out.
 
 **Calls / Genotypes.** Switches the table between one row per variant and one row per sample genotype at each variant. The default is Calls, the right view for a track with one sample or none, as the two fixture callers have. Switch to Genotypes when a VCF holds several samples and you want their calls side by side. This setting has no command-line flag.
 
