@@ -295,28 +295,36 @@ public actor ClassifierReadResolver {
                 continue
             }
 
-            let targetIds = Set(group.flatMap { $0.taxIds })
-            let selectedNodes = classResult.tree.allNodes().filter {
-                targetIds.contains($0.taxId)
-            }
-            let selectedNodeIdentities = Set(selectedNodes.map(ObjectIdentifier.init))
-            for node in selectedNodes {
-                // A taxon's own reads overlap no other taxon's, so exact sums them with no ancestor check.
-                guard scope.includesChildren else { total += node.readsDirect; continue }
-                var ancestor = node.parent
-                var hasSelectedAncestor = false
-                while let current = ancestor {
-                    if selectedNodeIdentities.contains(ObjectIdentifier(current)) {
-                        hasSelectedAncestor = true
-                        break
-                    }
-                    ancestor = current.parent
+            total += Self.kraken2SelectionReadCount(
+                tree: classResult.tree, taxIds: Set(group.flatMap { $0.taxIds }), scope: scope
+            )
+        }
+        return total
+    }
+
+    /// The reads a selection of taxa names in one result's tree: the clade counts of the topmost selected taxa for the
+    /// children scope, since a clade holds its descendants' reads, or each selected taxon's own reads for exact. The
+    /// pre-flight estimate and the memory refusal of an extraction both take it from the tree the kreport gave.
+    static func kraken2SelectionReadCount(tree: TaxonTree, taxIds: Set<Int>, scope: TaxonScope) -> Int {
+        var total = 0
+        let selectedNodes = tree.allNodes().filter { taxIds.contains($0.taxId) }
+        let selectedNodeIdentities = Set(selectedNodes.map(ObjectIdentifier.init))
+        for node in selectedNodes {
+            // A taxon's own reads overlap no other taxon's, so exact sums them with no ancestor check.
+            guard scope.includesChildren else { total += node.readsDirect; continue }
+            var ancestor = node.parent
+            var hasSelectedAncestor = false
+            while let current = ancestor {
+                if selectedNodeIdentities.contains(ObjectIdentifier(current)) {
+                    hasSelectedAncestor = true
+                    break
                 }
-                guard !hasSelectedAncestor else { continue }
-                // Children is the default. The clade count includes the descendants' reads, so keeping
-                // only the topmost selected clades makes this a read-union estimate.
-                total += node.readsClade
+                ancestor = current.parent
             }
+            guard !hasSelectedAncestor else { continue }
+            // Children is the default. The clade count includes the descendants' reads, so keeping
+            // only the topmost selected clades makes this a read-union estimate.
+            total += node.readsClade
         }
         return total
     }

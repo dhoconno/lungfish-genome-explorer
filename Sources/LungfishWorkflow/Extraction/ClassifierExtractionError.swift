@@ -77,6 +77,11 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
     /// The same refusal for Verify with BLAST and `lungfish-cli blast verify`, which sent nothing to BLAST.
     case kraken2ReadsChangedForBLAST(place: String, missing: Int, otherLength: Int, named: Int)
 
+    /// The selection names `reads` of `taxon`, which the extraction would hold at about `neededBytes`, more than half of
+    /// the `physicalMemoryBytes` of this Mac, so Extract opened none of the reads (READ-IDENTITY-EXTRACT-MEMORY, ruling
+    /// BIOQA-ROWS-MEMORY item 5). The words are the ruling's proposal, and the UX review sets them.
+    case extractionTooLargeForMemory(reads: Int, taxon: String, neededBytes: UInt64, physicalMemoryBytes: UInt64)
+
     /// A per-sample samtools invocation failed.
     case samtoolsFailed(sampleId: String, stderr: String)
 
@@ -180,6 +185,10 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable, Equatabl
                 place: place, missing: missing, otherLength: otherLength, named: named,
                 outcome: "Lungfish sent nothing to BLAST."
             )
+        case .extractionTooLargeForMemory(let reads, let taxon, let neededBytes, let physicalMemoryBytes):
+            return "Extracting \(reads) reads of \(taxon) needs about \(MemoryWords.bytes(neededBytes)) of memory, "
+                + "more than half of this Mac's \(MemoryWords.bytes(physicalMemoryBytes)). "
+                + "Choose a smaller taxon, or extract these reads on a Mac with more memory."
         case .samtoolsFailed(let sampleId, let stderr):
             return "samtools view failed for sample '\(sampleId)': \(stderr)"
         case .clipboardCapExceeded(let requested, let cap):

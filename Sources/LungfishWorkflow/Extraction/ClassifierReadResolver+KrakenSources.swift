@@ -130,6 +130,11 @@ extension ClassifierReadResolver {
                 skippedSamples.append(sampleLabel)
                 continue
             }
+            // A selection too large for this Mac's memory is refused from the kreport's counts, before any source is resolved
+            // or any per-read output is opened (READ-IDENTITY-EXTRACT-MEMORY).
+            try Self.refuseSelectionTooLargeForMemory(
+                tree: classResult.tree, taxIds: job.taxIds, scope: options.taxonScope, share: memoryShare
+            )
             provenanceSourceURLs.append(job.sampleResultPath)
             provenanceSourceURLs.append(classResult.outputURL)
 
@@ -307,6 +312,26 @@ extension ClassifierReadResolver {
             progress?(1.0, "Extracted \(readCount) reads. Skipped \(skippedSamples.count) sample(s) \(cause): \(skippedSamples.joined(separator: ", "))")
         }
         return (outcome, ClassifierExtractionLayout(pairingMode: layout.mode, roles: layout.roles), readFiles)
+    }
+
+    /// The bytes of memory that an extraction holds for each fragment it names, the bound that
+    /// `TaxonomyExtractionMemoryTests` holds the read check to.
+    static let extractionBytesPerFragment: UInt64 = 200
+
+    /// Throws ``ClassifierExtractionError/extractionTooLargeForMemory(reads:taxon:neededBytes:physicalMemoryBytes:)`` when
+    /// the reads of `taxIds`, as the tree of the kreport counts them, would hold more than the share of this Mac's memory
+    /// that `share` allows.
+    static func refuseSelectionTooLargeForMemory(
+        tree: TaxonTree, taxIds: Set<Int>, scope: TaxonScope, share: ProcessMemoryShare
+    ) throws {
+        let reads = kraken2SelectionReadCount(tree: tree, taxIds: taxIds, scope: scope)
+        let needed = UInt64(max(0, reads)) * extractionBytesPerFragment
+        guard needed > share.limitBytes else { return }
+        let names = taxIds.sorted().map { tree.node(taxId: $0)?.name ?? "taxon \($0)" }
+        throw ClassifierExtractionError.extractionTooLargeForMemory(
+            reads: reads, taxon: names.joined(separator: ", "), neededBytes: needed,
+            physicalMemoryBytes: share.physicalMemoryBytes
+        )
     }
 
     /// `destination` and `options` that carry `notes`, the words that the files changed but the reads did not, into
