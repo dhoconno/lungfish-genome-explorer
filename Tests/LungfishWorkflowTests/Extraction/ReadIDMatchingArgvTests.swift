@@ -73,7 +73,8 @@ final class ReadIDMatchingArgvTests: XCTestCase {
         let words = try XCTUnwrap((refusal as? LocalizedError)?.errorDescription, "the extraction refuses with words")
         XCTAssertTrue(words.contains("counted.lungfishfastq"), "the words name the bundle: \(words)")
         XCTAssertTrue(words.contains("built from sequence counts"), "the words say where the reads come from: \(words)")
-        XCTAssertEqual(try grepCalls(in: log).count, 0, "no tool ran")
+        // The fake seqkit writes argv.log on its first call, so a refusal before any tool ran leaves no file to read.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: log.path), "no tool ran, so the fake seqkit wrote no argv.log")
     }
 
     func testFragmentNameMatchingAddsOnlyTheIDRegexp() async throws {
