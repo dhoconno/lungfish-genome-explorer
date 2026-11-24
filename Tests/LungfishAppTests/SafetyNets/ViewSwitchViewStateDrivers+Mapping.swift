@@ -531,6 +531,126 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertEqual(selected(viewport), "chr2", "\(kind): the next visit shows the pick")
     }
 
+    /// VS-MAP-RACE item 1 (VS A2). A click on the contig the open selects by itself, made before the read lands, is a
+    /// person's pick: the late restore of the kept chr3 does not replace it, and the click's evidence loads with no
+    /// cue and no line.
+    func testTheFirstContigClickedBeforeTheRestoreLandsStaysAndLoadsItsEvidence() async throws {
+        try await assertAFirstRowClickBeforeTheRestoreLandsStays(mapping: true)
+    }
+
+    /// The same for a reference's first record (k08). Its fixture has no alignment track, so no evidence and no cue.
+    func testTheFirstRecordClickedBeforeTheRestoreLandsStays() async throws {
+        try await assertAFirstRowClickBeforeTheRestoreLandsStays(mapping: false)
+    }
+
+    /// Visit 1 picks chr3 and zooms. Visit 2 clicks chr1, the row its open selects by itself, before its read lands,
+    /// through the hook a click reaches (`testSelectContig`, as `ReferenceBundleSurfaceRouteTests.assertShows` does).
+    /// The read hops back to the main actor only when the test awaits, so the order is fixed.
+    private func assertAFirstRowClickBeforeTheRestoreLandsStays(mapping: Bool) async throws {
+        let kind = mapping ? "k22" : "k08"
+        let selected = mapping ? selectedContig(in:) : selectedRecord(in:)
+        let store = makeStore()
+        let first = try bundle("First", Self.two + [.init(name: "chr3", length: 2_000)])
+        var viewport = try await (mapping ? open(mapping: first, store: store) : open(reference: first, store: store))
+        pick("chr3", in: viewport)
+        viewport.testEmbeddedViewerController.zoomIn() // a user event handler, which marks the view changed
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        if mapping { try writeAlignmentFiles(forMapping: first) }
+        viewport = try (mapping ? start(mapping: first, store: store) : start(reference: first, store: store))
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertEqual(selected(viewport), "chr1", "\(kind): the open selects its first row by itself")
+        if mapping { viewport.testSelectContig(named: "chr1") } else { viewport.testSelectSequence(named: "chr1") }
+        XCTAssertFalse(viewer.viewMemoryIsSettled, "\(kind): the click came before the restore")
+        let settled = await waitUntil(budget: .lookup) {
+            viewer.currentBundleURL?.standardizedFileURL == first.standardizedFileURL && viewer.viewMemoryIsSettled
+        }
+        XCTAssertTrue(settled, "\(kind): the restore ran")
+        XCTAssertEqual(selected(viewport), "chr1", "\(kind): the person's click on the first row, not the kept chr3")
+        await viewport.testAwaitAlignmentActionContext()
+        if mapping { XCTAssertNotNil(viewer.alignmentActionContext, "k22: the click's evidence loads") }
+        XCTAssertNil(viewer.alignmentEvidenceCue, "\(kind): no cue asks for a second click")
+        XCTAssertNil(resetLine(in: viewer), "\(kind): a refused restore shows no line")
+    }
+
+    /// VS-MAP-RACE, the shape of `ReferenceBundleSurfaceRouteTests.testTheDrawerGoesWithTheViewportOnEveryWayOut`: the
+    /// kept view selects the first contig, and the person clicks that contig before the read lands. After the late
+    /// restore the click's evidence is installed and no cue asks for a second click.
+    func testAClickOnTheKeptFirstContigBeforeTheRestoreLandsKeepsItsEvidence() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        viewport.testEmbeddedViewerController.zoomIn() // the kept view: chr1, the open's own row, zoomed
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        try writeAlignmentFiles(forMapping: first)
+        viewport = try start(mapping: first, store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        viewport.testSelectContig(named: "chr1")
+        XCTAssertFalse(viewer.viewMemoryIsSettled, "the click came before the restore")
+        let settled = await waitUntil(budget: .lookup) {
+            viewer.currentBundleURL?.standardizedFileURL == first.standardizedFileURL && viewer.viewMemoryIsSettled
+        }
+        XCTAssertTrue(settled, "the restore ran")
+        XCTAssertEqual(selectedContig(in: viewport), "chr1", "the clicked contig")
+        await viewport.testAwaitAlignmentActionContext()
+        XCTAssertNotNil(viewer.alignmentActionContext, "the click's evidence survives the late restore")
+        XCTAssertNil(viewer.alignmentEvidenceCue, "no cue asks for a second click")
+    }
+
+    /// VS-MAP-RACE item 2, with no click. The kept view selects the open's own first contig with the default filters
+    /// and differs from the start by a zoom. The open's own selection starts the row's context task while the read is
+    /// held, and the restore, which keeps that row and those filters and brings back the zoom, leaves the task alone.
+    func testARestoreOfTheSameRowAndFiltersKeepsTheEvidenceTheOpenStarted() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        viewport.testEmbeddedViewerController.zoomIn() // a user event handler, which marks the view changed
+        let kept = try XCTUnwrap(viewport.testEmbeddedViewerController.referenceFrame)
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        try writeAlignmentFiles(forMapping: first)
+        viewport = try start(mapping: first, store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertFalse(viewer.viewMemoryIsSettled, "the read is held")
+        XCTAssertNotNil(viewport.alignmentActionContextTask, "the open's own first row starts its context task")
+        let settled = await waitUntil(budget: .lookup) {
+            viewer.currentBundleURL?.standardizedFileURL == first.standardizedFileURL && viewer.viewMemoryIsSettled
+        }
+        XCTAssertTrue(settled, "the restore ran")
+        XCTAssertEqual(selectedContig(in: viewport), "chr1", "the kept row is the open's own")
+        let frame = try XCTUnwrap(viewer.referenceFrame)
+        XCTAssertEqual(frame.end - frame.start, kept.end - kept.start, accuracy: 0.5, "the restore brought back the zoom")
+        await viewport.testAwaitAlignmentActionContext()
+        XCTAssertNotNil(viewer.alignmentActionContext, "the restore keeps the evidence the open's own selection started")
+        XCTAssertNil(viewer.alignmentEvidenceCue, "and no cue asks for a click")
+    }
+
+    /// VS-MAP-RACE item 2's edge. The context is a snapshot of every filter, the read groups too, so a change of the
+    /// read groups alone that names no track still clears it and rebuilds it with the new groups. The same groups sent
+    /// again change nothing the context holds, so they leave it, and start no new task.
+    func testAReadGroupChangeAloneRebuildsTheEvidenceAndTheSameGroupsLeaveIt() async throws {
+        let first = try bundle("First", Self.two)
+        let viewport = try await open(mapping: first, store: makeStore())
+        let viewer = viewport.testEmbeddedViewerController
+        try writeAlignmentFiles(forMapping: first)
+        pick("chr2", in: viewport)
+        await viewport.testAwaitAlignmentActionContext()
+        XCTAssertNotNil(viewer.alignmentActionContext, "the pick's evidence")
+
+        let groups: [AnyHashable: Any] = [NotificationUserInfoKey.selectedReadGroups: Set(["RG7"])]
+        viewport.applyEmbeddedReadDisplaySettings(groups)
+        XCTAssertNil(viewer.alignmentActionContext, "a read-group change clears the old context")
+        XCTAssertNotNil(viewport.alignmentActionContextTask, "and starts the new one")
+        await viewport.testAwaitAlignmentActionContext()
+        XCTAssertEqual(viewer.alignmentActionContext?.filters.readGroups, ["RG7"], "the new context holds the new groups")
+
+        let built = try XCTUnwrap(viewport.alignmentActionContextTask)
+        viewport.applyEmbeddedReadDisplaySettings(groups)
+        XCTAssertEqual(viewer.alignmentActionContext?.filters.readGroups, ["RG7"], "the same groups leave the context")
+        XCTAssertEqual(viewport.alignmentActionContextTask, built, "and start no new evidence hash")
+    }
+
     /// VS-MAP-2 item 1 (VS B4, BIO R1). The drawer's row comes back by its identity once the drawer's rows load, never a
     /// row that shares its name or its start, after a switch away and back and after a relaunch, and Delete Annotation
     /// then acts on that row only (it reads `selectedAnnotationResults`).
