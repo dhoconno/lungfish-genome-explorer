@@ -97,7 +97,15 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
     /// the pins of the older rows here leave them out too.
     private var newerRows: Set<String> {
         rowsOf56.union(["TT-LEGACY-CLEANUP-REMOVES-TOP", "TT-STRAIN-GROUP", "NAOMGS-DEDUP-READ-COUNT", "BLAST-NAME-PHRASE-LEAK"])
+            .union(rowsOfM2)
     }
+
+    /// The rows of lane AFFECTED-S1 m2, which also hold every build up to 14223.
+    private let rowsOfM2: Set<String> = [
+        "DEMUXPLAN-LIMITS-S3-GROUP", "DERIVED-STATS-PRESTORAGE", "MERGE-COUNTED-INVENTED-Q",
+        "TWELVES-IMPORT-REPLACES-RUN-RECORD", "RECORDS-AFFECTED-OTHER-RESULT-TYPES", "PAIRING-RECORD-LOST",
+        "TTL-ONT-CHECKPOINT-REUSE",
+    ]
 
     private func olderRows(_ shown: [String]) -> [String] {
         let left = Set(AffectedResults.rows.filter { newerRows.contains($0.backlogID) }.map(\.words))
@@ -248,9 +256,46 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         for root in ["lungfish fastq trim", "lungfish fastq adapter-trim"] {
             let trim = record(root, app: "Lungfish 2026.11.7 (12972)", steps: [step("fastp", ["fastp", "-i", "in.fq"])])
             let bundle = shownAndPosted(item(.fastqBundle), trim)
-            XCTAssertEqual(bundle.shown, both, root)
-            XCTAssertEqual(bundle.posted?.map(\.words), both, root)
+            XCTAssertEqual(olderRows(bundle.shown), both, root)
+            XCTAssertEqual(bundle.posted.map { olderRows($0.map(\.words)) }, both, root)
         }
+    }
+
+    // MARK: - Lane AFFECTED-S1 m2 (RECORDS-BIO R4, CKPT-DEPTH-BIO SF1, BIO-MERGE Q3)
+
+    /// A 12S result's sidebar type and the root of a metadata import's record name the 12S row (RECORDS-BIO R4), and an
+    /// EsViritu result's shows the other-type row. A FASTQ bundle the import gave its first record shows neither.
+    func testAResultWhoseRunRecordAMetadataImportReplacedShowsItsRow() throws {
+        let imported = record("Sample metadata import", app: "Lungfish 2026.11.16 (14223)")
+        let twelveS = shownAndPosted(item(.twelveSAmpliconResultBundle), imported)
+        XCTAssertEqual(twelveS.shown, [try words("TWELVES-IMPORT-REPLACES-RUN-RECORD")])
+        XCTAssertEqual(twelveS.posted?.map(\.backlogID), ["TWELVES-IMPORT-REPLACES-RUN-RECORD"])
+        let run = record("lungfish fastq 12s-match", app: "Lungfish 2026.11.16 (14223)")
+        XCTAssertEqual(shownAndPosted(item(.twelveSAmpliconResultBundle), run).shown, [], "the run's own record")
+        XCTAssertEqual(shownAndPosted(item(.esvirituResult), imported).shown.filter(rowsOfM2Words.contains),
+                       [try words("RECORDS-AFFECTED-OTHER-RESULT-TYPES")])
+        XCTAssertEqual(shownAndPosted(item(.fastqBundle), imported).shown, [])
+    }
+
+    /// A genotyping result's record that holds the reuse step names the checkpoint row (CKPT-DEPTH-BIO SF1).
+    func testAGenotypeResultThatReusedASampleShowsTheCheckpointRow() throws {
+        let root = "lungfish fastq full-length-ont-mhc-genotype"
+        let reuse = step("lungfish full-length ONT MHC sample checkpoint reuse", ["lungfish-cli", "fastq"])
+        let reused = record(root, app: "Lungfish 2026.11.16 (14223)", steps: [step("savont", ["savont"]), reuse])
+        XCTAssertEqual(shownAndPosted(item(.genotypeResultBundle), reused).shown, [try words("TTL-ONT-CHECKPOINT-REUSE")])
+        let fresh = record(root, app: "Lungfish 2026.11.16 (14223)", steps: [step("savont", ["savont"])])
+        XCTAssertEqual(shownAndPosted(item(.genotypeResultBundle), fresh).shown, [])
+    }
+
+    /// A FASTQ bundle of a counted merge reads its record's kind (BIO-MERGE Q3).
+    func testACountedMergeBundleShowsTheMergeRow() throws {
+        let counted = record("lungfish fastq merge", app: "Lungfish 2026.11.16 (14223)",
+                             steps: [step("bbmerge", ["bbmerge.sh"]), step("lungfish fastq merge count-duplicates", [])])
+        XCTAssertEqual(shownAndPosted(item(.fastqBundle), counted).shown, [try words("MERGE-COUNTED-INVENTED-Q")])
+    }
+
+    private var rowsOfM2Words: Set<String> {
+        Set(AffectedResults.rows.filter { rowsOfM2.contains($0.backlogID) }.map(\.words))
     }
 
     func testATrimStepInsideAnotherWorkflowOrAQualityTrimShowsNothing() {
