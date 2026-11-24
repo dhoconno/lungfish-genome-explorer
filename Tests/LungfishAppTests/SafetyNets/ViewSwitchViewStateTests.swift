@@ -108,6 +108,8 @@ final class ViewSwitchViewStateTests: XCTestCase {
     private var hostDefaults: HostDefaultsRestorer?
 
     override func setUp() async throws {
+        // The alignment's bottom pane stores its tab and open flag as a click does, here in a suite the test owns.
+        isolateAlignmentPaneDefaults()
         root = try TestTempDirectory.make(prefix: "ViewSwitchViewState")
         project = try SafetyNetFiles.makeDirectory(root.appendingPathComponent("ViewState.lungfish", isDirectory: true))
         storeRoot = root.appendingPathComponent("view-memory", isDirectory: true)

@@ -10,18 +10,21 @@ import LungfishTestSupport
 
 extension ReadTimeWriteTests {
     /// With a person's change in the alignment and in the tree, switches between them and the quit's capture and flush,
-    /// every file of the project keeps its bytes and its date, every checksum each manifest records still verifies,
-    /// the creation `.viewstate.json` of each bundle among them, and the views sit in the store outside the project
+    /// every file of the project keeps its bytes and its date, every checksum that verified before the view still
+    /// verifies, the creation `.viewstate.json` of each bundle among them, and the views sit in the store outside the project
     /// (VS A4, A5, UX 6).
     @MainActor
     func testAnAlignmentAndATreeViewChangeWriteNothingIntoTheProjectAndTheirChecksumsHold() async throws {
         let root = try TestTempDirectory.make(prefix: "ReadTimeWriteAlignment")
         defer { TestTempDirectory.cleanup(root) }
+        isolateAlignmentPaneDefaults()
         let project = try SafetyNetFiles.makeDirectory(root.appendingPathComponent("Views.lungfish", isDirectory: true))
         let alignment = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "MSA"), in: project)
         let tree = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Tree"), in: project)
         let other = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Status only"), in: project)
         let storeRoot = root.appendingPathComponent("view-memory", isDirectory: true)
+        // A checksum the built fixture already fails is the fixture's, not the view's (Continuation 1, Finding 4).
+        let failingBefore = try [alignment, tree].map { try Self.checksumFailures(inBundle: XCTUnwrap($0.item.url)) }
         // The digest comes before the store reads the project, so a write by that read shows too.
         let before = try ProjectDigest(of: project)
         let store = ViewMemoryStore(root: storeRoot)
@@ -51,10 +54,11 @@ extension ReadTimeWriteTests {
 
         let after = try ProjectDigest(of: project)
         XCTAssertEqual(after.entries, before.entries, "viewing and switching write nothing into the project (UX 6)")
-        for bundle in [alignment, tree] {
+        for (bundle, failedBefore) in zip([alignment, tree], failingBefore) {
             let url = try XCTUnwrap(bundle.item.url)
             let failures = try Self.checksumFailures(inBundle: url)
-            XCTAssertEqual(failures, [], "\(url.lastPathComponent): every manifest checksum still verifies")
+            XCTAssertEqual(failures, failedBefore, "\(url.lastPathComponent): every checksum that verified still verifies")
+            XCTAssertFalse(failures.contains(".viewstate.json"), "\(url.lastPathComponent): its creation view state verifies")
         }
         let kept = try FileManager.default.subpathsOfDirectory(atPath: storeRoot.path).filter { $0.hasSuffix(".json") }
         XCTAssertGreaterThanOrEqual(kept.count, 2, "both views sit in the store: \(kept)")
