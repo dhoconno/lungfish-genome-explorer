@@ -78,7 +78,7 @@ NCBI controls how long the search takes. Most searches in LGE's tests came back 
 
 You can also follow the search on the `BLAST Simplexvirus humanalpha1` row in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), the list of tasks LGE is running or has run. Open it with **Operations > Show Operations Panel** (Cmd-Shift-P).
 
-When NCBI answers, LGE saves the result and the drawer shows the verdict and one row per read. Start with the supporting and contradicting counts beside the verdict. If the verdict reads **Not judged**, the drawer shows no counts and a line under the summary says why. See an earlier run's counts in [What good looks like](#what-good-looks-like) for an example. Click **BLAST Results** in the action bar to show or hide the drawer.
+When NCBI answers, LGE saves the result and the drawer shows the verdict and one row per read. Start with the supporting and contradicting counts beside the verdict. If the verdict reads **Not judged**, the drawer shows no counts for or against and a line under the summary says why. See an earlier run's counts in [What good looks like](#what-good-looks-like) for an example. Click **BLAST Results** in the action bar to show or hide the drawer.
 
 ### Follow a search that NCBI holds
 
@@ -195,7 +195,7 @@ LGE checks for ties only when it judges by taxonomy ID, as it does for every Kra
 
 A Verified read is **supporting** if a best match belongs to the selected taxon's [clade](../../GLOSSARY.md#clade), the group and everything below it in the [Kraken 2 report](../../GLOSSARY.md#kreport), a table of counts per taxon, and in NCBI Taxonomy. LGE checks all records tied for best among those NCBI returned. A record ties if its bit score matches the first record's exactly as printed in NCBI's reply. A stretch of 76 bases shared across HSV-1 genomes can tie across many HSV-1 records. A Verified read is **contradicting** if the best match, or all tied best matches, are outside the clade and the result meets none of the placement exceptions below.
 
-LGE judges a species or any group below it at species level. In the EsViritu, TaxTriage, NAO-MGS, and NVD viewports, the exception is a species whose scientific name ends in `sp.`, NCBI's catch-all for records whose species nobody named. A row below it is judged at its own taxon and the groups below that, and a row on the `sp.` species itself is judged at that taxon alone.
+LGE judges a species or any group below it at species level. In the EsViritu, TaxTriage, NAO-MGS, and NVD viewports, the exception is a species whose scientific name, its formal name in NCBI Taxonomy, ends in `sp.`, NCBI's catch-all for records whose species nobody named. A row below it is judged at its own taxon and the groups below that, and a row on the `sp.` species itself is judged at that taxon alone.
 
 A strain is a variant within a species, so a match to another strain of the same species supports the selection. For a group above species, such as a genus, which groups related species, a match to any species in that group can support the selection. With HSV-1 selected, matches to Human alphaherpesvirus 2 or Human gammaherpesvirus 4 are outside the clade.
 
@@ -295,7 +295,7 @@ Replace `<timestamp>` with the rest of the Viral result's folder name. The first
 
 `--kraken-output` names the per-read file used to choose mates by k-mer count. `--source` names the reads and can repeat. It accepts a `.lungfishfastq` bundle, whose files have assigned roles, or loose files in this order, R1, R2, then merged or single reads. `--format json` prints JSON, a structured text format other programs can read. Omit it for a readable summary that counts how many reads went as mate 2 and gives the BLAST verdict on a line labeled Confidence.
 
-The command reads the NCBI Taxonomy you have installed and never downloads it. Without it, or when it does not list the taxon, the Confidence line reads **Not judged**, the summary gives a line that starts `Verification: NOT JUDGED`, and the JSON has `"confidence": "notJudged"` with `null` for `supporting` and `contradicting`.
+The command reads the NCBI Taxonomy you have installed and never downloads it. Without it, or when it does not list the taxon, the Confidence line reads `Not judged`, the summary gives a line that starts `Verification: NOT JUDGED`, and the JSON has `"confidence" : "notJudged"` and sets `supporting` and `contradicting` to `null`, JSON's word for no value.
 
 The command draws reads assigned to the named taxon. Add `--include-children` to include taxa below it. Here all 886,221 pairs were assigned to 10298 itself. `--seed` takes a whole number that sets the random draw. The default is 0, the same seed LGE uses in the window.
 
