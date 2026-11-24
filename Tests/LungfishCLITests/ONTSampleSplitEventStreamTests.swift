@@ -230,7 +230,7 @@ final class ONTSampleSplitEventStreamTests: XCTestCase {
     /// digest was taken again when each recorded app version became `<app version>`, because the
     /// base's output held the version of the xctest host that wrote it. That output, with the
     /// placeholder, has this digest.
-    private static let fluidigmOutputsDigest = "bfcb23bf159327d830c6cf1e4825f391141fc944738f8ebbe5a702413052a6d6"
+    private static let fluidigmOutputsDigest = "f04882743d196d3b0a70cdc24ac42add86330075dcff06fea5ab3f9245dd81ea"
     // The PacBio bundle now stores the statistics of its reads (Phase 3.0 lane DEMUX-STATS, WF-8b), where it stored zeros before.
     private static let pacBioOutputsDigest = "4d00f453404415c999adafe981a8f5940c8d9e6d782ebb3ec848f519cf693cea"
 
