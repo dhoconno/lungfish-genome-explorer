@@ -17,6 +17,7 @@ import XCTest
 @testable import LungfishGenotypeUI
 import LungfishIO
 @testable import LungfishKit
+@testable import LungfishPhylogeneticsUI
 import LungfishRNASeqUI
 import LungfishTestSupport
 @testable import LungfishTaxonomyUI
@@ -75,6 +76,7 @@ enum ViewStateDrivers {
         GenotypeViewStateDriver(),
         FASTQViewStateDriver(), AssemblyViewStateDriver(), FASTACollectionViewStateDriver(),
         NvdViewStateDriver(), TaxTriageViewStateDriver(),
+        AlignmentViewStateDriver(), TreeViewStateDriver(),
     ]
 }
 
@@ -895,6 +897,77 @@ final class ViewSwitchViewStateTests: XCTestCase {
 
     func testMHCReferenceKeepsItsModeOnAChangedBundle() async throws {
         try await assertChangedBundle(MHCReferenceViewStateDriver())
+    }
+
+    // MARK: - Alignment and tree (VS-ALN)
+
+    func testAlignmentKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(AlignmentViewStateDriver())
+    }
+
+    func testAlignmentKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(AlignmentViewStateDriver())
+    }
+
+    func testAlignmentOpensAChangedBundleWithItsBlockDroppedAndOneLine() async throws {
+        try await assertChangedBundle(AlignmentViewStateDriver())
+    }
+
+    func testTreeKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(TreeViewStateDriver())
+    }
+
+    func testTreeKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(TreeViewStateDriver())
+    }
+
+    func testTreeOpensAChangedBundleWithItsNodeAndPanDroppedAndOneLine() async throws {
+        try await assertChangedBundle(TreeViewStateDriver())
+    }
+
+    /// Whole rows are a row selection, so they come back by row id on a changed key with no line, and Extract then
+    /// takes the rows the view shows selected (VS B4, BIO).
+    func testAlignmentWholeRowsComeBackByRowIDOnAChangedBundleAndExtractTakesThem() async throws {
+        let driver = AlignmentViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let viewer = try XCTUnwrap(driver.viewer(in: harness))
+        viewer.applyDistanceMatrixRowSelection(IndexSet([1, 2]), reveal: false)
+        let records = viewer.testingSelectedFASTARecords
+        XCTAssertEqual(records.count, 2)
+
+        try await leave(for: other, in: harness, driver: driver)
+        try driver.changeBundle(of: fixture)
+        try await show(fixture, in: harness, driver: driver)
+        let back = try XCTUnwrap(driver.viewer(in: harness))
+        XCTAssertEqual(back.testingSelectedRowIndices, IndexSet([1, 2]), "the rows come back by their row ids")
+        XCTAssertEqual(back.testingSelectedFASTARecords, records, "Extract takes the rows the view shows selected")
+        XCTAssertNil(harness.resetLineWords, "every row came back, so no line shows (lesson 11)")
+    }
+
+    /// The selection the open makes is never kept as a person's (VS S3), so a changed bundle after a zoom alone keeps
+    /// the zoom and says nothing about a selection.
+    func testAlignmentKeepsNoSelectionTheOpenMadeAndDrawsNoLineForIt() async throws {
+        let driver = AlignmentViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let viewer = try XCTUnwrap(driver.viewer(in: harness))
+        viewer.testingPerformZoomIn()
+        let zoomed = viewer.testingAlignmentColumnWidth
+
+        try await leave(for: other, in: harness, driver: driver)
+        try driver.changeBundle(of: fixture)
+        try await show(fixture, in: harness, driver: driver)
+        let back = try XCTUnwrap(driver.viewer(in: harness))
+        XCTAssertFalse(back.fitsViewport, "the zoom comes back")
+        XCTAssertEqual(back.testingAlignmentColumnWidth, zoomed, accuracy: 0.001)
+        XCTAssertNil(harness.resetLineWords, "no selection of the person's was lost")
     }
 
     // MARK: - The three cases
