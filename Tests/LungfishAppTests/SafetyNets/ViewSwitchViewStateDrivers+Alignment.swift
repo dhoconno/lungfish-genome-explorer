@@ -107,7 +107,12 @@ struct TreeViewStateDriver: ViewStateDriver {
         let tip = try XCTUnwrap(clade.childIDs.first { viewer.nodesByID[$0]?.isTip == true })
         viewer.selectNode(id: tip, center: false)
         viewer.treeCanvasView.zoom(by: 1.25)
-        viewer.testingSetCanvasScrollOrigin(NSPoint(x: 40, y: 30))
+        viewer.testingSetCanvasScrollOrigin(Self.pan)
+        // The clip view takes any origin, and the window's next layout puts one outside the canvas back inside, so the
+        // pan must lie inside the canvas's scroll range for the reading to be a place the view can hold.
+        let clip = viewer.treeScrollView.contentView
+        XCTAssertEqual(
+            clip.constrainBoundsRect(clip.bounds).origin, Self.pan, "Tree: the pan lies inside the canvas's scroll range")
         viewer.testingSetNodeColumnWidth(identifier: "node", width: 233)
         viewer.testingSetSearchText("Latimeria")
     }
@@ -148,4 +153,7 @@ struct TreeViewStateDriver: ViewStateDriver {
 
     /// The reading of the open's own selection, the first tip, as `change(in:)` found it before its change.
     static var openingSelectionReading = ""
+
+    /// The pan the change makes, 40 points right and 30 down.
+    static let pan = NSPoint(x: 40, y: 30)
 }

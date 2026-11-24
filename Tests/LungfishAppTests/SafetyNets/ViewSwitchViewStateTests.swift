@@ -972,6 +972,57 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertNil(harness.resetLineWords, "no selection of the person's was lost")
     }
 
+    /// A changed bundle drops a kept block and leaves the open's own first cell, alignment column 0, which the
+    /// viewer's 1-based reading and column header call column 1, also after the window lays the view out (VS B3).
+    func testAlignmentChangedBundleLeavesTheOpensOwnFirstCellAfterTheLayout() async throws {
+        let driver = AlignmentViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try driver.change(in: harness)
+
+        try await leave(for: other, in: harness, driver: driver)
+        try driver.changeBundle(of: fixture)
+        try await show(fixture, in: harness, driver: driver)
+        harness.window.layoutIfNeeded()
+        let back = try XCTUnwrap(driver.viewer(in: harness))
+        XCTAssertTrue(back.isOpeningSelection, "the open's own first cell shows")
+        XCTAssertEqual(back.selectedRowIndices, IndexSet(integer: 0))
+        XCTAssertEqual(back.selectedAlignmentColumnRange, 0...0, "alignment column 0, never a clamped block")
+        XCTAssertEqual(back.testingSelectedAlignmentColumnRange, 1...1, "the reading is 1-based, as the header")
+        XCTAssertFalse(back.fitsViewport, "the zoom comes back")
+    }
+
+    /// A pan inside the canvas's scroll range comes back through a switch and stays after the window lays the tree
+    /// out, so the restore before the install puts it where the installed view can hold it (VS-ALN cont2).
+    func testTreeKeepsAPanInsideItsScrollRangeThroughASwitchAndTheLayout() async throws {
+        let driver = TreeViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let viewer = try XCTUnwrap(driver.viewer(in: harness))
+        viewer.treeCanvasView.zoom(by: 2)
+        harness.window.layoutIfNeeded()
+        let pan = NSPoint(x: 40, y: 30)
+        viewer.testingSetCanvasScrollOrigin(pan)
+        let clip = viewer.treeScrollView.contentView
+        XCTAssertEqual(clip.constrainBoundsRect(clip.bounds).origin, pan, "the pan lies inside the scroll range")
+        harness.window.layoutIfNeeded()
+        XCTAssertEqual(viewer.testingCanvasScrollOrigin, pan, "the window's layout keeps a pan inside the range")
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        let back = try XCTUnwrap(driver.viewer(in: harness))
+        harness.window.layoutIfNeeded()
+        XCTAssertEqual(Double(back.treeCanvasView.zoomScale), 2, accuracy: 0.0001, "the zoom comes back")
+        XCTAssertEqual(back.testingCanvasScrollOrigin, pan, "the pan comes back after the install's layout")
+        XCTAssertNil(harness.resetLineWords)
+    }
+
     // MARK: - The three cases
 
     func assertSwitchAwayAndBack(_ driver: any ViewStateDriver) async throws {
