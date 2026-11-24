@@ -148,6 +148,25 @@ extension DemultiplexingPipeline {
             )
         }
 
+        // The read IDs of each shard wait in files here, in virtual mode too, until they join the `read-ids.txt` of their bundle.
+        let idRoot = config.outputDirectory.appendingPathComponent(".exact-bare-read-ids-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: idRoot, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: idRoot) }
+
+        /// Adds a shard's read IDs of `name` to the `read-ids.txt` of its bundle. The first shard's file moves there, so a
+        /// run of one file copies nothing, and the files of later shards are appended in shard order.
+        func addReadIDs(shard shardIndex: Int, of name: String) throws {
+            let source = ExactBareReadIDWriter.fileURL(in: shardDirectory(for: shardIndex, root: idRoot), sample: name)
+            guard fm.fileExists(atPath: source.path) else { return }
+            let destination = try bundleURL(for: name).appendingPathComponent("read-ids.txt")
+            if fm.fileExists(atPath: destination.path) {
+                try appendFile(source, to: destination)
+                try fm.removeItem(at: source)
+            } else {
+                try fm.moveItem(at: source, to: destination)
+            }
+        }
+
         func processShard(
             inputURL: URL,
             shardIndex: Int,
@@ -164,6 +183,8 @@ extension DemultiplexingPipeline {
             let shardOutputDirectory = shardRoot.map { shardDirectory(for: shardIndex, root: $0) }
             let shardOutputCache = ExactBareFASTQOutputCache()
             defer { try? shardOutputCache.closeAll() }
+            let shardIDWriter = ExactBareReadIDWriter(directory: shardDirectory(for: shardIndex, root: idRoot))
+            defer { try? shardIDWriter.closeAll() }
 
             func shardFASTQURL(for name: String) throws -> URL {
                 guard let shardOutputDirectory else {
@@ -181,12 +202,12 @@ extension DemultiplexingPipeline {
                     if let barcodeIndex = fragment.call {
                         shardCounter.count(record, in: config.barcodeKit.barcodes[barcodeIndex].id)
                         shardBarcodeAccumulators[barcodeIndex].add(
-                            readID: record.readID,
                             previewRecord: record,
                             outputLength: record.sequence.count,
                             trimEntry: nil
                         )
                         shardAssignedReads += 1
+                        try shardIDWriter.append(record.readID, sample: config.barcodeKit.barcodes[barcodeIndex].id)
 
                         if !isVirtualMode {
                             let barcodeID = config.barcodeKit.barcodes[barcodeIndex].id
@@ -195,11 +216,13 @@ extension DemultiplexingPipeline {
                     } else {
                         shardCounter.count(record, in: shardUnassigned.barcodeID)
                         shardUnassigned.add(
-                            readID: record.readID,
                             previewRecord: record,
                             outputLength: record.sequence.count,
                             trimEntry: nil
                         )
+                        if config.unassignedDisposition == .keep {
+                            try shardIDWriter.append(record.readID, sample: shardUnassigned.barcodeID)
+                        }
                         if !isVirtualMode, config.unassignedDisposition == .keep {
                             try shardOutputCache.write(record, to: shardFASTQURL(for: "unassigned"))
                         }
@@ -238,6 +261,7 @@ extension DemultiplexingPipeline {
                 logger.warning("Input FASTQ shard \(shardIndex) had \(lineBuffer.count) trailing lines (incomplete record)")
             }
             try shardOutputCache.closeAll()
+            try shardIDWriter.closeAll()
 
             return ExactBareBarcodeShardResult(
                 shardIndex: shardIndex,
@@ -258,6 +282,9 @@ extension DemultiplexingPipeline {
             for index in barcodeAccumulators.indices {
                 let shardAccumulator = shard.barcodeAccumulators[index]
                 barcodeAccumulators[index].merge(shardAccumulator)
+                if shardAccumulator.readCount > 0 {
+                    try addReadIDs(shard: shard.shardIndex, of: config.barcodeKit.barcodes[index].id)
+                }
                 if !isVirtualMode, shardAccumulator.readCount > 0, let shardRoot {
                     let barcodeID = config.barcodeKit.barcodes[index].id
                     let shardFASTQ = shardDirectory(for: shard.shardIndex, root: shardRoot)
@@ -267,6 +294,9 @@ extension DemultiplexingPipeline {
             }
 
             unassigned.merge(shard.unassigned)
+            if config.unassignedDisposition == .keep, shard.unassigned.readCount > 0 {
+                try addReadIDs(shard: shard.shardIndex, of: unassigned.barcodeID)
+            }
             if !isVirtualMode,
                config.unassignedDisposition == .keep,
                shard.unassigned.readCount > 0,
@@ -344,18 +374,20 @@ extension DemultiplexingPipeline {
             }
         } else {
             progress(0.0, "Starting \(runWords)...")
+            let idWriter = ExactBareReadIDWriter(directory: shardDirectory(for: 0, root: idRoot))
+            defer { try? idWriter.closeAll() }
 
             func place(_ fragment: ExactBareMatePairer.Fragment) throws {
                 for record in fragment.records {
                     if let barcodeIndex = fragment.call {
                         counter.count(record, in: config.barcodeKit.barcodes[barcodeIndex].id)
                         barcodeAccumulators[barcodeIndex].add(
-                            readID: record.readID,
                             previewRecord: record,
                             outputLength: record.sequence.count,
                             trimEntry: nil
                         )
                         assignedReads += 1
+                        try idWriter.append(record.readID, sample: config.barcodeKit.barcodes[barcodeIndex].id)
 
                         if !isVirtualMode {
                             let barcodeID = config.barcodeKit.barcodes[barcodeIndex].id
@@ -364,11 +396,13 @@ extension DemultiplexingPipeline {
                     } else {
                         counter.count(record, in: unassigned.barcodeID)
                         unassigned.add(
-                            readID: record.readID,
                             previewRecord: record,
                             outputLength: record.sequence.count,
                             trimEntry: nil
                         )
+                        if config.unassignedDisposition == .keep {
+                            try idWriter.append(record.readID, sample: unassigned.barcodeID)
+                        }
                         if !isVirtualMode, config.unassignedDisposition == .keep {
                             try outputCache.write(record, to: fastqURL(for: "unassigned"))
                         }
@@ -414,6 +448,13 @@ extension DemultiplexingPipeline {
                 try place(fragment)
             }
             mateCalls.add(pairer.calls)
+            try idWriter.closeAll()
+            for index in barcodeAccumulators.indices where barcodeAccumulators[index].readCount > 0 {
+                try addReadIDs(shard: 0, of: config.barcodeKit.barcodes[index].id)
+            }
+            if config.unassignedDisposition == .keep, unassigned.readCount > 0 {
+                try addReadIDs(shard: 0, of: unassigned.barcodeID)
+            }
 
             if !lineBuffer.isEmpty {
                 logger.warning("Input FASTQ had \(lineBuffer.count) trailing lines (incomplete record)")
@@ -441,10 +482,7 @@ extension DemultiplexingPipeline {
             bundleURL: URL,
             cachedStatistics: FASTQDatasetStatistics
         ) throws {
-            let readIDsURL = bundleURL.appendingPathComponent("read-ids.txt")
-            try (accumulator.readIDs.joined(separator: "\n") + "\n")
-                .write(to: readIDsURL, atomically: true, encoding: .utf8)
-
+            // `read-ids.txt` is in the bundle already: the pass wrote the IDs to files, and `addReadIDs` joined them.
             let previewURL = bundleURL.appendingPathComponent("preview.fastq")
             try accumulator.previewRecords.map(\.fastqString).joined()
                 .write(to: previewURL, atomically: true, encoding: .utf8)

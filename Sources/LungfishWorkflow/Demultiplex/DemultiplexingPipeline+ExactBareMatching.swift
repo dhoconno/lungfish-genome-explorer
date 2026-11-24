@@ -18,9 +18,10 @@ extension DemultiplexingPipeline {
         let trim3p: Int
     }
 
+    /// What a pass keeps of the records of one output group. It keeps no read ID, since the IDs of a run of 40 M records
+    /// take about 4 GB: ``ExactBareReadIDWriter`` writes them to a file as the pass places each record.
     struct ExactBareBarcodeAccumulator: Sendable {
         let barcodeID: String
-        var readIDs: [String] = []
         var previewRecords: [FASTQRawRecord] = []
         var trimEntries: [DemuxTrimEntry] = []
         var readCount: Int = 0
@@ -30,13 +31,11 @@ extension DemultiplexingPipeline {
         var readLengthHistogram: [Int: Int] = [:]
 
         mutating func add(
-            readID: String,
             previewRecord: FASTQRawRecord,
             outputLength: Int,
             trimEntry: DemuxTrimEntry?,
             previewLimit: Int = 1000
         ) {
-            readIDs.append(readID)
             if previewRecords.count < previewLimit {
                 previewRecords.append(previewRecord)
             }
@@ -52,7 +51,6 @@ extension DemultiplexingPipeline {
 
         mutating func merge(_ other: ExactBareBarcodeAccumulator, previewLimit: Int = 1000) {
             guard other.readCount > 0 else { return }
-            readIDs.append(contentsOf: other.readIDs)
             if previewRecords.count < previewLimit {
                 previewRecords.append(contentsOf: other.previewRecords.prefix(previewLimit - previewRecords.count))
             }
@@ -303,9 +301,13 @@ extension DemultiplexingPipeline {
         }
 
         func write(_ record: FASTQRawRecord, to url: URL) throws {
+            try write(Data(record.fastqString.utf8), to: url)
+        }
+
+        func write(_ data: Data, to url: URL) throws {
             let key = url.path
             let handle = try handle(for: key, url: url)
-            try handle.write(contentsOf: Data(record.fastqString.utf8))
+            try handle.write(contentsOf: data)
         }
 
         func closeAll() throws {
