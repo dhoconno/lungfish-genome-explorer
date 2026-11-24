@@ -5,7 +5,7 @@
 // Phase 2.13 lane 13.41 M3 (row M858 GENBANK-FEATURE-LINE, the BIO ruling on lane 12.13 section 3). The writer
 // prints the key and the location the reader read while the reader's own type map gives the annotation's type
 // back and the reader's own parse of the location gives the annotation's ranges, range strands and feature
-// strand. Otherwise it prints the key in lower case and a location rebuilt from the ranges, as before. These
+// strand. Otherwise it prints the INSDC key of the type and a location rebuilt from the ranges, as before. These
 // tests reach the rule through files only, read with GenBankReader and written with GenBankWriter.
 
 import Foundation
@@ -51,7 +51,7 @@ final class GenBankFeatureLineTests: XCTestCase {
         XCTAssertEqual(reread.intervals.map(\.phase), [1])
     }
 
-    /// A type changed after the read prints the type's key in lower case, and the location, which still holds,
+    /// A type changed after the read prints the INSDC key of the type, and the location, which still holds,
     /// prints as read.
     func testAnEditedTypePrintsTheKeyOfTheType() throws {
         let records = try Self.edited(read([Self.line("CDS", "<1..30")])) { annotations in
@@ -78,14 +78,14 @@ final class GenBankFeatureLineTests: XCTestCase {
         ])
     }
 
-    /// An annotation without the reader's internal qualifiers prints today's text, a lower-case key and a location
+    /// An annotation without the reader's internal qualifiers prints the INSDC key of its type and a location
     /// rebuilt from its ranges.
     func testAnAnnotationWithoutTheReadersMarksPrintsTodaysText() throws {
         let records = try Self.edited(read([Self.line("CDS", "order(<1..30,50..80)")])) { annotations in
             annotations[0].qualifiers[GenBankReader.rawFeatureTypeQualifierKey] = nil
             annotations[0].qualifiers[GenBankReader.rawLocationQualifierKey] = nil
         }
-        XCTAssertEqual(try featureLines(of: records), [Self.line("cds", "join(1..30,50..80)")])
+        XCTAssertEqual(try featureLines(of: records), [Self.line("CDS", "join(1..30,50..80)")])
     }
 
     /// A source key longer than the 15 characters of the key column maps to `misc_feature` and the reader keeps it
@@ -94,7 +94,7 @@ final class GenBankFeatureLineTests: XCTestCase {
     func testAKeyLongerThanFifteenCharactersPrintsTheKeyOfTheType() throws {
         let records = try read(["     unknown_long_feature_key 1..10"])
         let type = try XCTUnwrap(records.first?.annotations.first).type
-        XCTAssertEqual(try featureLines(of: records), [Self.line(type.rawValue.lowercased(), "1..10")])
+        XCTAssertEqual(try featureLines(of: records), [Self.line(type.rawValue, "1..10")])
     }
 
     /// A written file reads back to the same types, ranges, range strands and feature strands as the first read.

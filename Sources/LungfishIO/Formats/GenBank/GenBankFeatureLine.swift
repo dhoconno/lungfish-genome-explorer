@@ -9,10 +9,10 @@ import LungfishCore
 /// section 3). A feature that ``GenBankReader`` read keeps the key and the location of its source line while they
 /// still describe the annotation, so `CDS`, the partial markers `<` and `>` and `order()` survive a read and a
 /// write. A feature whose type, ranges or strand changed after the read, and one the reader never read, print the
-/// type's name in lower case and a location rebuilt from the ranges, as before.
+/// INSDC key of the type (row KL-177 GENBANK-KEY-CASE) and a location rebuilt from the ranges.
 extension GenBankWriter {
     /// The key the reader read, when the reader's own type map gives `annotation`'s type back and the key fits the
-    /// 15 characters of the key column, else the type's name in lower case.
+    /// 15 characters of the key column, else the INSDC key of the type.
     static func featureKey(of annotation: SequenceAnnotation) -> String {
         if let raw = annotation.qualifier(GenBankReader.rawFeatureTypeQualifierKey)?
             .trimmingCharacters(in: .whitespaces),
@@ -21,7 +21,18 @@ extension GenBankWriter {
            GenBankReader.mapFeatureType(raw) == annotation.type {
             return raw
         }
-        return annotation.type.rawValue.lowercased()
+        return insdcKey(of: annotation.type)
+    }
+
+    /// The INSDC feature key of `type`, the inverse of `GenBankReader.mapFeatureType`, so that the key reads back as
+    /// the type. A raw value of ``AnnotationType`` is INSDC's spelling where INSDC names the type (`CDS`, `mRNA`,
+    /// `tRNA`, `rRNA`, `ncRNA`, `5'UTR`, `3'UTR`), and a type INSDC does not name keeps its raw value, since the
+    /// reader reads that back too. INSDC's key for a primer is `primer_bind`, where the raw value is `primer`.
+    static func insdcKey(of type: AnnotationType) -> String {
+        switch type {
+        case .primer: return "primer_bind"
+        default: return type.rawValue
+        }
     }
 
     /// The location the reader read, when the reader's own parse of it gives `annotation`'s ranges, the strand of

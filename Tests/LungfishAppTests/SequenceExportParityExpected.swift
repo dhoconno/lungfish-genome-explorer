@@ -62,7 +62,7 @@ FEATURES             Location/Qualifiers
      gene            1..9
                      /gene="shared"
                      /note="names no chromosome"
-     cds             complement(join(1..6,10..15))
+     CDS             complement(join(1..6,10..15))
                      /gene="onlyB"
                      /product="a split protein"
 ORIGIN      
@@ -92,7 +92,7 @@ FEATURES             Location/Qualifiers
      gene            1..9
                      /gene="shared"
                      /note="names no chromosome"
-     cds             complement(join(1..6,10..15))
+     CDS             complement(join(1..6,10..15))
                      /gene="onlyB"
                      /product="a split protein"
 ORIGIN      
