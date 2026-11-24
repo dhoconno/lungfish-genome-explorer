@@ -351,7 +351,9 @@ public actor TaxonomyExtractionPipeline {
                 throw TaxonomyExtractionError.classificationOutputNotFound(classificationURL)
             }
             while true {
-                let chunk = handle.readData(ofLength: bufferSize)
+                // A plain file's read hands back an autoreleased chunk. Each read has a pool of its own, so the pool holds
+                // no chunk past its pass and the chunk dies when the pass has scanned it.
+                let chunk = autoreleasepool { handle.readData(ofLength: bufferSize) }
                 if chunk.isEmpty { break }
                 consume(chunk)
             }
