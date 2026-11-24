@@ -71,7 +71,7 @@ extension ReadTimeWriteTests {
 /// The classifier drivers of the read-time case, each making its change with no row click.
 @MainActor
 enum ClassifierReadTimeDrivers {
-    static var all: [any ViewStateDriver] { [NaoMgsViewStateDriver(clicksARow: false)] }
+    static var all: [any ViewStateDriver] { [NaoMgsViewStateDriver(clicksARow: false), NvdViewStateDriver(clicksARow: false)] }
 }
 
 // MARK: - The NAO-MGS detail load's write (older than view memory)

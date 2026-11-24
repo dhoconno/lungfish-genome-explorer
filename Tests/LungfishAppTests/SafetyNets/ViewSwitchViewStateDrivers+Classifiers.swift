@@ -13,6 +13,7 @@ import XCTest
 import LungfishIO
 @testable import LungfishKit
 @testable import LungfishNaoMgsUI
+@testable import LungfishNvdUI
 import LungfishTestSupport
 
 // MARK: - NAO-MGS
@@ -116,6 +117,125 @@ struct NaoMgsViewStateDriver: ViewStateDriver {
     var lineAfterChangedBundle: String? { ViewMemoryWords.dataChanged(.filters) }
 }
 
+// MARK: - NVD
+
+@MainActor
+struct NvdViewStateDriver: ViewStateDriver {
+    let kind = "NVD"
+    /// Whether the change clicks the hit row. A click shows the row's detail and its alignment evidence, so the
+    /// read-time case selects the row as the outline's selection only.
+    var clicksARow = true
+
+    /// The reading's lines, by index.
+    static let groupingLine = 0, samplesLine = 1, searchLine = 2, expandedLine = 3, selectedLine = 4
+
+    /// SampleA's NODE_1 contig of the committed BLAST table, with three hits, filed under SARS-CoV-2.
+    static let contig = "NODE_1_length_500_cov_10.0"
+    static let group = NvdOutlineItem.taxonGroup(name: "SARS-CoV-2")
+    static let contigItem = NvdOutlineItem.contig(sampleId: "SampleA", qseqid: contig)
+    static let hitItem = NvdOutlineItem.childHit(sampleId: "SampleA", qseqid: contig, hitRank: 2)
+
+    func viewer(in harness: ViewSwitchWindowHarness) -> NvdResultViewController? {
+        (harness.split.viewerController.surfaceHost.activeViewport as? NvdSurface)?.controller
+    }
+
+    /// Shown once the route has given the viewer its database, after the show, so the late restore has run by then.
+    func isShown(in harness: ViewSwitchWindowHarness) -> Bool { viewer(in: harness)?.database != nil }
+
+    /// The By Sample / By Taxon control, found by its accessibility identifier.
+    static func groupingControl(of viewer: NvdResultViewController) -> NSSegmentedControl? {
+        var stack: [NSView] = [viewer.view]
+        while let view = stack.popLast() {
+            if let control = view as? NSSegmentedControl, control.accessibilityIdentifier() == "nvd-grouping-control" {
+                return control
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    static func describe(_ item: NvdOutlineItem) -> String {
+        switch item {
+        case .contig(let sample, let qseqid): return "\(sample) \(qseqid)"
+        case .childHit(let sample, let qseqid, let rank): return "\(sample) \(qseqid) hit \(rank)"
+        case .taxonGroup(let name): return "taxon \(name)"
+        }
+    }
+
+    /// Two of the three samples through the Sample Filter popover, By Taxon through its control, a search for the
+    /// NODE_1 contigs, SARS-CoV-2 and SampleA's NODE_1 opened, its second hit selected, and the divider moved.
+    func change(in harness: ViewSwitchWindowHarness) async throws {
+        let viewer = try XCTUnwrap(viewer(in: harness))
+        viewer.samplePickerState.selectedSamples = ["SampleA", "SampleB"]
+        viewer.popoverDidClose(Notification(name: NSPopover.didCloseNotification))
+        let grouping = try XCTUnwrap(Self.groupingControl(of: viewer), "the grouping control")
+        grouping.selectedSegment = 1
+        _ = grouping.sendAction(grouping.action, to: grouping.target)
+        let search = viewer.testSearchField
+        search.stringValue = "NODE_1"
+        _ = search.sendAction(search.action, to: search.target)
+        let outline = viewer.testOutlineView
+        outline.expandItem(Self.group)
+        outline.expandItem(Self.contigItem)
+        let row = outline.row(forItem: Self.hitItem)
+        XCTAssertGreaterThanOrEqual(row, 0, "the second hit of SampleA's NODE_1 shows")
+        if clicksARow {
+            viewer.testSelectOutlineRow(row)
+        } else {
+            let delegate = outline.delegate
+            outline.delegate = nil
+            outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            outline.delegate = delegate
+        }
+        TaxonomyViewStateControls.moveDivider(of: viewer.testSplitView)
+    }
+
+    func read(in harness: ViewSwitchWindowHarness) throws -> [String] {
+        let viewer = try XCTUnwrap(viewer(in: harness))
+        let outline = viewer.testOutlineView
+        let grouping = Self.groupingControl(of: viewer)?.selectedSegment
+        let expanded = (0..<outline.numberOfRows).compactMap { row -> String? in
+            guard let item = outline.item(atRow: row) as? NvdOutlineItem, outline.isItemExpanded(item) else { return nil }
+            return Self.describe(item)
+        }
+        let selected = outline.selectedRowIndexes.compactMap { (outline.item(atRow: $0) as? NvdOutlineItem).map(Self.describe) }
+        let start: CGFloat = MetagenomicsPanelLayout.current() == .listLeading ? 0.6 : 0.4
+        return [
+            "grouping \(grouping == 1 ? "By Taxon" : grouping == 0 ? "By Sample" : "none")",
+            "samples \(viewer.selectedSamples.sorted().joined(separator: ", "))",
+            "search \(viewer.testSearchField.stringValue)",
+            "expanded \(expanded.joined(separator: ", "))",
+            "selected \(selected.joined(separator: ", "))",
+            "split \(TaxonomyViewStateControls.splitText(viewer.testSplitView, start: start))",
+        ]
+    }
+
+    /// A new import of the same table into the same folder, which writes a new manifest with its own date and run.
+    func changeBundle(of fixture: ViewSwitchFixture) throws {
+        let url = try XCTUnwrap(fixture.item.url).appendingPathComponent("manifest.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let old = try decoder.decode(NvdManifest.self, from: Data(contentsOf: url))
+        let new = NvdManifest(
+            experiment: old.experiment, sampleCount: old.sampleCount, contigCount: old.contigCount,
+            hitCount: old.hitCount, blastDbVersion: old.blastDbVersion, snakemakeRunId: "rerun",
+            sourceDirectoryPath: old.sourceDirectoryPath, samples: old.samples, cachedTopContigs: old.cachedTopContigs
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(new).write(to: url, options: .atomic)
+    }
+
+    /// The search drops, and the grouping, the samples, the open rows, the selected hit and the divider stay.
+    func readingAfterChangedBundle(changed: [String]) -> [String] {
+        var reading = changed
+        reading[Self.searchLine] = "search "
+        return reading
+    }
+
+    var lineAfterChangedBundle: String? { ViewMemoryWords.dataChanged(.filters) }
+}
+
 // MARK: - The cases
 
 @MainActor
@@ -212,6 +332,98 @@ extension ViewSwitchViewStateTests {
             $0.hasPrefix("org.lungfish.metadata-column-layout.") && $0.contains(root.lastPathComponent)
         }
         XCTAssertEqual(written.sorted(), [], "the table wrote its layout to its defaults")
+        assertNoLayoutKeyWritten()
+    }
+
+    // MARK: NVD
+
+    /// The view comes back as left, and the restore of the selected hit starts no alignment evidence load: the return
+    /// loads what a first open loads and no more (VS S4).
+    func testNvdKeepsItsViewThroughASwitch() async throws {
+        let driver = NvdViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let opened = try XCTUnwrap(driver.viewer(in: harness)).testMiniBAMLoadCount
+        let start = try driver.read(in: harness)
+        try await driver.change(in: harness)
+        let changed = try driver.read(in: harness)
+        XCTAssertNotEqual(changed, start, "the change shows in the view's controls")
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        let back = try XCTUnwrap(driver.viewer(in: harness))
+        XCTAssertEqual(try driver.read(in: harness), changed, "NVD: the view as left")
+        XCTAssertNil(harness.resetLineWords, "nothing was lost, so no line shows")
+        XCTAssertEqual(back.testMiniBAMLoadCount, opened, "the restore starts no alignment evidence load")
+        XCTAssertEqual(back.testSelectedOutlineContigSamples(), ["SampleA"], "Extract and BLAST act on the hit of SampleA")
+        assertNoLayoutKeyWritten()
+    }
+
+    func testNvdKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(NvdViewStateDriver())
+        assertNoLayoutKeyWritten()
+    }
+
+    func testNvdOpensAChangedBundleWithItsSearchDroppedAndOneLine() async throws {
+        try await assertChangedBundle(NvdViewStateDriver())
+        assertNoLayoutKeyWritten()
+    }
+
+    /// A visit that ends before the route's database lands keeps nothing, so the next visit finds the view as left the
+    /// time before (VS A2).
+    func testNvdSwitchBackDuringItsLoadKeepsTheViewAsLeft() async throws {
+        let driver = NvdViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try await driver.change(in: harness)
+        let changed = try driver.read(in: harness)
+        try await leave(for: other, in: harness, driver: driver)
+
+        harness.select(fixture.item)
+        let loading = try XCTUnwrap(driver.viewer(in: harness), "the viewer shows before its database")
+        XCTAssertNil(loading.database, "the route's load has not landed")
+        harness.select(other.item)
+        try await leave(for: other, in: harness, driver: driver)
+
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(try driver.read(in: harness), changed, "the view as left before the visit that ended early")
+        XCTAssertNil(harness.resetLineWords)
+        assertNoLayoutKeyWritten()
+    }
+
+    /// A search the person types before the route's database lands is never overwritten by the late restore, and the
+    /// next visit keeps it (VS A2, the keep side).
+    func testNvdKeepsASearchMadeBeforeItsLateRestore() async throws {
+        let driver = NvdViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try await driver.change(in: harness)
+        try await leave(for: other, in: harness, driver: driver)
+
+        harness.select(fixture.item)
+        let loading = try XCTUnwrap(driver.viewer(in: harness), "the viewer shows before its database")
+        XCTAssertNil(loading.database, "the route's load has not landed")
+        loading.testSearchField.stringValue = "NODE_5"
+        _ = loading.testSearchField.sendAction(loading.testSearchField.action, to: loading.testSearchField.target)
+        let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
+        XCTAssertTrue(shown, "NVD did not show")
+        var reading = try driver.read(in: harness)
+        XCTAssertEqual(reading[NvdViewStateDriver.searchLine], "search NODE_5", "the person's search stays")
+        XCTAssertEqual(reading[NvdViewStateDriver.groupingLine], "grouping By Sample", "the late restore did not run")
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        reading = try driver.read(in: harness)
+        XCTAssertEqual(reading[NvdViewStateDriver.searchLine], "search NODE_5", "the next visit keeps the search")
         assertNoLayoutKeyWritten()
     }
 

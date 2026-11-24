@@ -129,13 +129,14 @@ final class MetadataLayoutEveryTableSeamTests: XCTestCase {
         }
     }
 
-    func testTheNvdViewKeepsItsLayoutOnTheSuiteOfItsOverride() {
-        let suite = makeTestDefaultsSuite(prefix: "MetadataLayoutEveryTableSeamTests")
-        NvdResultViewController.testMetadataUserDefaultsOverride = suite.defaults
-        defer { NvdResultViewController.testMetadataUserDefaultsOverride = nil }
+    /// The NVD table keeps its column layout in view memory since VS-CLASS item 3, so it saves none to its defaults,
+    /// the suite of its override included (VS A10, QA 6).
+    func testTheNvdViewsTableSavesNothingToItsSuite() {
         let view = NvdResultViewController()
-        view.loadViewIfNeeded() // The controller saves a layout only once the view has attached its table.
-        XCTAssertTrue(view.metadataColumnController.userDefaults === suite.defaults)
-        assertTheLayoutStaysInTheSuite(suite) { view.metadataColumnController.persistenceKey = "nvd.contigs:\($0)" }
+        view.loadViewIfNeeded() // The controller would save a layout only once the view has attached its table.
+        XCTAssertTrue(view.metadataColumnController.isViewMemoryAdopted, "the table declares view memory")
+        assertAnAdoptingTableSavesNothing(view.metadataColumnController) {
+            view.metadataColumnController.persistenceKey = "nvd.contigs:\($0)"
+        }
     }
 }
