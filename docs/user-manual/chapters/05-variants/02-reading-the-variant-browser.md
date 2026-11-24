@@ -66,7 +66,7 @@ Nothing needs installing.
 
 ### Open the Variants tab
 
-Click the `minimap2-` mapping result under **Analyses** in the [sidebar](../../GLOSSARY.md#sidebar), the list of folders and results at the left of the window. The viewport opens with the reference bundle inside the mapping result in its lower pane, and the table drawer opens along the bottom of that pane. Click the drawer's **Variants** tab. Every track in the bundle loads into the one table at once, and the **Variant Track** column names the track each row came from. The drawer reports its row count at the right end of the tab row.
+Click the `minimap2-` mapping result under **Analyses** in the [sidebar](../../GLOSSARY.md#sidebar), the list of folders and results at the left of the window. The viewport opens with the reference bundle inside the mapping result, and the table drawer opens along the bottom of the pane that holds it. Click the drawer's **Variants** tab. Every track in the bundle loads into the one table at once, and the **Variant Track** column names the track each row came from. The drawer reports its row count at the right end of the tab row.
 
 The with-results project's benchmark track adds 961 rows, and most counts in this chapter are for the two callers alone. To hide the benchmark, open the [Inspector](../../GLOSSARY.md#inspector), the pane at the right of the window, click its **View** tab, click **Annotations** under **View Settings**, and clear the checkbox of `HG002.chr20.10.0-10.5Mb.benchmark.vcf` under **Variant Tracks**.
 
