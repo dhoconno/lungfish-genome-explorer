@@ -127,7 +127,7 @@ struct NvdViewStateDriver: ViewStateDriver {
     var clicksARow = true
 
     /// The reading's lines, by index.
-    static let groupingLine = 0, samplesLine = 1, searchLine = 2, expandedLine = 3, selectedLine = 4
+    static let groupingLine = 0, samplesLine = 1, searchLine = 2, expandedLine = 3, selectedLine = 4, splitLine = 5
 
     /// SampleA's NODE_1 contig of the committed BLAST table, with three hits, filed under SARS-CoV-2.
     static let contig = "NODE_1_length_500_cov_10.0"
@@ -234,6 +234,15 @@ struct NvdViewStateDriver: ViewStateDriver {
     }
 
     var lineAfterChangedBundle: String? { ViewMemoryWords.dataChanged(.filters) }
+
+    /// MANAGER-RULING-VS-CLASS-NVD-DIVIDER: a divider left beside a hit's detail returns where the overview shows it,
+    /// since a restore shows no detail and starts no evidence load until the person clicks the hit (VS S4). So the split
+    /// line is read from the split after the restore, never a literal, and every other line is the reading as left.
+    func readingAfterRestore(changed: [String], in harness: ViewSwitchWindowHarness) throws -> [String] {
+        var reading = changed
+        reading[Self.splitLine] = try read(in: harness)[Self.splitLine]
+        return reading
+    }
 }
 
 // MARK: - The cases
@@ -355,7 +364,9 @@ extension ViewSwitchViewStateTests {
         try await leave(for: other, in: harness, driver: driver)
         try await show(fixture, in: harness, driver: driver)
         let back = try XCTUnwrap(driver.viewer(in: harness))
-        XCTAssertEqual(try driver.read(in: harness), changed, "NVD: the view as left")
+        // The divider is read where the overview shows it (MANAGER-RULING-VS-CLASS-NVD-DIVIDER).
+        let expected = try driver.readingAfterRestore(changed: changed, in: harness)
+        XCTAssertEqual(try driver.read(in: harness), expected, "NVD: the view as left")
         XCTAssertNil(harness.resetLineWords, "nothing was lost, so no line shows")
         XCTAssertEqual(back.testMiniBAMLoadCount, opened, "the restore starts no alignment evidence load")
         XCTAssertEqual(back.testSelectedOutlineContigSamples(), ["SampleA"], "Extract and BLAST act on the hit of SampleA")
@@ -392,7 +403,9 @@ extension ViewSwitchViewStateTests {
         try await leave(for: other, in: harness, driver: driver)
 
         try await show(fixture, in: harness, driver: driver)
-        XCTAssertEqual(try driver.read(in: harness), changed, "the view as left before the visit that ended early")
+        // The divider is read where the overview shows it (MANAGER-RULING-VS-CLASS-NVD-DIVIDER).
+        let expected = try driver.readingAfterRestore(changed: changed, in: harness)
+        XCTAssertEqual(try driver.read(in: harness), expected, "the view as left before the visit that ended early")
         XCTAssertNil(harness.resetLineWords)
         assertNoLayoutKeyWritten()
     }

@@ -51,7 +51,10 @@ extension ReadTimeWriteTests {
             let back = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
             XCTAssertTrue(back, "\(driver.kind) did not show again")
             await driver.settle(in: harness)
-            XCTAssertEqual(try driver.read(in: harness), changed, "\(driver.kind): the view as left, its selected row too")
+            // NVD's divider is read where the overview shows it, as the open's detail is not shown again
+            // (MANAGER-RULING-VS-CLASS-NVD-DIVIDER).
+            let expected = try driver.readingAfterRestore(changed: changed, in: harness)
+            XCTAssertEqual(try driver.read(in: harness), expected, "\(driver.kind): the view as left, its selected row too")
         }
         harness.split.viewerController.surfaceHost.captureActive()
         store.flushSynchronously()

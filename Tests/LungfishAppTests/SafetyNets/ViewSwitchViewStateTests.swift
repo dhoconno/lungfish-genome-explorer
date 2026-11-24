@@ -38,6 +38,9 @@ protocol ViewStateDriver {
     func changeBundle(of fixture: ViewSwitchFixture) throws
     /// The reading after a changed bundle, given the reading as the person left it.
     func readingAfterChangedBundle(changed: [String]) -> [String]
+    /// The reading after a restore, given the reading as the person left it. A line the restore shows by a ruled rule
+    /// (NVD's divider, MANAGER-RULING-VS-CLASS-NVD-DIVIDER) is read from the view; every other line is as left.
+    func readingAfterRestore(changed: [String], in harness: ViewSwitchWindowHarness) throws -> [String]
     /// The reset line after a changed bundle, nil for none.
     var lineAfterChangedBundle: String? { get }
     /// The words of the reset line the shown view draws, nil when none shows.
@@ -57,6 +60,8 @@ extension ViewStateDriver {
 
     /// A fixture that holds a view to change as it is built needs nothing more.
     func prepare(_ fixture: ViewSwitchFixture) throws {}
+    /// A kind with no ruled line expects the reading as left.
+    func readingAfterRestore(changed: [String], in harness: ViewSwitchWindowHarness) throws -> [String] { changed }
 }
 
 @MainActor
@@ -933,7 +938,9 @@ final class ViewSwitchViewStateTests: XCTestCase {
         defer { harness.close() }
         harness.keepViews(in: relaunched)
         try await show(fixture, in: harness, driver: driver)
-        XCTAssertEqual(try driver.read(in: harness), changed, "\(driver.kind): the view as left before the relaunch")
+        // NVD's divider is read where the overview shows it (MANAGER-RULING-VS-CLASS-NVD-DIVIDER).
+        let expected = try driver.readingAfterRestore(changed: changed, in: harness)
+        XCTAssertEqual(try driver.read(in: harness), expected, "\(driver.kind): the view as left before the relaunch")
         XCTAssertNil(driver.resetLineWords(in: harness), "\(driver.kind): nothing was lost, so no line shows")
     }
 
@@ -951,7 +958,9 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await leave(for: other, in: harness, driver: driver)
         try driver.changeBundle(of: fixture)
         try await show(fixture, in: harness, driver: driver)
-        XCTAssertEqual(try driver.read(in: harness), driver.readingAfterChangedBundle(changed: changed), driver.kind)
+        // NVD's divider is read where the overview shows it (MANAGER-RULING-VS-CLASS-NVD-DIVIDER).
+        let left = try driver.readingAfterRestore(changed: changed, in: harness)
+        XCTAssertEqual(try driver.read(in: harness), driver.readingAfterChangedBundle(changed: left), driver.kind)
         XCTAssertEqual(driver.resetLineWords(in: harness), driver.lineAfterChangedBundle, "\(driver.kind): the one line")
     }
 
