@@ -331,8 +331,6 @@ extension GenotypeResultViewController {
         session.line?.removeFromSuperview()
         setViewMemoryLineRoom(top: 0)
         let line = ViewMemoryResetLineView(words: words)
-        line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         view.addSubview(line)
         NSLayoutConstraint.activate([
             line.topAnchor.constraint(equalTo: view.topAnchor),
@@ -352,8 +350,6 @@ extension GenotypeResultViewController {
     private func showSettingsLine(in session: GenotypeViewMemorySession) {
         let line = session.settingsLine ?? ViewMemoryFilterLineView()
         if session.settingsLine == nil {
-            line.wantsLayer = true
-            line.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
             view.addSubview(line)
             NSLayoutConstraint.activate([
                 line.bottomAnchor.constraint(equalTo: view.bottomAnchor),
