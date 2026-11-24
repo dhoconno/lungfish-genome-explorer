@@ -44,7 +44,11 @@ final class ReadStyleSectionNoAssumedLengthTests: XCTestCase {
     /// `samtools depth -a` run directly on this fixture (samtools 1.24, 2026-11-23): 1,000 positions, sum 10,000,
     /// mean 10.0 (SAD:92). `samtools coverage` gives meandepth 10 for the same file. The assumed 150 bp showed
     /// 10 x 150 / 1,000 = 1.5x.
-    private func makeFixture(writeBAM: Bool, mappedRecords: Int64) async throws -> Fixture {
+    ///
+    /// `supplementary` adds that many supplementary records (flag 2048) over the same 1,000 bases. `samtools coverage`
+    /// counts them unless it is told to leave them out, as the mapping table's pass does, so 2 of them give 12.0 for
+    /// the default flags and 10.0 for the table's.
+    private func makeFixture(writeBAM: Bool, mappedRecords: Int64, supplementary: Int = 0) async throws -> Fixture {
         let bundleURL = tempDir.appendingPathComponent("Fixture.lungfishref", isDirectory: true)
         let alignments = bundleURL.appendingPathComponent("alignments", isDirectory: true)
         try FileManager.default.createDirectory(at: alignments, withIntermediateDirectories: true)
@@ -55,6 +59,9 @@ final class ReadStyleSectionNoAssumedLengthTests: XCTestCase {
             var sam = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:ref\tLN:1000\n"
             for index in 1...10 {
                 sam += "read\(index)\t0\tref\t1\t60\t1000M9000S\t*\t0\t0\t\(sequence)\t\(qualities)\n"
+            }
+            for index in 0..<supplementary {
+                sam += "supp\(index)\t2048\tref\t1\t60\t1000M9000S\t*\t0\t0\t\(sequence)\t\(qualities)\n"
             }
             let samURL = alignments.appendingPathComponent("fixture.sam")
             try sam.write(to: samURL, atomically: true, encoding: .utf8)
@@ -116,6 +123,30 @@ final class ReadStyleSectionNoAssumedLengthTests: XCTestCase {
         XCTAssertEqual(
             try XCTUnwrap(shown), measured, accuracy: 1e-6,
             "the row shows samtools' mean depth, not 10 records x 150 bp / 1,000 bp = 1.5"
+        )
+    }
+
+    /// CKPT-DEPTH-BIO B1: the mapping table's Mean Depth is `samtools coverage` with the primary-mapped filter flags,
+    /// which leave out supplementary alignments (`MappingSummaryBuilder.primaryMappedReadExclusionFlags`). The row of
+    /// the Inspector carries the same label, so for a BAM with chimeric or split reads it must show the same figure.
+    func testTheDepthLeavesOutSupplementaryAlignmentsLikeTheMappingTable() async throws {
+        let fixture = try await makeFixture(writeBAM: true, mappedRecords: 10, supplementary: 2)
+        let table = try await runSamtools(
+            ["coverage", "--ff", "UNMAP,SECONDARY,SUPPLEMENTARY,QCFAIL,DUP", fixture.bam.path]
+        )
+        let tableLine = table.stdout.split(separator: "\n").dropFirst().first ?? ""
+        let tableFields = tableLine.split(separator: "\t", omittingEmptySubsequences: false)
+        let tableDepth = try XCTUnwrap(tableFields.count >= 7 ? Double(tableFields[6]) : nil, "the table's pass has a row")
+        XCTAssertEqual(tableDepth, 10.0, accuracy: 1e-9, "the table's pass leaves out the 2 supplementary alignments")
+
+        let viewModel = ReadStyleSectionViewModel()
+        viewModel.loadStatistics(from: fixture.bundle)
+        XCTAssertEqual(viewModel.chromosomeStats.count, 1)
+
+        let shown = try await depthShown(by: viewModel, near: tableDepth, within: 20)
+        XCTAssertEqual(
+            try XCTUnwrap(shown), tableDepth, accuracy: 1e-6,
+            "the row equals the mapping table's Mean Depth, 12.0 if supplementary alignments are counted"
         )
     }
 

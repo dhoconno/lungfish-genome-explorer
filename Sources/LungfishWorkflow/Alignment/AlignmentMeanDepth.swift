@@ -4,9 +4,10 @@
 
 import Foundation
 
-/// The mean depth of one reference sequence in a BAM, as `samtools coverage` measures it, the pass behind the mapping
-/// table's Mean Depth. The Inspector shows it for a one-sequence bundle. No read length is assumed: where the file is not
-/// a BAM, is missing or the run fails, the answer is nil and the caller shows nothing (EST-COVERAGE-150BP).
+/// The mean depth of one reference sequence in a BAM, as samtools coverage measures it with the filter flags of the
+/// mapping table (MappingSummaryBuilder.primaryMappedReadExclusionFlags), so it equals the table's Mean Depth for the
+/// same BAM. The Inspector shows it for a one-sequence bundle. No read length is assumed: where the file is not a BAM,
+/// is missing or the run fails, the answer is nil and the caller shows nothing (EST-COVERAGE-150BP).
 public enum AlignmentMeanDepth {
     public static func measure(
         alignmentURL: URL,
@@ -17,7 +18,9 @@ public enum AlignmentMeanDepth {
         guard alignmentURL.pathExtension.lowercased() == "bam",
               FileManager.default.fileExists(atPath: alignmentURL.path),
               let result = try? await runner.run(
-                  .samtools, arguments: ["coverage", alignmentURL.path], timeout: timeout
+                  .samtools,
+                  arguments: ["coverage", "--ff", MappingSummaryBuilder.primaryMappedReadExclusionFlags, alignmentURL.path],
+                  timeout: timeout
               ),
               result.exitCode == 0 else { return nil }
         return meanDepth(ofChromosome: chromosome, inCoverageOutput: result.stdout)
