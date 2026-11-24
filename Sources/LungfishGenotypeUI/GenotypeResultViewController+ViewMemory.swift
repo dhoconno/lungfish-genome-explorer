@@ -164,11 +164,15 @@ extension GenotypeResultViewController {
         return defaultSummaryViewMode(for: result)
     }
 
-    /// The mode a refresh of the same result keeps, the one on show, so an AI haplotype revision does not drop the
-    /// visit's choice. Nil for another result or no visit.
+    /// The mode a refresh of the same result keeps, so an AI haplotype revision does not drop the visit's choice. Nil
+    /// for another result, no visit, or the mode the open itself showed, which follows the new shape (SWIFT SF-1).
     func visitSummaryViewMode(for result: ONTGenotypeResultBundleData) -> GenotypeSummaryViewMode? {
         guard let session = viewMemory, session.bundleURL == result.bundleURL else { return nil }
-        return GenotypeSummaryViewMode(rawValue: captureViewMemory().summaryViewMode)
+        let mode = captureViewMemory().summaryViewMode
+        // Only a mode the person chose, or a kept view brought back, stays. The mode the open itself showed follows
+        // the new shape of the result, as at the base.
+        guard mode != session.opening.summaryViewMode, let kept = GenotypeSummaryViewMode(rawValue: mode) else { return nil }
+        return normalizedDisplayState(GenotypeResultDisplayState(viewportLens: .summary, summaryViewMode: kept)).summaryViewMode
     }
 
     /// The view as the viewer holds it now. A fallback the policy shows in place of a kept choice is never taken as a
