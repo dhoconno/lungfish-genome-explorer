@@ -161,6 +161,13 @@ extension NaoMgsResultViewController {
         suppressSelectionSync = false
         selectedRow = indexes.count == 1 ? indexes.first.map { rows[$0] } : nil
         if let first = indexes.first { taxonomyTableView.scrollRowToVisible(first) }
+        // The bar acts on the rows shown selected, as after a pick (lesson 8). It reads one count and starts no detail
+        // and no BAM load.
+        if let row = selectedRow {
+            updateActionBarForRow(row, totalHits: (try? database?.totalHitCount(samples: Array(selectedSamples))) ?? 0)
+        } else if indexes.count > 1 {
+            resultActions.showSelection(count: indexes.count, extractable: database != nil)
+        }
         // A kept row drops only when the data changed: on an equal key every kept row is a row the restored samples
         // and filter show, so no line says the data changed (lesson 11).
         if dataChanged, kept.droppedCount > 0 { lost.insert(.selection) }

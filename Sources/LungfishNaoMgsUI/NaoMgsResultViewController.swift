@@ -2679,7 +2679,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Action Bar Selection Helper
 
     /// Updates the unified action bar info text from a taxon row.
-    private func updateActionBarForRow(_ row: NaoMgsTaxonSummaryRow, totalHits: Int) {
+    func updateActionBarForRow(_ row: NaoMgsTaxonSummaryRow, totalHits: Int) {
         naoMgsTotalHits = totalHits
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
