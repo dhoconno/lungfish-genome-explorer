@@ -6,7 +6,7 @@ Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 820
 Sources/LungfishApp/App/AppDelegate.swift 2637
 Sources/LungfishApp/App/MainMenu.swift 1364
 Sources/LungfishApp/Services/FASTQOperationExecutionService.swift 864
-Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1318
+Sources/LungfishApp/Services/FASTQOperationOutputImporter.swift 1343
 Sources/LungfishApp/Services/FASTQOperationPlanner.swift 1047
 Sources/LungfishApp/Services/ProjectStorageCoordinator.swift 960
 Sources/LungfishApp/Services/WorkflowOperationExecutionService.swift 1092
@@ -50,7 +50,7 @@ Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView+TableView.swift 1090
 Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift 2394
 Sources/LungfishApp/Views/Viewer/EnhancedCoordinateRulerView.swift 1159
 Sources/LungfishApp/Views/Viewer/FASTACollectionViewController.swift 1157
-Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2008
+Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift 2025
 Sources/LungfishApp/Views/Viewer/FASTQMetadataDrawerView.swift 2194
 Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift 4218
 Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift 1766
@@ -146,10 +146,10 @@ Sources/LungfishWorkflow/Conda/CondaManager.swift 1413
 Sources/LungfishWorkflow/Conda/CondaOfflinePackService.swift 1214
 Sources/LungfishWorkflow/Conda/PluginPackStatusService.swift 1552
 Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift 1592
-Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2548
+Sources/LungfishWorkflow/Demultiplex/DemultiplexingPipeline.swift 2558
 Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift 925
 Sources/LungfishWorkflow/Extraction/ClassifierReadResolver.swift 822
-Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1145
+Sources/LungfishWorkflow/Extraction/ReadExtractionService.swift 1153
 Sources/LungfishWorkflow/Geneious/GeneiousImportCollectionService.swift 860
 Sources/LungfishWorkflow/Geneious/GeneiousPackedSequenceExtractor.swift 902
 Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift 2645
@@ -176,7 +176,7 @@ Sources/LungfishWorkflow/ONTGenotyping/FullLengthONTMHCWorkbookProjection.swift 
 Sources/LungfishWorkflow/ONTGenotyping/GenotypeReviewableRowCatalogPublisher.swift 1420
 Sources/LungfishWorkflow/ONTGenotyping/HaplotypeDefinitionCommandService.swift 1110
 Sources/LungfishWorkflow/ONTGenotyping/ONTBarcodeDemuxGenotypingPipeline.swift 4927
-Sources/LungfishWorkflow/ONTGenotyping/ONTPacBioBarcodeDemuxMaterializer.swift 1134
+Sources/LungfishWorkflow/ONTGenotyping/ONTPacBioBarcodeDemuxMaterializer.swift 1141
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3AlleleContract.swift 1231
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3CoverageContract.swift 930
 Sources/LungfishWorkflow/PrimerDesign/PrimalScheme3DesignPipeline.swift 1054
