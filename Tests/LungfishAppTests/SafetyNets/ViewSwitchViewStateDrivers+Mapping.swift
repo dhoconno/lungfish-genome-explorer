@@ -300,6 +300,45 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
             "the person's sort, not the older entry's")
     }
 
+    /// BIO SF-2, the late restore's guard for the list (VS A2): a contig picked before the read lands stays, with no
+    /// line, and the next visit shows it.
+    func testAContigPickedBeforeTheRestoreLandsStaysAndIsKept() async throws {
+        try await assertAPickBeforeTheRestoreLandsStays(mapping: true)
+    }
+
+    /// The same for a reference's record (k08).
+    func testARecordPickedBeforeTheRestoreLandsStaysAndIsKept() async throws {
+        try await assertAPickBeforeTheRestoreLandsStays(mapping: false)
+    }
+
+    /// Visit 1 picks chr3 and zooms. Visit 2 picks chr2 before its read lands (the read hops back to the main actor
+    /// only when the test awaits, so the order is fixed), and the restore of chr3 must not replace that pick.
+    private func assertAPickBeforeTheRestoreLandsStays(mapping: Bool) async throws {
+        let kind = mapping ? "k22" : "k08"
+        let selected = mapping ? selectedContig(in:) : selectedRecord(in:)
+        let store = makeStore()
+        let first = try bundle("First", Self.two + [.init(name: "chr3", length: 2_000)])
+        var viewport = try await (mapping ? open(mapping: first, store: store) : open(reference: first, store: store))
+        pick("chr3", in: viewport)
+        viewport.testEmbeddedViewerController.zoomIn() // a user event handler, which marks the view changed
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try (mapping ? start(mapping: first, store: store) : start(reference: first, store: store))
+        let viewer = viewport.testEmbeddedViewerController
+        pick("chr2", in: viewport)
+        XCTAssertFalse(viewer.viewMemoryIsSettled, "\(kind): the pick came before the restore")
+        let settled = await waitUntil(budget: .lookup) {
+            viewer.currentBundleURL?.standardizedFileURL == first.standardizedFileURL && viewer.viewMemoryIsSettled
+        }
+        XCTAssertTrue(settled, "\(kind): the restore ran")
+        XCTAssertEqual(selected(viewport), "chr2", "\(kind): the person's pick, not the kept chr3")
+        XCTAssertNil(resetLine(in: viewer), "\(kind): a refused restore shows no line")
+        viewer.clearBundleDisplay()
+
+        viewport = try await (mapping ? open(mapping: first, store: store) : open(reference: first, store: store))
+        XCTAssertEqual(selected(viewport), "chr2", "\(kind): the next visit shows the pick")
+    }
+
     // MARK: - Support
 
     private func makeStore() -> ViewMemoryStore {
@@ -312,15 +351,24 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
     }
 
     private func open(reference bundle: URL, store: ViewMemoryStore) async throws -> ReferenceBundleViewportController {
+        try await settled(try start(reference: bundle, store: store), on: bundle)
+    }
+
+    private func open(mapping bundle: URL, store: ViewMemoryStore) async throws -> ReferenceBundleViewportController {
+        try await settled(try start(mapping: bundle, store: store), on: bundle)
+    }
+
+    /// The open's first step, before the read lands: the viewport configured, the viewer's visit started.
+    private func start(reference bundle: URL, store: ViewMemoryStore) throws -> ReferenceBundleViewportController {
         let viewport = ReferenceBundleViewportController()
         _ = viewport.view
         viewport.testEmbeddedViewerController.viewMemoryStore = store
         try viewport.configureForTesting(input: .directBundle(bundleURL: bundle, manifest: try BundleManifest.load(from: bundle)))
-        return try await settled(viewport, on: bundle)
+        return viewport
     }
 
     /// A mapping result on `bundle`, in a folder of its own that keeps its identity between opens.
-    private func open(mapping bundle: URL, store: ViewMemoryStore) async throws -> ReferenceBundleViewportController {
+    private func start(mapping bundle: URL, store: ViewMemoryStore) throws -> ReferenceBundleViewportController {
         let viewport = ReferenceBundleViewportController()
         _ = viewport.view
         viewport.testEmbeddedViewerController.viewMemoryStore = store
@@ -336,7 +384,7 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         viewport.configureForTesting(
             result: MappingRoutingFixture.makeMappingResult(resultDirectory: result, viewerBundleURL: bundle, contigs: contigs),
             resultDirectoryURL: result)
-        return try await settled(viewport, on: bundle)
+        return viewport
     }
 
     private func settled(
