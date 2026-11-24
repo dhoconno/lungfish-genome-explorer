@@ -26,7 +26,7 @@ extension DemultiplexingPipeline {
         }
     }
 
-    /// Refuses a dual-index run at Both Ends with no sample sheet whose Cutadapt lines pass ``observedPairLineCap``, before
+    /// Refuses a run at Both Ends on the linked writer, a built-in dual kit or a sample sheet, whose Cutadapt lines pass ``observedPairLineCap``, before
     /// the adapter file is written and before Cutadapt starts. Each pair gives a line for each of its strands and each
     /// combination of 5' and 3' distance, `strands` strands in all across `pairs` pairs, so 96 pairs at 8/8 are 15,552 lines.
     /// Cutadapt spends 451 s on them before it reads the first read and 0.17 s a read after it, about 12 hours for a million

@@ -37,7 +37,7 @@ final class DemultiplexOneEndLineCapTests: XCTestCase {
     /// `run` make: the refusal it throws, and the adapter file it left, nil when it left none.
     private func adapterAttempt(
         _ kit: BarcodeKitDefinition = DemultiplexOneEndLineCapTests.kit, location: BarcodeLocation, fivePrime: Int,
-        threePrime: Int, sheet: [FASTQSampleBarcodeAssignment] = []
+        threePrime: Int, sheet: [FASTQSampleBarcodeAssignment] = [], symmetry: BarcodeSymmetryMode? = nil
     ) async throws -> Attempt {
         let input = folder.appendingPathComponent("reads.fastq")
         try "@r0\nACGTACGTACGT\n+\nIIIIIIIIIIII\n".write(to: input, atomically: true, encoding: .utf8)
@@ -45,7 +45,8 @@ final class DemultiplexOneEndLineCapTests: XCTestCase {
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         let config = DemultiplexConfig(
             inputURL: input, barcodeKit: kit, outputDirectory: folder.appendingPathComponent("out", isDirectory: true),
-            barcodeLocation: location, errorRate: 0.15, maxDistanceFrom5Prime: fivePrime, maxDistanceFrom3Prime: threePrime,
+            barcodeLocation: location, symmetryMode: symmetry, errorRate: 0.15, maxDistanceFrom5Prime: fivePrime,
+            maxDistanceFrom3Prime: threePrime,
             engine: .cutadapt, sampleAssignments: sheet
         )
         var refusal: DemultiplexError?
@@ -239,5 +240,50 @@ final class DemultiplexOneEndLineCapTests: XCTestCase {
         let pairs = kit.barcodes.filter { $0.i5Sequence != nil }.count
         let result = try await adapterAttempt(kit, location: .fivePrime, fivePrime: Int.max, threePrime: 0)
         assertRefused(result, kit: kit, barcodes: pairs, fromThreePrime: false, distance: Int.max, lines: Int.max, "dual kit, 5' End at Int.max")
+    }
+
+    // MARK: - The sample-sheet branch (the linked writer's call at DemultiplexingPipeline.swift:1387)
+
+    /// A sheet reaches that branch with a symmetry other than single-end on a kit that is neither dual nor a long-read symmetric
+    /// kit. A single-index kit with its default symmetry takes the first branch (`:1258`), which builds no offsets array, so the
+    /// symmetry is given. One sample whose pair, the first two barcodes of the kit, reads as two strands.
+    private func sheetAttempt(location: BarcodeLocation, fivePrime: Int, threePrime: Int) async throws -> Attempt {
+        let kit = Self.kit
+        let sheet = [FASTQSampleBarcodeAssignment(
+            sampleID: "S1", forwardBarcodeID: kit.barcodes[0].id, reverseBarcodeID: kit.barcodes[1].id
+        )]
+        return try await adapterAttempt(
+            kit, location: location, fivePrime: fivePrime, threePrime: threePrime, sheet: sheet, symmetry: .symmetric
+        )
+    }
+
+    /// One sample, two strands: 2 x (d + 1) lines at 5' End. 2,999 gives 6,000 records and is written, 3,000 gives 6,002 and is
+    /// refused. Base: red by assertion at 3,000, the file is written.
+    func testASampleSheetAtFivePrimeEndFitsAt2999AndIsRefusedAt3000() async throws {
+        let fits = try await sheetAttempt(location: .fivePrime, fivePrime: 2_999, threePrime: 0)
+        XCTAssertNil(fits.refusal, "the sheet at 5' End at 2999 is not refused")
+        XCTAssertEqual(try records(XCTUnwrap(fits.file)), 6_000)
+        let over = try await sheetAttempt(location: .fivePrime, fivePrime: 3_000, threePrime: 0)
+        assertRefused(over, kit: Self.kit, barcodes: 1, fromThreePrime: false, distance: 3_000, lines: 6_002, "the sheet at 5' End at 3000")
+    }
+
+    /// Base: the host traps (signal 5), so run it alone.
+    func testASampleSheetAtFivePrimeEndWithAFiveDistanceOfIntMaxIsRefusedInWords() async throws {
+        let over = try await sheetAttempt(location: .fivePrime, fivePrime: Int.max, threePrime: 0)
+        assertRefused(over, kit: Self.kit, barcodes: 1, fromThreePrime: false, distance: Int.max, lines: Int.max, "the sheet at 5' End at Int.max")
+    }
+
+    /// At Both Ends the sheet is bounded by the dual route's cap, 2 x (d5 + 1) x (d3 + 1) lines. 54/53 gives 5,940 records and
+    /// is written, 54/54 gives 6,050 and is refused as `tooManySearchLines`. Base: red by assertion at 54/54.
+    func testASampleSheetAtBothEndsFitsAt54And53AndIsRefusedAt54And54() async throws {
+        let fits = try await sheetAttempt(location: .bothEnds, fivePrime: 54, threePrime: 53)
+        XCTAssertNil(fits.refusal, "the sheet at 54/53 is not refused")
+        XCTAssertEqual(try records(XCTUnwrap(fits.file)), 5_940)
+        let over = try await sheetAttempt(location: .bothEnds, fivePrime: 54, threePrime: 54)
+        guard case .tooManySearchLines(_, let pairs, let five, let three, let lines)? = over.refusal else {
+            return XCTFail("the sheet at 54/54 was refused as \(String(describing: over.refusal)), not for its lines")
+        }
+        XCTAssertEqual([pairs, five, three, lines], [1, 54, 54, 6_050])
+        XCTAssertNil(over.file)
     }
 }
