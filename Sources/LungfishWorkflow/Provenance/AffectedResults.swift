@@ -86,6 +86,11 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     /// paired by position (RIBODETECTOR-TWO-FILES-NO-MATE-CHECK and DEACON-RIBO-TWO-FILES-NO-MATE-CHECK,
     /// BIO-AFFECTED-14223).
     case fastqRiboFilterLoosePair
+    /// A TaxTriage result whose root record is a `lungfish build-db taxtriage` run that ran the command's own cleanup,
+    /// which deleted `top/` until TT-m1 (TT-LEGACY-CLEANUP-REMOVES-TOP): an older run or an import that a build rebuilt
+    /// without `--no-cleanup`. It is a narrower ``taxTriage``. A TaxTriage result whose record names it shows the rows of
+    /// both kinds (``AffectedResults/rows(for:kind:)``), so no row of ``taxTriage`` names it.
+    case taxTriageLegacyCleanup
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -150,10 +155,17 @@ public enum AffectedResults {
         }
     }
 
-    /// The rows for `kind` that hold every build that may have made the result `envelope` records (``builds(of:)``).
+    /// The rows for `kind` that hold every build that may have made the result `envelope` records (``builds(of:)``). A
+    /// TaxTriage result whose record ran the legacy cleanup of `lungfish build-db taxtriage` also takes the rows of that
+    /// narrower kind, in table order (``AffectedResultKind/taxTriageLegacyCleanup``).
     public static func rows(for envelope: ProvenanceEnvelope, kind: AffectedResultKind) -> [AffectedResultRow] {
         guard let builds = builds(of: envelope) else { return [] }
-        return rows(forBuilds: builds, kind: kind)
+        guard kind == .taxTriage, Self.kind(of: envelope) == .taxTriageLegacyCleanup else {
+            return rows(forBuilds: builds, kind: kind)
+        }
+        let held = Set((rows(forBuilds: builds, kind: kind) + rows(forBuilds: builds, kind: .taxTriageLegacyCleanup))
+            .map(\.backlogID))
+        return rows.filter { held.contains($0.backlogID) }
     }
 
     /// The builds that may have made the result `envelope` records, or nil when no packaged build did.
@@ -232,7 +244,8 @@ public enum AffectedResults {
         return version.split(separator: ".").compactMap { Int($0) }
     }
 
-    /// The table, with the rows of the S1 fixes of sub-phase 5.6 in ``loosePairAndImportRows``. The newest published
+    /// The table, with the rows of the S1 fixes of sub-phase 5.6 in ``loosePairAndImportRows`` and those of the S1 sweep
+    /// before Preview 2026.11.17 in ``s1SweepRows``. The newest published
     /// builds are `Lungfish 2026.11.16 (14223)`, 14072 (2026.11.15), 13927 (Stable 2026.11.14, a patch build), 13924
     /// (2026.11.13), 13764 (2026.11.12) and `Lungfish 2026.11.11 (13672)` and, before it, 13603 (2026.11.10),
     /// 13300 (2026.11.9), 13190 (2026.11.8), 12972 (2026.11.7), 12962 (2026.11.6), 12859, 12818, 12803, 12591, 12518
@@ -591,7 +604,7 @@ public enum AffectedResults {
                 + "read names.",
             fixCommit: "eba5464b1"
         ),
-    ] + loosePairAndImportRows
+    ] + loosePairAndImportRows + s1SweepRows
 
     /// A published release, its version and the build of the commit it was packaged from.
     public struct PublishedRelease: Equatable, Sendable {
@@ -760,6 +773,8 @@ extension AffectedResults {
             return ingestedTwoLooseFiles(envelope) ? .fastqIngestLoosePair : nil
         case RecordName.fastqRiboDetector, RecordName.fastqDeaconRibo:
             return filteredTwoLooseFiles(envelope) ? .fastqRiboFilterLoosePair : nil
+        case RecordName.buildDbTaxTriage:
+            return ranTheLegacyTaxTriageCleanup(envelope) ? .taxTriageLegacyCleanup : nil
         default:
             // An in-place ingest merges into the record that stands in the folder, which keeps its own root name, so the
             // ingest shows only as its step (BIO-ROUTES-5 item 4).

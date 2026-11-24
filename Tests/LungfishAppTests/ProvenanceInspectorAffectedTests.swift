@@ -93,12 +93,18 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK",
     ]
 
+    /// The rows of the S1 sweep hold every build up to 14223 and have their own pins (`AffectedResultsS1SweepTests`), so
+    /// the pins of the older rows here leave them out too.
+    private var newerRows: Set<String> {
+        rowsOf56.union(["TT-LEGACY-CLEANUP-REMOVES-TOP", "TT-STRAIN-GROUP", "NAOMGS-DEDUP-READ-COUNT", "BLAST-NAME-PHRASE-LEAK"])
+    }
+
     private func olderRows(_ shown: [String]) -> [String] {
-        let left = Set(AffectedResults.rows.filter { rowsOf56.contains($0.backlogID) }.map(\.words))
+        let left = Set(AffectedResults.rows.filter { newerRows.contains($0.backlogID) }.map(\.words))
         return shown.filter { !left.contains($0) }
     }
 
-    private func olderRowIDs(_ ids: [String]?) -> [String]? { ids?.filter { !rowsOf56.contains($0) } }
+    private func olderRowIDs(_ ids: [String]?) -> [String]? { ids?.filter { !newerRows.contains($0) } }
 
     func testTheInspectorOfARecordOfAnAffectedBuildShowsTheSentenceAndWhatToDo() throws {
         let model = model(build: "Lungfish 2026.10.29 (12045)")

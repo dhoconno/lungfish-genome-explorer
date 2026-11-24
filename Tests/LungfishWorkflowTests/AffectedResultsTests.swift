@@ -25,7 +25,13 @@ final class AffectedResultsTests: XCTestCase {
         "DEACON-RIBO-TWO-FILES-NO-MATE-CHECK",
     ]
 
-    private func olderRows(_ ids: [String]) -> [String] { ids.filter { !Self.rowsOf56.contains($0) } }
+    /// The rows of the S1 sweep (`AffectedResults.s1SweepRows`). They hold every build up to 14223 and have their own pins
+    /// (`AffectedResultsS1SweepTests`), so the pins of the older rows here leave them out too.
+    private static let rowsOfS1Sweep = Set(AffectedResults.s1SweepRows.map(\.backlogID))
+
+    private func olderRows(_ ids: [String]) -> [String] {
+        ids.filter { !Self.rowsOf56.contains($0) && !Self.rowsOfS1Sweep.contains($0) }
+    }
 
     /// Every row a build holds for `kind`, in table order.
     private func allIDs(_ build: Int, _ kind: AffectedResultKind) -> [String] {
