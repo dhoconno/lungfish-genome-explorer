@@ -998,6 +998,27 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertEqual(viewer.testingSelectedRowIndices, IndexSet(integer: 2), "by id, never by the index the row had")
     }
 
+    /// A restore is no pick, so it stores neither the bottom pane's tab nor its open flag in the defaults that every
+    /// later alignment opens with (VS S4). The keys are removed after the change, so only the restore can write them.
+    func testAlignmentRestoreStoresNoPaneChoice() async throws {
+        let driver = AlignmentViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try driver.change(in: harness)
+        let defaults = ViewerViewController.multipleSequenceAlignmentDefaults
+        defaults.removeObject(forKey: MSABottomPaneView.DefaultsKey.tab)
+        defaults.removeObject(forKey: MSABottomPaneView.DefaultsKey.isOpen)
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(try driver.read(in: harness)[3], "pane open Annotations", "the pane comes back as left")
+        XCTAssertNil(defaults.object(forKey: MSABottomPaneView.DefaultsKey.tab), "a restore stores no tab choice")
+        XCTAssertNil(defaults.object(forKey: MSABottomPaneView.DefaultsKey.isOpen), "a restore stores no open choice")
+    }
+
     /// The selection the open makes is never kept as a person's (VS S3), so a changed bundle after a zoom alone keeps
     /// the zoom and says nothing about a selection.
     func testAlignmentKeepsNoSelectionTheOpenMadeAndDrawsNoLineForIt() async throws {
