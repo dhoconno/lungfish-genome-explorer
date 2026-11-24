@@ -201,7 +201,7 @@ extension ReadTimeWriteTests {
         try data.write(to: fixture.url.appendingPathComponent(BundleViewState.filename))
     }
 
-    private struct ReferenceProject {
+    struct ReferenceProject {
         let project: URL
         let reference: URL
         let resultDirectory: URL
@@ -209,7 +209,7 @@ extension ReadTimeWriteTests {
     }
 
     /// A project with a reference bundle and a mapping result whose viewer bundle sits in the result's folder.
-    private func makeReferenceProject() throws -> ReferenceProject {
+    func makeReferenceProject() throws -> ReferenceProject {
         let project = scratch.appendingPathComponent("Reference.lungfish", isDirectory: true)
         _ = try ProjectFile.create(at: project, name: "Reference")
         let reference = try MappingRoutingFixture.makeReferenceBundle(
@@ -249,7 +249,9 @@ extension ReadTimeWriteTests {
             }
             let shown = await waitUntil(budget: .lookup) { viewer.currentBundleURL != nil && viewer.viewMemoryIsSettled }
             XCTAssertTrue(shown, "\(item.lastPathComponent) was not shown in \(label).")
+            viewport.focusButton.performClick(nil) // a change to the viewport's mode (VS-MAP)
             viewer.zoomIn() // a person's change
+            viewer.keepViewMemoryNow() // the keep at the surface's removal, with no pending save needed (VS-MAP)
             viewer.clearBundleDisplay()
             XCTAssertNotNil(keptReferenceView(of: item, in: store), "\(item.lastPathComponent) kept no view in \(label).")
         }
