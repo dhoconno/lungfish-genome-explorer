@@ -41,6 +41,14 @@ public actor ReadExtractionService {
         self.toolRunner = toolRunner
     }
 
+    // MARK: - Alignments of placeholder reads
+
+    /// The file name of the bundle whose reads, written scores and all, the alignment `bamURL` was mapped from, or nil
+    /// (FLUIDIGM-CHILDREN review B1).
+    package static func placeholderScoreSourceName(ofAlignment bamURL: URL) -> String? {
+        nil
+    }
+
     // MARK: - Extract by Read IDs
 
     /// Extracts reads from FASTQ files by matching read IDs via `seqkit grep`.
