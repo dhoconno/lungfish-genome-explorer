@@ -81,7 +81,7 @@ struct NaoMgsViewStateDriver: ViewStateDriver {
             guard row < viewer.displayedRows.count else { return nil }
             return "\(viewer.displayedRows[row].sample) \(viewer.displayedRows[row].taxId)"
         }
-        let start: CGFloat = MetagenomicsPanelLayout.current() == .listLeading ? 0.6 : 0.4
+        let start: CGFloat = viewer.currentPanelLayout() == .listLeading ? 0.6 : 0.4
         return [
             "samples \(viewer.samplePickerState?.selectedSamples.sorted().joined(separator: ", ") ?? "none")",
             "filter \(viewer.testTaxonomySearchField.stringValue)",
@@ -199,7 +199,7 @@ struct NvdViewStateDriver: ViewStateDriver {
             return Self.describe(item)
         }
         let selected = outline.selectedRowIndexes.compactMap { (outline.item(atRow: $0) as? NvdOutlineItem).map(Self.describe) }
-        let start: CGFloat = MetagenomicsPanelLayout.current() == .listLeading ? 0.6 : 0.4
+        let start: CGFloat = viewer.currentPanelLayout() == .listLeading ? 0.6 : 0.4
         return [
             "grouping \(grouping == 1 ? "By Taxon" : grouping == 0 ? "By Sample" : "none")",
             "samples \(viewer.selectedSamples.sorted().joined(separator: ", "))",

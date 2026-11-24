@@ -59,7 +59,7 @@ enum TaxonomyViewStateControls {
             "selected \(selected.joined(separator: ", "))",
             "zoom \(viewer.sunburstView.centerNode?.name ?? "none")",
             "drawer \(viewer.isTaxaCollectionsDrawerOpen ? "open" : "closed")",
-            "split \(splitText(viewer.splitView, start: viewer.defaultLeadingFraction(for: .current())))",
+            "split \(splitText(viewer.splitView, start: viewer.currentDefaultLeadingFraction()))",
         ]
         if includeRows { reading.append("rows \(outline.numberOfRows)") }
         return reading
@@ -329,7 +329,7 @@ struct EsVirituViewStateDriver: ViewStateDriver {
             "selected \(selected.joined(separator: ", "))",
             "assemblies \(expansion.joined(separator: ", "))",
             "rows \(outline.numberOfRows)",
-            "split \(TaxonomyViewStateControls.splitText(viewer.splitView, start: viewer.defaultLeadingFraction(for: .current())))",
+            "split \(TaxonomyViewStateControls.splitText(viewer.splitView, start: viewer.currentDefaultLeadingFraction()))",
         ]
     }
 

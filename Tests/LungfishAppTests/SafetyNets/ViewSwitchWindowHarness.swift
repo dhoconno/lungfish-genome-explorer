@@ -156,7 +156,8 @@ enum MetadataLayoutDefaults {
     static let layoutPrefix = "org.lungfish.metadata-column-layout."
 
     /// Points the Kit default of every column controller made from now on, and the NAO-MGS and NVD overrides, at
-    /// `defaults`. The tables that do not adopt view memory yet (TaxTriage, NAO-MGS, NVD, the mapping contig table)
+    /// `defaults`. The Kraken2, EsViritu, NAO-MGS and NVD viewers take their `layoutDefaults` from the same default when
+    /// they are made, so a window builds its panes from the window's suite and never from the account's (VS-LEAK). The tables that do not adopt view memory yet (TaxTriage, NAO-MGS, NVD, the mapping contig table)
     /// write their layouts there and not to the runner's defaults.
     static func redirect(to defaults: UserDefaults) {
         MetadataColumnController.defaultUserDefaults = defaults
