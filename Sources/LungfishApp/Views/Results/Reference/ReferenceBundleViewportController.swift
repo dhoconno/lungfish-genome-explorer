@@ -213,8 +213,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     }
 
     public func applySampleMetadata(_ store: SampleMetadataStore?) {
-        contigTableView.metadataColumns.update(store: store, sampleId: nil)
-        sequenceTableView.metadataColumns.update(store: store, sampleId: nil)
+        asOwnSelection { contigTableView.metadataColumns.update(store: store, sampleId: nil) }
+        asOwnSelection { sequenceTableView.metadataColumns.update(store: store, sampleId: nil) }
     }
 
     private func setupSummaryBar() {
@@ -659,7 +659,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             $0.lowercased().hasSuffix(".lungfishmhcref")
         }
         sequenceTableView.bundleDisplayName = manifest.name
-        sequenceTableView.configure(dynamicFields: tableContent.fields, rows: sequenceRows)
+        asOwnSelection { sequenceTableView.configure(dynamicFields: tableContent.fields, rows: sequenceRows) }
         refreshSequenceSelection(preferredSelectionName: preferredSelectionName)
     }
 

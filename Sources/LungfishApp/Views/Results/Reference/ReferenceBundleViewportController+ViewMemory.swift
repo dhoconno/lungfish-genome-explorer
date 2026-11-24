@@ -96,12 +96,19 @@ extension ReferenceBundleViewportController: ReferenceViewportMemoryOwner {
         pickRestoredRow(at: sender.clickedRow)
     }
 
+    /// Runs the list's own selection or row fill, so a selection change it sends notes no person's pick (VS-MAP-RACE).
+    /// A row fill is one: `BatchTableView.configure(rows:)` sends the kept selection again when the rows of a list
+    /// that still holds it are configured again, on a return in the same viewport or the Inspector's reload (SWIFT B1).
+    func asOwnSelection(_ work: () -> Void) {
+        selectsOwnRow = true
+        work()
+        selectsOwnRow = false
+    }
+
     /// Selects a row as the list's own open, refresh or reselect does (`refreshSelection`, `refreshSequenceSelection`,
     /// a `preferredSelectionName` open), so the selection change it sends notes no person's pick (VS-MAP-RACE).
     func selectOwnRow(_ row: Int, in table: NSTableView) {
-        selectsOwnRow = true
-        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        selectsOwnRow = false
+        asOwnSelection { table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
     }
 
     /// A person's pick of a row: a selection change the list did not make itself (a click or a keyboard move), the
