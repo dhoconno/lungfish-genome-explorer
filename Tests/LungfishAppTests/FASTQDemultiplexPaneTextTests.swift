@@ -25,6 +25,36 @@ final class FASTQDemultiplexPaneTextTests: XCTestCase {
 
     static let truseq = "truseq-single-a"
 
+    // MARK: - The chance check at a typed distance (DEMUX-ONEEND-INTMAX-CRASH)
+
+    /// What the dialog's background check answers for the TruSeq Single Index Set A kit with these two distances, as the
+    /// settings of the pane give them to `FASTQDemultiplexChanceCheck.canRefuse`.
+    private func chanceCheckAnswer(location: String, fivePrime: Int, threePrime: Int) async -> Bool {
+        await FASTQDemultiplexChanceCheck.canRefuse(
+            FASTQDemultiplexChanceCheck.Settings(
+                engine: .cutadapt, kitID: BarcodeKitRegistry.truseqSingleA.id, definitionPath: nil, location: location,
+                errorRate: "0.15", maxDistanceFrom5Prime: fivePrime, maxDistanceFrom3Prime: threePrime
+            ),
+            inputs: []
+        )
+    }
+
+    /// A 5' Distance of `Int.max` typed in the dialog with 5' End picked started a check that built the adapter lines for
+    /// every distance and trapped the app (R5). The check answers that it cannot refuse, so no box is shown. Base: the host
+    /// traps (signal 5).
+    func testTheChanceCheckAtAFiveDistanceOfIntMaxDoesNotTrapAndDoesNotRefuse() async {
+        let answer = await chanceCheckAnswer(location: "fiveprime", fivePrime: Int.max, threePrime: 0)
+        XCTAssertFalse(answer, "the check at 5' Distance Int.max cannot refuse")
+    }
+
+    /// The control (R6): at 8 and 0 the check answers as it did at the base, whose answer is pinned here.
+    static let chanceCheckAnswerAtEightZero = false
+
+    func testTheChanceCheckAtEightAndZeroAnswersAsItDidBeforeTheCap() async {
+        let answer = await chanceCheckAnswer(location: "fiveprime", fivePrime: 8, threePrime: 0)
+        XCTAssertEqual(answer, Self.chanceCheckAnswerAtEightZero, "the check at 5' End 8/0")
+    }
+
     /// A state of the Demultiplex Barcodes pane, as the person sets it.
     static let states: [String: (FASTQOperationDialogState) -> Void] = [
         "demux.cutadapt.truseq": { state in
