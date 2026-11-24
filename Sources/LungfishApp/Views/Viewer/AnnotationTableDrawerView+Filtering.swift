@@ -959,7 +959,7 @@ extension AnnotationTableDrawerView {
     }
 
     func updateCountLabel() {
-        defer {
+        defer { viewMemoryRowsDidLoad() // a kept drawer row restores once its rows load
             emitVisibleVariantRenderKeyUpdateIfNeeded()
             emitVisibleAnnotationRenderKeyUpdateIfNeeded()
         }

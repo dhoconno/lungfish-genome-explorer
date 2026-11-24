@@ -29,6 +29,8 @@ struct ReferenceViewerMemory: ViewMemoryState {
     var locus: ViewMemoryLocus?
     /// The list and mode of the viewport that shows the viewer, nil for a record an older build kept.
     var viewport: ReferenceViewportMemory? = nil
+    /// The drawer's tab and row (VS-MAP-2 item 1), nil at the drawer's default or for an older record.
+    var drawer: ReferenceDrawerMemory? = nil
 
     var selectionCount: Int {
         guard let table = viewport?.table else { return 0 }
@@ -53,6 +55,7 @@ struct ReferenceViewerMemory: ViewMemoryState {
     /// identities and moves its scroll, so the list compares by what a person picks there (VS A2).
     func sameChoices(as other: ReferenceViewerMemory) -> Bool {
         display == other.display && locus == other.locus && viewport?.choices == other.viewport?.choices
+            && drawer == other.drawer
     }
 }
 
@@ -221,6 +224,11 @@ final class ReferenceViewerMemorySession {
     var contextWithheld = false
     /// The read filters the filter line speaks of, so a person's change of them ends it (VS B6).
     var restoredReads: ReferenceReadFilters?
+    /// The kept drawer view, waiting for the drawer's rows to load (VS-MAP-2 item 1, BIO R1).
+    var pendingDrawer: ReferenceDrawerMemory?
+    var restoringDrawer = false
+    var drawerKeyChanged = false
+    var restoredLoss: ViewMemoryLoss = []
     /// The restore waits for, or has waited for, the viewport's own row refresh.
     var awaitingRows = false
     var rowsSettled = false
@@ -356,6 +364,9 @@ extension ViewerViewController {
             }
             loss.formUnion(restoreViewerMemory(kept))
             words = ViewMemoryWords.dataChanged(loss) ?? (selectionDropped ? ViewMemoryWords.selectionTooLarge : nil)
+            session.restoredLoss = loss
+            session.drawerKeyChanged = keptDataKey == nil || read.dataKey == nil || keptDataKey != read.dataKey
+            session.pendingDrawer = kept.drawer
             announceViewMemory()
         } else if let olderFile = read.olderFile {
             // An older bundle's look is a starting view, never a person's choice (VS S3).
@@ -366,6 +377,7 @@ extension ViewerViewController {
         if case .folderChanged = read.kept { words = ViewMemoryWords.viewReset }
         viewMemoryViewport?.showReadFilterLineIfKept()
         if let words { showViewMemoryLine(words, in: session) }
+        if let drawer = annotationDrawerView { restorePendingDrawerMemory(in: drawer) }
     }
 
     /// The view as it stands: the display settings, the locus with its sequence's length, and the viewport's list and
@@ -383,7 +395,7 @@ extension ViewerViewController {
             locus: referenceFrame.map {
                 ViewMemoryLocus(sequenceName: $0.chromosome, sequenceLength: $0.sequenceLength, start: $0.start, end: $0.end)
             },
-            viewport: viewport)
+            viewport: viewport, drawer: viewMemory?.pendingDrawer ?? annotationDrawerView?.keptViewMemory)
     }
 
     /// Applies a kept view. The display settings restore on any data key. The locus restores, clamped, on the sequence
@@ -477,7 +489,7 @@ extension ViewerViewController {
         viewMemory = nil
     }
 
-    private func showViewMemoryLine(_ words: String, in session: ReferenceViewerMemorySession) {
+    func showViewMemoryLine(_ words: String, in session: ReferenceViewerMemorySession) {
         session.line?.removeFromSuperview()
         let line = ViewMemoryResetLineView(words: words)
         line.wantsLayer = true
