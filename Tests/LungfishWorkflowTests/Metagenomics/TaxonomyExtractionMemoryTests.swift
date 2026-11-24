@@ -117,7 +117,7 @@ final class TaxonomyExtractionMemoryTests: XCTestCase {
         let refusal = await extractionError(of: resolver, from: large)
         XCTAssertEqual(
             refusal?.localizedDescription,
-            "Extracting 60000000 reads of Homo sapiens needs about 11 GB of memory, more than half of this Mac's 16 GB. "
+            "Extracting 60000000 reads of Homo sapiens needs about 17 GB of memory, more than half of this Mac's 16 GB. "
                 + "Choose a smaller taxon, or extract these reads on a Mac with more memory."
         )
         XCTAssertEqual(try large.writtenFASTQ(), [], "a refused Extract writes no FASTQ")

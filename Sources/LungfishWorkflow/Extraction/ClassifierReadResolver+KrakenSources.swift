@@ -314,9 +314,10 @@ extension ClassifierReadResolver {
         return (outcome, ClassifierExtractionLayout(pairingMode: layout.mode, roles: layout.roles), readFiles)
     }
 
-    /// The bytes of memory that an extraction holds for each fragment it names, the bound that
-    /// `TaxonomyExtractionMemoryTests` holds the read check to.
-    static let extractionBytesPerFragment: UInt64 = 200
+    /// The bytes of memory that an extraction holds for each fragment it names. The Release CLI's scan peak was 266 B a
+    /// fragment (PROBE-READID-REL), and 300 is that and a tenth more, rounded up to ten. `TaxonomyExtractionMemoryTests`
+    /// holds the read check alone to 200 B.
+    static let extractionBytesPerFragment: UInt64 = 300
 
     /// Throws ``ClassifierExtractionError/extractionTooLargeForMemory(reads:taxon:neededBytes:physicalMemoryBytes:)`` when
     /// the reads of `taxIds`, as the tree of the kreport counts them, would hold more than the share of this Mac's memory
