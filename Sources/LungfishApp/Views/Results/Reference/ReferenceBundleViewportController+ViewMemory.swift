@@ -119,9 +119,9 @@ extension ReferenceBundleViewportController: ReferenceViewportMemoryOwner {
 // MARK: - Restored read filters and the cue before the click (VS-MAP-2)
 
 extension ViewMemoryWords {
-    /// The cue a restored row shows while its alignment evidence waits for the person's click (VS-MAP-2 item 6,
-    /// VS-MAP BIO SF-1 and R7(b)). Draft words until the UX review approves them as row 7 of the words table.
-    static let alignmentEvidenceCue = "Click the selected row to load its alignment evidence."
+    /// The cue a restored row shows while its alignment evidence waits for the person's click (VS-MAP-2 item 6),
+    /// row 7 of section 1 of `VS-WORDS-decisions.md`. It names the list, which focused mode hides.
+    static let alignmentEvidenceCue = "Click the selected row in the list to load its alignment evidence."
 }
 
 /// The read filters a reference or mapping view keeps (VS B6): the confidence, the two consensus quality limits and the
