@@ -18,9 +18,9 @@ shots:
   - id: nao-mgs-import-sheet
     caption: "After you choose a file with Browse…, Validation in the NAO-MGS Import sheet shows Valid NAO-MGS results and names the source file."
   - id: nao-mgs-result-viewport
-    caption: "With All Samples selected, the Samples and Taxa cards summarize the imported result. The table lists each taxon once per sample where it appears."
+    caption: "With All Samples selected, the Samples and Taxa cards summarize the imported result and the table lists each taxon once per sample where it appears."
   - id: nao-mgs-taxon-detail
-    caption: "The selected taxon shows a Taxid line with unique and total read counts and an accession count. Each miniBAM panel shows a depth curve above the stacked reads."
+    caption: "The selected taxon shows a Taxid line with unique and total read counts and an accession count, and each miniBAM panel shows a depth curve above the stacked reads."
 illustrations: []
 glossary_refs: [accession, bam, bit-score, blast, bundle, fastq, fragment, mate, metagenomics, minibam, nao-mgs, operations-panel, paired-end, pcr-duplicate, percent-identity, provenance, checksum, read, read-pair, taxon, taxonomy-id, unique-reads, viewport, library-prep, tsv, terminal, negative-control, contig, lowest-common-ancestor]
 features_refs: [classify.nao-mgs]
@@ -47,9 +47,9 @@ Before acting on a match, check how many reads support it and where they align. 
 
 ## Before you start
 
-LGE needs an open project to save the result. If you see **No Project Open**, open a project and try again. See [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) for setup.
+LGE needs an open project to save the result. If you see **No Project Open**, open a project and try again. See [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) for setup. This import needs no plugin pack, a set of tools LGE installs on request.
 
-The NAO-MGS wastewater fixture is a practice data set with five samples in one combined table. A demo project is a ready-made example project LGE downloads for you. Download Pathogen Detection through **Help > Demo Projects…**, as shown in the [demo projects guide](../01-foundations/06-the-lungfish-project.md#demo-projects). The file is `virus_hits_final.tsv.gz` in `~/Documents/LGE Demo Projects/Pathogen Detection.lungfish/Practice Data/naomgs` by default. You can also download it from the [Tests/Fixtures/naomgs](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/naomgs) folder.
+The NAO-MGS wastewater fixture is a practice data set with five samples in one combined table. A demo project is a ready-made example project LGE downloads for you. Download Pathogen Detection through **Help > Demo Projects…**, as shown in the [demo projects guide](../01-foundations/06-the-lungfish-project.md#demo-projects). The file is `virus_hits_final.tsv.gz` in `~/Documents/LGE Demo Projects/Pathogen Detection.lungfish/Practice Data/naomgs` by default, where `~` is your home folder. You can also download it from the [Tests/Fixtures/naomgs](https://github.com/dhoconno/lungfish-genome-explorer/tree/v2026.9.40/Tests/Fixtures/naomgs) folder.
 
 The import needs an internet connection to fetch references from the US National Center for Biotechnology Information (NCBI). For each taxon in each sample, LGE downloads the reference sequences for the five records with the most unique reads. The first import on a Mac also downloads NCBI's taxonomy names.
 
@@ -105,7 +105,7 @@ Use the table to compare samples and the detail pane to inspect reads.
 
 ### The summary bar and the sample filter
 
-**Samples** counts the samples in view, including controls, which are samples run only to check for stray DNA. Four of the fixture's samples are named for wastewater sites. The fifth, ending in `Water_20260323`, is named like a water blank, a control that uses water in place of a sample. **Taxa** counts each distinct taxon once across the samples in view. The fixture shows 5 samples and 4 taxa, with more rows because the table lists a taxon once per sample where it appears.
+**Samples** counts the samples in view, including controls, samples run alongside the others to check the laboratory work. Four of the fixture's samples are named for wastewater sites. The fifth, ending in `Water_20260323`, is named like a water blank, a control that uses water in place of a sample. **Taxa** counts each distinct taxon once across the samples in view. The fixture shows 5 samples and 4 taxa, with more rows because the table lists a taxon once per sample where it appears.
 
 To focus on particular samples, click **All Samples** or the current count, such as **2 of 5 Samples**, and choose which samples to show. The whole viewport follows the selection.
 
@@ -129,7 +129,7 @@ Independent fragments can occasionally share all these features, so a match sign
 
 In the fixture, IL_CHI_StickneyWS has 12 Rotavirus A hits from 8 unique reads, so 4 of the 12 are probable copies. The Rotavirus A row for CA_LosAngeles_County has 28 hits from 26 unique reads. The sample has more rotavirus reads on a separate row for Human rotavirus A, a taxon within Rotavirus A.
 
-Sequencing depth here means the total number of reads from a sample. LGE lacks the original totals needed to adjust for depth. The action bar shows the selected row's share of all hits in view as a percentage of raw counts. More hits can reflect deeper sequencing. Wastewater dilution and differences in how much genetic material is recovered during sample preparation can also affect the counts.
+Sequencing depth here means the total number of reads from a sample. LGE lacks the original totals needed to adjust for depth. The action bar, the row of buttons along the bottom of the viewport, shows the selected row's share of all hits in view as a percentage of raw counts. More hits can reflect deeper sequencing. Wastewater dilution and differences in how much genetic material is recovered during sample preparation can also affect the counts.
 
 To narrow the table, type in **Filter taxa…**. A column header's menu sorts or filters that column. Sample metadata, information you attach to describe a sample, appears in extra columns. See [Editing sample metadata](../03-reads/01-importing-fastq.md#editing-sample-metadata) for how to add it.
 
@@ -159,7 +159,7 @@ A classifier assigns reads to taxa. The shared classifier action bar has **Verif
 
 To check whether the best matches support the name on a row, choose **Verify with BLAST…**. LGE sends reads to NCBI for [BLAST](../../GLOSSARY.md#blast). Choose how many reads to send, 20 by default. LGE sends the first reads that lack duplicate marks, up to that count, from the taxon's five accessions with the most unique reads. BLAST searches all of `core_nt`, a version of NCBI's general DNA sequence collection, without filtering by organism.
 
-The **BLAST Results** drawer, a panel that opens along the bottom of the viewport, shows one row per read and a verdict. The verdict needs NCBI Taxonomy, NCBI's catalog of named groups of organisms, which you install in the **Databases** tab of **Tools > Plugin Manager…**, where LGE manages optional tools and data. Without it the drawer reads **Not judged**. See [BLAST Verification](06-blast-verification.md) for how to read the verdict.
+The **BLAST Results** drawer, a panel that opens along the bottom of the viewport, shows one row per read and a verdict, the call on how well the reads support the row's name. The verdict needs NCBI Taxonomy, NCBI's catalog of named groups of organisms, which the first import on a Mac downloads. If it is missing, install it in the **Databases** tab of **Tools > Plugin Manager…**, where LGE manages optional tools and data. Without it, the drawer reads **Not judged** when at least one read has a close match. With no close match, the drawer reads **Inconclusive** with or without NCBI Taxonomy. See [BLAST Verification](06-blast-verification.md) for how to read the verdict.
 
 To save the table as shown, review your filters and sort order, then click **Export**. The Export NAO-MGS Summary save sheet, a dialog at the top of the window, suggests `<name>_naomgs_summary.tsv`. For a table with several samples, the name uses the first one in alphabetical order. Rename it to reflect the samples covered. LGE runs `lungfish-cli nao-mgs export table` to save a TSV with your filters, sort and metadata columns. Open it in a spreadsheet.
 
@@ -187,7 +187,7 @@ To document your input, record the source file name and its [checksum](../../GLO
 
 ## On the command line
 
-In Terminal, the first command imports the table and the second extracts reads by sample and accession. The Import Center also uses a flag to track progress. See [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) for help. Every flag of the import is listed in [`import nao-mgs`](../appendices/cli-reference.md#import-nao-mgs) in the CLI Reference.
+In Terminal, the first command imports the table and the second extracts reads by sample and accession. The Import Center also adds `--format json`, which prints the import's progress as JSON, a structured text format other programs can read. See [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) for help. Every flag of the import is listed in [`import nao-mgs`](../appendices/cli-reference.md#import-nao-mgs) in the CLI Reference, and every flag of extraction in [`extract reads`](../appendices/cli-reference.md#extract-reads).
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Pathogen Detection.lungfish"
