@@ -626,6 +626,26 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertNil(viewer.alignmentEvidenceCue, "and no cue asks for a click")
     }
 
+    /// VS-MAP-RACE UX ruling 1, the edge of the same-row return. The kept view selects the open's own first contig and
+    /// keeps read filters other than the defaults. The context is a snapshot of the filters, so the restore clears the
+    /// one the open started and starts none: the row shows the cue and the filter line until the person's click.
+    func testAReturnOnTheFirstContigWithKeptFiltersStillShowsTheCue() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        viewport.applyEmbeddedReadDisplaySettings(Self.readFilters) // chr1, the open's own row, with filters kept
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        try writeAlignmentFiles(forMapping: first)
+        viewport = try await open(mapping: first, store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertEqual(selectedContig(in: viewport), "chr1", "the kept row is the open's own")
+        XCTAssertNotNil(viewport.readFilterLine, "the kept filters show their line")
+        XCTAssertNil(viewport.alignmentActionContextTask, "the restore cleared the open's task, which held the old filters")
+        XCTAssertNil(viewer.alignmentActionContext, "and the old context is gone")
+        XCTAssertEqual(viewer.alignmentEvidenceCue, ViewMemoryWords.alignmentEvidenceCue, "the row waits for its click")
+    }
+
     /// VS-MAP-RACE item 2's edge. The context is a snapshot of every filter, the read groups too, so a change of the
     /// read groups alone that names no track still clears it and rebuilds it with the new groups. The same groups sent
     /// again change nothing the context holds, so they leave it, and start no new task.
