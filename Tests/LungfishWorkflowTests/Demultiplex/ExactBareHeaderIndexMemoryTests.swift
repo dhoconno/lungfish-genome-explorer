@@ -9,6 +9,7 @@
 
 import XCTest
 import CryptoKit
+import LungfishCore
 import LungfishIO
 import LungfishTestSupport
 @testable import LungfishWorkflow
@@ -221,5 +222,51 @@ final class ExactBareHeaderIndexMemoryTests: XCTestCase {
             let left = ((try? FileManager.default.contentsOfDirectory(atPath: output.path)) ?? []).filter { $0.hasPrefix(".exact-bare") }
             XCTAssertEqual(left, [], "two files, \(mode.rawValue): the run leaves no scratch folder in the output")
         }
+    }
+
+    private func isNoReadNameIndex(_ error: Error) -> Bool {
+        if case DemultiplexError.noReadNameIndex = error { return true }
+        return false
+    }
+
+    /// A split by the names that finds no index of the kit in any name stops in words, after the pass has written the IDs
+    /// of the unassigned reads into the scratch folder (DEMUXSPLIT-MEM review SF2). The failed run leaves no scratch folder.
+    /// `run` writes into a staging folder that a failed run removes whole, so its output holds no scratch folder even
+    /// where the pass would leave one. The second half runs the pass on an output folder of its own, which only the pass's
+    /// own removal of the scratch folder can clear.
+    func testAFailedRunLeavesNoScratchFolder() async throws {
+        let workspace = root.appendingPathComponent("failed.lungfish/workspace", isDirectory: true)
+        let bundle = workspace.appendingPathComponent("input.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let records = (0..<2_000).map { "@r\($0) 1:N:0:\(HeaderIndexReads.foreign[$0 % 3])\nACGTACGTAC\n+\nIIIIIIIIII\n" }
+        try records.joined().write(to: bundle.appendingPathComponent("reads.fastq"), atomically: true, encoding: .utf8)
+
+        let output = workspace.appendingPathComponent("demux-out", isDirectory: true)
+        do {
+            _ = try await DemultiplexingPipeline().run(
+                config: config(input: bundle, output: output, mode: .physical, rootFASTQFilename: "reads.fastq"),
+                progress: { _, _ in }
+            )
+            XCTFail("the run found no index of the kit in any name and still returned")
+        } catch {
+            XCTAssertTrue(isNoReadNameIndex(error), "the run threw \(error), not noReadNameIndex")
+        }
+        let left = ((try? FileManager.default.contentsOfDirectory(atPath: output.path)) ?? []).filter { $0.hasPrefix(".exact-bare") }
+        XCTAssertEqual(left, [], "the failed run leaves no scratch folder in the output")
+
+        let pipeline = DemultiplexingPipeline()
+        let own = workspace.appendingPathComponent("own-out", isDirectory: true)
+        do {
+            _ = try await pipeline.runExactBareBarcodeDemux(
+                config: config(input: bundle, output: own, mode: .physical, rootFASTQFilename: "reads.fastq"),
+                inputFASTQ: pipeline.resolveInputFASTQ(bundle), runClock: ProvenanceRunClock(), byReadNames: true,
+                progress: { _, _ in }
+            )
+            XCTFail("the pass found no index of the kit in any name and still returned")
+        } catch {
+            XCTAssertTrue(isNoReadNameIndex(error), "the pass threw \(error), not noReadNameIndex")
+        }
+        let ownLeft = try FileManager.default.contentsOfDirectory(atPath: own.path).filter { $0.hasPrefix(".exact-bare") }
+        XCTAssertEqual(ownLeft, [], "the failed pass leaves no scratch folder in its output")
     }
 }
