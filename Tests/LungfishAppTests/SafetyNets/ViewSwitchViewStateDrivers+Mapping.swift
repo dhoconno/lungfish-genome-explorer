@@ -274,6 +274,32 @@ final class ReferenceViewportViewMemoryTests: XCTestCase {
         XCTAssertEqual(alerts.entries.first?.message, AlignmentScientificActionError.contextUnavailable.localizedDescription)
     }
 
+    /// SWIFT SF-3. A change to the list alone sets no pending save. The Inspector's reload of the same bundle ends the
+    /// visit through the viewer's `displayBundle`, so that leave keeps the list as it stands, and the next visit does
+    /// not apply the older entry over the person's sort.
+    func testASortMadeBeforeAnInspectorReloadIsNotRevertedByTheOlderEntry() async throws {
+        let store = makeStore()
+        let first = try bundle("First", Self.two)
+        var viewport = try await open(mapping: first, store: store)
+        viewport.contigTableView.tableView.sortDescriptors = [NSSortDescriptor(key: "reads", ascending: true)]
+        pick("chr2", in: viewport)
+        viewport.testEmbeddedViewerController.zoomIn() // a user event handler, which marks the view changed
+        viewport.testEmbeddedViewerController.clearBundleDisplay()
+
+        viewport = try await open(mapping: first, store: store)
+        let viewer = viewport.testEmbeddedViewerController
+        XCTAssertEqual(viewport.contigTableView.tableView.sortDescriptors.first?.ascending, true, "the kept sort")
+        viewport.contigTableView.tableView.sortDescriptors = [NSSortDescriptor(key: "reads", ascending: false)]
+        let visit = viewer.viewMemory
+        try viewport.reloadViewerBundleForInspectorChanges()
+        XCTAssertFalse(viewer.viewMemory === visit, "the reload ends the visit and starts another")
+        let settled = await waitUntil(budget: .lookup) { viewer.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "the new visit's restore ran")
+        XCTAssertEqual(
+            viewport.contigTableView.tableView.sortDescriptors.first?.ascending, false,
+            "the person's sort, not the older entry's")
+    }
+
     // MARK: - Support
 
     private func makeStore() -> ViewMemoryStore {
