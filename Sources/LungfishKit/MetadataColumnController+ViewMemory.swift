@@ -42,8 +42,9 @@ extension MetadataColumnController.PersistedLayout {
 extension MetadataColumnController {
     /// The defaults a controller made with none of its own reads its layouts from and, when it does not adopt view
     /// memory, writes them to. The app's is `.standard`. A test that shows result views points it at a suite of its own
-    /// before the views are made and back when it ends, so no table writes the runner's defaults (QA 6).
-    public static var defaultUserDefaults: UserDefaults = .standard
+    /// before the views are made and back when it ends, so no table writes the runner's defaults (QA 6). Only a test
+    /// sets it, through `@testable import LungfishKit`.
+    public internal(set) static var defaultUserDefaults: UserDefaults = .standard
 
     /// A controller for a table whose owner keeps its view in view memory (VS A10, QA 6). It makes the declaration of
     /// `adoptViewMemory()` before any key is set, so the table writes no layout to `userDefaults` from its first key on.
