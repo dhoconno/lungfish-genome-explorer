@@ -128,7 +128,64 @@ final class ExtractReadsPlaceholderAlignmentRefusalTests: XCTestCase {
         }
     }
 
+    // MARK: - A source file written for the run (FLUIDIGM-4 BIO review B1)
+
+    /// "Extract Reads... (original reads)" passes the mapping record's input files as `--source`. A mapping that ran on a file
+    /// written for its run (a subsample, a trim, a chunk or a concatenation of counted reads) names that file, which sits in no
+    /// bundle and so reads as measured. The record of the run beside the alignment names the bundle of placeholder reads, so the
+    /// refusal stands. Red when the evidence route reads the source files only: the run goes on to samtools and ends in other words.
+    func testTheEvidenceRouteRefusesALooseSourceFileWhenTheRunRecordNamesPlaceholderReads() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExtractEvidencePlaceholderLooseSource")
+        defer { TestTempDirectory.cleanup(root) }
+        let counted = try makeBundle(in: root, named: "counted")
+        let bam = try makeAlignment(in: root, mappedFrom: counted)
+        let index = try makeIndex(for: bam)
+        let ids = try makeReadNames(in: root)
+        let staged = try makeStagedFile(in: root)
+        let selection = AlignmentReadExtractionInvocation.Selection.readNames(.init(
+            file: ids, sourceFASTQs: [staged], keepReadPairs: true, recordsWithoutSequence: 0
+        ))
+
+        let failure = try await runTheAppsArgv(selection, bam: bam, index: index, root: root)
+        guard let error = failure else { return XCTFail("the extraction of a loose source file of placeholder reads ran") }
+        let words = ExtractReadsSubcommand.message(for: error)
+        XCTAssertTrue(words.contains("counted.lungfishfastq"), "the words name the bundle: \(words)")
+        XCTAssertTrue(words.contains("built from sequence counts"), "the words say where the reads come from: \(words)")
+        XCTAssertNotEqual(ExtractReadsSubcommand.exitCode(for: error).rawValue, 0, "a refusal exits nonzero")
+        XCTAssertEqual(try outputs(in: root), [], "a refusal writes no bundle")
+    }
+
+    /// Control (BIO 3): the same loose source file over the alignment of a mapping of reads whose scores were measured is not
+    /// refused. The BAM has two bytes, so the run ends in the tool's own words, never in the refusal's.
+    func testTheEvidenceRouteDoesNotRefuseALooseSourceFileOfMeasuredReads() async throws {
+        let root = try TestTempDirectory.make(prefix: "ExtractEvidenceMeasuredLooseSource")
+        defer { TestTempDirectory.cleanup(root) }
+        let measured = try makeBundle(in: root, named: "measured", marked: false)
+        let bam = try makeAlignment(in: root, mappedFrom: measured)
+        let index = try makeIndex(for: bam)
+        let ids = try makeReadNames(in: root)
+        let staged = try makeStagedFile(in: root)
+        let selection = AlignmentReadExtractionInvocation.Selection.readNames(.init(
+            file: ids, sourceFASTQs: [staged], keepReadPairs: true, recordsWithoutSequence: 0
+        ))
+
+        let failure = try await runTheAppsArgv(selection, bam: bam, index: index, root: root)
+        if let error = failure {
+            let words = ExtractReadsSubcommand.message(for: error)
+            XCTAssertFalse(words.contains("built from sequence counts"), "reads with measured scores are not refused: \(words)")
+        }
+    }
+
     // MARK: - Fixtures
+
+    /// A file the mapping wrote for its run, `staged/materialized.fastq`, in no bundle.
+    private func makeStagedFile(in root: URL) throws -> URL {
+        let folder = root.appendingPathComponent("staged", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent("materialized.fastq")
+        try "@r1\nACGTACGT\n+\nIIIIIIII\n".write(to: file, atomically: true, encoding: .utf8)
+        return file
+    }
 
     /// The two selections the mapping viewer makes over its alignment: the reads of a region, and the reads of named records.
     private func appSelections(ids: URL) -> [(name: String, selection: AlignmentReadExtractionInvocation.Selection)] {
