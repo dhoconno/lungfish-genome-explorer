@@ -191,4 +191,30 @@ extension ViewSwitchViewStateTests {
             "a changed reference left for a kind that keeps no view does not enable the item")
         XCTAssertFalse(app.validateMenuItem(item), "the menu item is off on a kind that keeps no view")
     }
+
+    /// A sidebar rescan posts an empty selection and then the same row again with no new content display, as
+    /// `SidebarViewController+OutlineDelegate.swift` does, and a pick made after it is still the item's.
+    func testInspectorPickAfterASidebarRescanOfTheSameRowIsKept() async throws {
+        let driver = ReferenceViewStateDriver(route: .reference)
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await settledShow(fixture, in: harness, driver: driver)
+        pick(.provenance, in: harness)
+        let sidebar: SidebarViewController = harness.split.sidebarController
+        let scope = try XCTUnwrap(sidebar.windowStateScope, "the sidebar has no window scope")
+        NotificationCenter.default.post(
+            name: .sidebarSelectionChanged, object: sidebar,
+            userInfo: ["items": [SidebarItem](), NotificationUserInfoKey.windowStateScope: scope])
+        NotificationCenter.default.post(
+            name: .sidebarSelectionChanged, object: sidebar,
+            userInfo: ["item": fixture.item, "items": [fixture.item], NotificationUserInfoKey.windowStateScope: scope])
+        await waitForInspectorRead(in: harness)
+        pick(.analysis, in: harness)
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await settledShow(fixture, in: harness, driver: driver)
+        await assertShownTab(.analysis, in: harness, "a pick after a rescan of the same row is the item's")
+    }
 }

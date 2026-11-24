@@ -21,6 +21,10 @@ private final class MemoryStandInSurface: ViewMemoryAdopting {
         var dataKey: String? = "data-1"
         var pending = false
         var clearsOnDeactivate = false
+        /// The selection the surface makes by itself at its load, such as a list's first row.
+        var ownSelection: [String] = []
+        /// Whether a restore leaves the selection empty, as a surface does that cannot select a row by its identity.
+        var restoreDropsSelection = false
     }
 
     static let kind = SurfaceKind.view(SurfaceViewID(rawValue: "memory-stand-in"))
@@ -44,7 +48,11 @@ private final class MemoryStandInSurface: ViewMemoryAdopting {
         viewMemoryDataKey = input.dataKey
         viewMemoryLoadIsPending = input.pending
         clearsOnDeactivate = input.clearsOnDeactivate
+        selection = input.ownSelection
+        restoreDropsSelection = input.restoreDropsSelection
     }
+
+    var restoreDropsSelection = false
 
     func captureViewMemory() -> ViewMemoryTestView {
         ViewMemoryTestView(filter: filter, selection: selection)
@@ -63,7 +71,7 @@ private final class MemoryStandInSurface: ViewMemoryAdopting {
             return lost
         }
         filter = state.filter
-        selection = state.selection
+        selection = restoreDropsSelection ? [] : state.selection
         return []
     }
 
@@ -193,6 +201,21 @@ final class ViewportHostViewMemoryTests: XCTestCase {
         guard case .nothing = store.restorable(ViewMemoryTestView.self, for: key, folder: surface.viewMemoryItem?.folder) else {
             return XCTFail("Reset View left a view")
         }
+    }
+
+    /// Reset View takes the view it shows as the start, so a surface whose restore cannot give back its own starting
+    /// selection reads unchanged after the reset and the item is off (VS-INSP UX SF-2).
+    func testResetViewTakesTheViewItShowsAsTheStart() throws {
+        let (host, parent) = makeHost(store: loadedStore())
+        defer { _ = parent }
+        let surface = try show(host, .init(url: fixture.bundle, ownSelection: ["row-1"], restoreDropsSelection: true))
+        XCTAssertFalse(host.viewMemoryDiffersFromStart, "a first visit shows its start")
+        surface.filter = "Salmo"
+        XCTAssertTrue(host.viewMemoryDiffersFromStart)
+
+        host.resetViewMemory()
+        XCTAssertEqual(surface.filter, "")
+        XCTAssertFalse(host.viewMemoryDiffersFromStart, "the reset view is the start")
     }
 
     func testALateRestoreAppliesOnlyWhileTheViewEqualsItsStart() throws {
