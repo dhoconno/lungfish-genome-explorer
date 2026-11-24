@@ -45,4 +45,33 @@ extension DemultiplexingPipeline {
             )
         }
     }
+
+    /// The offsets `0...distance` a writer searches at one end. A negative distance is 0, and a distance above
+    /// ``observedPairLineCap`` is clamped to it, so a typed `Int.max` builds no array of its own length. The clamp serves only
+    /// the end a writer does not read: the end it reads is checked first by
+    /// ``requireOneEndSearchLinesWithinCap(config:barcodes:strands:)``, so a run of 6,000 lines or fewer has the offsets
+    /// `Array(0...max(0, distance))` gave (DEMUX-ONEEND-INTMAX-CRASH).
+    static func offsets(upTo distance: Int) -> [Int] {
+        Array(0...max(0, min(distance, Self.observedPairLineCap)))
+    }
+
+    /// Refuses a run at one end whose Cutadapt lines pass ``observedPairLineCap``, before the adapter file is written and
+    /// before Cutadapt starts. A single-index kit, a dual kit at 5' End or 3' End and a sample sheet at one end give a line
+    /// for each strand of each barcode and each distance from 0 to the one typed for the end the writer reads, `strands`
+    /// strands in all across `barcodes` barcodes (the single-end writer reads the 5' Distance at Both Ends). The distance of
+    /// the other end is not read and is not refused. The lines are counted without clamping and are `Int.max` when the count
+    /// overflows, so a typed distance of `Int.max` is refused in words (DEMUX-ONEEND-INTMAX-CRASH).
+    func requireOneEndSearchLinesWithinCap(config: DemultiplexConfig, barcodes: Int, strands: Int) throws {
+        let fromThreePrime = config.barcodeLocation == .threePrime
+        let distance = fromThreePrime ? config.maxDistanceFrom3Prime : config.maxDistanceFrom5Prime
+        let (cells, cellsOverflowed) = max(0, distance).addingReportingOverflow(1)
+        let (product, productOverflowed) = cells.multipliedReportingOverflow(by: strands)
+        let lines = (cellsOverflowed || productOverflowed) ? Int.max : product
+        guard lines <= Self.observedPairLineCap else {
+            throw DemultiplexError.tooManyOneEndSearchLines(
+                kitName: config.barcodeKit.displayName, barcodes: barcodes, fromThreePrime: fromThreePrime,
+                distance: distance, lines: lines
+            )
+        }
+    }
 }

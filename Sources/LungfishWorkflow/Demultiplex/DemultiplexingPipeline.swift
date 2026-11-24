@@ -1388,6 +1388,12 @@ extension DemultiplexingPipeline {
                 throw DemultiplexError.combinatorialRequiresSampleAssignments
             }
 
+            // The sheet's pairs are bounded as the built-in dual route's are (DEMUX-ONEEND-INTMAX-CRASH).
+            if config.barcodeLocation == .bothEnds {
+                try requireSearchLinesWithinCap(config: config, pairs: entries.count, strands: Self.linkedStrandCount(of: entries))
+            } else {
+                try requireOneEndSearchLinesWithinCap(config: config, barcodes: entries.count, strands: Self.linkedStrandCount(of: entries))
+            }
             try writeLinkedAdapterFASTA(
                 entries: entries,
                 location: config.barcodeLocation,
@@ -1428,6 +1434,8 @@ extension DemultiplexingPipeline {
                     sequence: contextualizedSequence(barcode.i7Sequence, role: .i7, context: config.demuxAdapterContext)
                 )
             }
+            // A line for each barcode and each distance of the end the writer reads (DEMUX-ONEEND-INTMAX-CRASH).
+            try requireOneEndSearchLinesWithinCap(config: config, barcodes: entries.count, strands: entries.count)
             try writeSingleEndAdapterFASTA(
                 entries: entries,
                 location: config.barcodeLocation,
@@ -1488,6 +1496,8 @@ extension DemultiplexingPipeline {
             // read-name and Exact Bare routes return before this in preflight and write no line (DEMUX-BUILTIN-DUAL-LINES).
             if config.barcodeLocation == .bothEnds {
                 try requireSearchLinesWithinCap(config: config, pairs: entries.count, strands: Self.linkedStrandCount(of: entries))
+            } else {
+                try requireOneEndSearchLinesWithinCap(config: config, barcodes: entries.count, strands: Self.linkedStrandCount(of: entries))
             }
             try writeLinkedAdapterFASTA(
                 entries: entries,
@@ -1559,8 +1569,8 @@ extension DemultiplexingPipeline {
         to outputURL: URL
     ) throws {
         var lines: [String] = []
-        let fivePrimeOffsets = Array(0...max(0, maxDistanceFrom5Prime))
-        let threePrimeOffsets = Array(0...max(0, maxDistanceFrom3Prime))
+        let fivePrimeOffsets = Self.offsets(upTo: maxDistanceFrom5Prime)
+        let threePrimeOffsets = Self.offsets(upTo: maxDistanceFrom3Prime)
         let perEntryPatternCount: Int
         switch location {
         case .fivePrime:
@@ -1759,8 +1769,8 @@ extension DemultiplexingPipeline {
         to outputURL: URL
     ) throws {
         var lines: [String] = []
-        let fivePrimeOffsets = Array(0...max(0, maxDistanceFrom5Prime))
-        let threePrimeOffsets = Array(0...max(0, maxDistanceFrom3Prime))
+        let fivePrimeOffsets = Self.offsets(upTo: maxDistanceFrom5Prime)
+        let threePrimeOffsets = Self.offsets(upTo: maxDistanceFrom3Prime)
         let perOrientationPatternCount: Int
         switch location {
         case .fivePrime:

@@ -53,6 +53,11 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     /// fixed time a run that grows with its lines before it reads the first read, about 29 ms a line, so such a run is
     /// refused before it starts (BIO-DUAL-ANCHOR item 5, DEMUX-BUILTIN-DUAL-LINES).
     case tooManySearchLines(kitName: String, pairs: Int, maxDistanceFrom5Prime: Int, maxDistanceFrom3Prime: Int, lines: Int)
+    /// A run at one end whose barcodes and typed distance give cutadapt more than ``DemultiplexingPipeline/observedPairLineCap``
+    /// lines: a single-index kit, a dual kit with 5' End or 3' End, or a sample sheet with one of them. `lines` is one for each
+    /// strand of each of `barcodes` barcodes and each distance of the end searched, `Int.max` when the count overflows, as it
+    /// does for a typed distance of `Int.max` (DEMUX-ONEEND-INTMAX-CRASH).
+    case tooManyOneEndSearchLines(kitName: String, barcodes: Int, fromThreePrime: Bool, distance: Int, lines: Int)
     /// An Exact Bare Barcode run whose first read names carry `present` of the kit's barcodes, two or more, so the barcodes
     /// were read as an index and the search of the read sequences finds them there only by chance (DEMUX-EXACT-BARE-NO-FLOOR,
     /// BIO-DEMUX-THREE item 7). The words name the split by the read names and the opt-in.
@@ -120,6 +125,14 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             let searched = pairs == 1
                 ? "the barcode pair of \"\(kitName)\"" : "the \(Self.grouped(pairs)) barcode pairs of \"\(kitName)\""
             return "Searching \(searched) up to \(fivePrime) bases from the start of the read and up to \(threePrime) bases from the end takes \(Self.grouped(lines)) Cutadapt search lines, one for each pair, strand and combination of start and end distance. That is more than the \(Self.grouped(DemultiplexingPipeline.observedPairLineCap)) a run can take, since Cutadapt spends time on every line before it reads the first read, so nothing was run. If the barcodes sit inside a known adapter sequence, trim that sequence from the reads first and run again with both distances at 0, or lower the 5' Distance and 3' Distance until the lines fit (on the command line, --max-distance-5prime and --max-distance-3prime)."
+        case .tooManyOneEndSearchLines(let kitName, let barcodes, let fromThreePrime, let distance, let lines):
+            let searched = barcodes == 1
+                ? "the barcode of \"\(kitName)\"" : "the \(Self.grouped(barcodes)) barcodes of \"\(kitName)\""
+            let side = fromThreePrime ? "end" : "start"
+            let name = fromThreePrime ? "3' Distance" : "5' Distance"
+            let flag = fromThreePrime ? "--max-distance-3prime" : "--max-distance-5prime"
+            let each = barcodes == 1 ? "one for each \(side) distance" : "one for each barcode and \(side) distance"
+            return "Searching \(searched) up to \(distance) bases from the \(side) of the read takes \(Self.grouped(lines)) Cutadapt search lines, \(each). That is more than the \(Self.grouped(DemultiplexingPipeline.observedPairLineCap)) a run can take, since Cutadapt spends time on every line before it reads the first read, so nothing was run. If the barcodes sit inside a known adapter sequence, trim that sequence from the reads first and run again with the \(name) at 0, or lower the \(name) until the lines fit (on the command line, \(flag))."
         case .exactBareBarcodesInReadNames(let kitName, let present):
             return "The read names carry \(present) of the barcodes of the kit \"\(kitName)\", so these barcodes were read as an index. Exact Bare Barcode searches the read sequences, where it would find them only by chance, so nothing was run. To split the reads by the barcodes in their names, choose the engine Read Names (on the command line, --engine header-index). If the read sequences carry these barcodes too, run it again with Keep Unchecked Samples (on the command line, --keep-unchecked-samples), then check each sample against your sample sheet."
         case .searchRouteRefused(let words):
