@@ -15,6 +15,24 @@ final class AssemblyContigTableView: BatchTableView<AssemblyContigRecord> {
     private var lastResolvedScale: CGFloat = 1
     private var isApplyingAdaptiveColumnWidths = false
 
+    /// Its owner keeps the view in view memory, so the table declares it before any key is set and writes no column
+    /// layout to the account's defaults (VS A10, QA 6).
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        metadataColumns.adoptViewMemory()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        metadataColumns.adoptViewMemory()
+    }
+
+    /// A contig's name is its stable identity, so a kept selection comes back on the same contigs and never by index
+    /// (VS B4). An assembler writes each name once in a contigs file, and a name that is gone is dropped.
+    override func rowIdentity(for row: AssemblyContigRecord) -> String? {
+        row.name
+    }
+
     override var columnSpecs: [BatchColumnSpec] {
         [
             .init(identifier: NSUserInterfaceItemIdentifier("rank"), title: "#", width: 44, minWidth: 34, defaultAscending: true),

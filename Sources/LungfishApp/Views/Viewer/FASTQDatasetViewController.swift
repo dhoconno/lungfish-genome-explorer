@@ -38,7 +38,7 @@ private func makeFASTQReadPreviewRecords(from fastqRecords: [FASTQRecord]) -> [F
 public final class FASTQDatasetViewController: NSViewController {
     // MARK: - Layout Defaults
 
-    private enum LayoutDefaults {
+    enum LayoutDefaults {
         static let summaryToSparklineSpacing: CGFloat = 2
         static let sparklineHeight: CGFloat = 64
         static let topPaneBottomPadding: CGFloat = 1
@@ -159,7 +159,7 @@ public final class FASTQDatasetViewController: NSViewController {
     }
 
     // Middle Pane: Sidebar + Preview (inner split for resizable sidebar)
-    private let middleSplitView = NSSplitView()
+    let middleSplitView = NSSplitView()
     private let sidebarPane = NSView()
     private let previewPane = NSView()
     private let operationSidebar = NSTableView()
@@ -177,7 +177,7 @@ public final class FASTQDatasetViewController: NSViewController {
     private let progressIndicator = NSProgressIndicator()
 
     // Middle Pane: Tab Selector
-    private let middleTabControl = NSSegmentedControl()
+    let middleTabControl = NSSegmentedControl()
     private let middleTabSeparator = NSBox()
     private let middleContentContainer = NSView()
 
@@ -768,7 +768,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
     // MARK: - Split View Layout
 
-    private var didApplyInitialSplitPositions = false
+    private(set) var didApplyInitialSplitPositions = false
 
     private func applyInitialSplitPositionsIfNeeded() {
         guard !didApplyInitialSplitPositions else { return }
@@ -786,7 +786,7 @@ public final class FASTQDatasetViewController: NSViewController {
             LayoutDefaults.minSidebarWidth,
             min(middleWidth * LayoutDefaults.preferredSidebarFraction, LayoutDefaults.maxSidebarWidth)
         )
-        middleSplitView.setPosition(sidebarWidth, ofDividerAt: 0)
+        middleSplitView.setPosition(keptSidebarWidth ?? sidebarWidth, ofDividerAt: 0)
 
         didApplyInitialSplitPositions = true
     }
@@ -1316,7 +1316,7 @@ public final class FASTQDatasetViewController: NSViewController {
         ])
     }
 
-    @objc private func middleTabChanged(_ sender: NSSegmentedControl) {
+    @objc func middleTabChanged(_ sender: NSSegmentedControl) {
         let showReads = sender.selectedSegment == 1
         middleSplitView.isHidden = showReads
         readPreviewScrollView.isHidden = !showReads

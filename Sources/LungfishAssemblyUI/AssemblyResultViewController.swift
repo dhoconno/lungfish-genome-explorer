@@ -51,7 +51,7 @@ public final class AssemblyResultViewController: NSViewController {
     private let splitView = TrackedDividerSplitView()
     private let tableContainer = NSView()
     private let detailContainer = NSView()
-    private let contigTableView = AssemblyContigTableView()
+    let contigTableView = AssemblyContigTableView()
     private let emptyStateView = NSView()
     private let emptyStateLabel = NSTextField(wrappingLabelWithString: EmptyStateCopy.noContigs)
     let detailPane = AssemblyContigDetailPane()

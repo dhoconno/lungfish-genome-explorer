@@ -61,6 +61,12 @@ public final class AssemblyResultSurface: ResultViewport {
     /// The result viewer the host installs, once the load has adopted it.
     public private(set) var controller: AssemblyResultViewController?
 
+    /// Where the result lives and its data key (VS B1), read in `load` and when the contigs load
+    /// (`AssemblyResultViewController+ViewMemory.swift`), never in a getter, and the host's handle for that load.
+    public internal(set) var viewMemoryItem: ViewMemoryItem?
+    public internal(set) var viewMemoryDataKey: String?
+    public var viewMemoryHandle: ViewMemoryHandle<ViewState>?
+
     /// What `viewController` answers before a load, which the host never reads.
     private lazy var unloaded: NSViewController = {
         let empty = NSViewController()
@@ -102,5 +108,7 @@ public final class AssemblyResultSurface: ResultViewport {
         _ = request.controller.view
         request.controller.configure(result: request.result)
         controller = request.controller
+        readViewMemoryItem(of: request.result)
+        applyKeptViewWhenTheContigsLoad(request.controller)
     }
 }

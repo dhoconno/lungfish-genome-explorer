@@ -42,6 +42,9 @@ enum FASTQDatasetOpenError: LocalizedError {
 final class FASTQDatasetContainerController: NSViewController {
     let dashboard: FASTQDatasetViewController
     private var dashboardBottom: NSLayoutConstraint?
+    /// The operations list width a restore kept, which the dashboard's first layout uses in place of its default
+    /// (`FASTQDatasetViewController+ViewMemory.swift`). Nil while the list stands at the default.
+    var keptOperationsListWidth: CGFloat?
 
     init(dashboard: FASTQDatasetViewController) {
         self.dashboard = dashboard
@@ -103,6 +106,11 @@ final class FASTQDatasetSurface: ResultViewport {
     /// The container the host installs, once the load has configured its dashboard.
     private(set) var container: FASTQDatasetContainerController?
 
+    /// Where the dataset lives and its data key (VS B1), read once in `load`
+    /// (`FASTQDatasetViewController+ViewMemory.swift`), never in a getter.
+    var viewMemoryItem: ViewMemoryItem?
+    var viewMemoryDataKey: String?
+
     /// What `viewController` answers before a load, which the host never reads.
     private lazy var unloaded: NSViewController = {
         let empty = NSViewController()
@@ -150,6 +158,7 @@ final class FASTQDatasetSurface: ResultViewport {
             derivativeManifest: request.derivativeManifest
         )
         self.container = container
+        readViewMemoryIdentity(of: request)
     }
 
     /// The drawer is a person's open pane over this dashboard, so it goes with it. An edit not saved in it goes too.

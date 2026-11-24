@@ -55,6 +55,15 @@ final class FASTACollectionSurface: ResultViewport {
     /// The list the host installs, once the load has adopted it.
     private(set) var controller: FASTACollectionViewController?
 
+    /// Where the list's file lives and its data key (VS B1), read once in `load`
+    /// (`FASTACollectionViewController+ViewMemory.swift`), the host's handle on the way back from one record, and the
+    /// detail pane height a restore gives the list once it has a size.
+    var viewMemoryItem: ViewMemoryItem?
+    var viewMemoryDataKey: String?
+    var viewMemoryHandle: ViewMemoryHandle<FASTACollectionViewState>?
+    var isWayBack = false
+    var pendingDetailHeight: CGFloat?
+
     /// What `viewController` answers before a load, which the host never reads.
     private lazy var unloaded: NSViewController = {
         let empty = NSViewController()
@@ -81,6 +90,7 @@ final class FASTACollectionSurface: ResultViewport {
             request.controller.configure(sequences: contents.sequences, annotations: contents.annotations, sourceNames: contents.sourceNames)
         }
         controller = request.controller
+        readViewMemoryIdentity(of: request)
     }
 
     private static func checkFiles(_ files: [URL]) throws {

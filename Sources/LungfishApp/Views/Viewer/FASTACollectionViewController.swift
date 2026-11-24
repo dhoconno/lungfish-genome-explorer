@@ -30,7 +30,7 @@ public final class FASTACollectionViewController: NSViewController,
 
     // MARK: - Data
 
-    private var sequences: [LungfishCore.Sequence] = []
+    private(set) var sequences: [LungfishCore.Sequence] = []
     private var displayedSequences: [LungfishCore.Sequence] = []
     private var annotationsBySequence: [String: [SequenceAnnotation]] = [:]
 
@@ -39,7 +39,7 @@ public final class FASTACollectionViewController: NSViewController,
     /// When sequences come from multiple documents (multi-select), this maps
     /// each sequence to the name of the file it was loaded from. Empty when
     /// displaying a single document.
-    private var sourceNames: [UUID: String] = [:]
+    private(set) var sourceNames: [UUID: String] = [:]
 
     /// Whether the view is showing sequences from multiple source documents.
     private var isMultiSource: Bool { !sourceNames.isEmpty }
@@ -52,8 +52,8 @@ public final class FASTACollectionViewController: NSViewController,
 
     // MARK: - Sort State
 
-    private var sortKey: String = ""
-    private var sortAscending: Bool = true
+    var sortKey: String = ""
+    var sortAscending: Bool = true
 
     // MARK: - Callbacks
 
@@ -103,20 +103,20 @@ public final class FASTACollectionViewController: NSViewController,
 
     // MARK: - Filter State
 
-    private var filterText: String = ""
+    var filterText: String = ""
 
     // MARK: - UI Components
 
     private let summaryBar = FASTACollectionSummaryBar()
-    private let searchField = NSSearchField()
+    let searchField = NSSearchField()
     private let countLabel = NSTextField(labelWithString: "")
     private let collectionSplitView = NSSplitView()
     private let tableContainer = NSView()
     private let scrollView = NSScrollView()
-    private let tableView = RowActivatingTableView()
+    let tableView = RowActivatingTableView()
     private let emptyStateLabel = NSTextField(labelWithString: "")
-    private let selectionDetailView = FASTASelectionDetailView()
-    private var lastExpandedDetailHeight: CGFloat = 180
+    let selectionDetailView = FASTASelectionDetailView()
+    var lastExpandedDetailHeight: CGFloat = 180
     private var isAdjustingDetailSplit = false
     private var scalarPasteboard: PasteboardWriting = DefaultPasteboard()
     private var contextMenu = NSMenu()
@@ -284,7 +284,7 @@ public final class FASTACollectionViewController: NSViewController,
         applyFilter()
     }
 
-    private func applyFilter() {
+    func applyFilter() {
         let selectedIDs = Set(selectedSequences().map(\.id))
         if filterText.isEmpty {
             displayedSequences = sequences
@@ -485,7 +485,7 @@ public final class FASTACollectionViewController: NSViewController,
         onOpenSequence?(seq, annotations)
     }
 
-    private func refreshContextMenu() {
+    func refreshContextMenu() {
         contextMenu.delegate = self
         rebuildContextMenu(contextMenu)
         tableView.menu = contextMenu
@@ -678,7 +678,7 @@ public final class FASTACollectionViewController: NSViewController,
         return annotationsBySequence.filter { selectedNames.contains($0.key) }
     }
 
-    private func restoreSelection(for sequenceIDs: Set<UUID>) {
+    func restoreSelection(for sequenceIDs: Set<UUID>) {
         let indexes = IndexSet(
             displayedSequences.indices.filter { sequenceIDs.contains(displayedSequences[$0].id) }
         )
@@ -749,7 +749,7 @@ public final class FASTACollectionViewController: NSViewController,
 
     // MARK: - Selection Detail
 
-    private func updateSelectionDetail() {
+    func updateSelectionDetail() {
         // A search under way keeps its pane. Only the pane's Cancel ends it, and a new selection, sort or filter is not a Cancel.
         if isBlastDrawerOpen, case .loading = blastDrawerContainer?.blastResultsTab.displayState { return }
         closeBlastDrawerIfNeeded(animated: view.window != nil)
@@ -783,7 +783,7 @@ public final class FASTACollectionViewController: NSViewController,
         setDetailHeight(lastExpandedDetailHeight)
     }
 
-    private func setDetailHeight(_ requestedHeight: CGFloat) {
+    func setDetailHeight(_ requestedHeight: CGFloat) {
         let totalHeight = collectionSplitView.bounds.height
         guard totalHeight > collectionSplitView.dividerThickness else { return }
         let minimumHeight = min(120, max(1, totalHeight / 2))
