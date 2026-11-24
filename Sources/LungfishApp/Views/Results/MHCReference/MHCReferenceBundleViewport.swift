@@ -38,7 +38,8 @@ struct MHCReferenceBundleViewportModel: Equatable {
     let embeddedReferenceBundleURL: URL?
     let embeddedReferenceManifest: BundleManifest?
     let warnings: [MHCReferenceBundleWarning]
-    /// Where the bundle lives, read off the main actor by the async load, for the Mode picker's kept view (VS-MAP).
+    /// Where the bundle lives, for the Mode picker's kept view (VS-MAP). The async load reads it off the main actor,
+    /// the sync load of an external open with the rest of the bundle.
     var viewMemoryItem: ViewMemoryItem? = nil
 
     /// The data key of VS B1, from the manifest the load read: the name, the record count and the definitions.
@@ -74,7 +75,9 @@ struct MHCReferenceBundleViewportModel: Equatable {
             definitionSummaries: definitions.map(Self.summary(for:)),
             embeddedReferenceBundleURL: embeddedReferenceBundleURL,
             embeddedReferenceManifest: embeddedReferenceManifest,
-            warnings: manifest.warnings
+            warnings: manifest.warnings,
+            // The external open reads the bundle here at once, so it reads where it lives too, as the async load does.
+            viewMemoryItem: ViewMemoryItem.read(at: standardizedBundleURL)
         )
     }
 
@@ -365,6 +368,7 @@ private struct EmbeddedMHCReferenceBundleViewport: NSViewControllerRepresentable
 
     /// The Haplotype mode removes the reference view, so its view is kept first (VS-REF SWIFT SF-1).
     static func dismantleNSViewController(_ controller: ReferenceBundleViewportController, coordinator: ()) {
+        controller.embeddedViewerController.keepViewMemoryNow()
         controller.stopWorkForRemoval()
     }
 
