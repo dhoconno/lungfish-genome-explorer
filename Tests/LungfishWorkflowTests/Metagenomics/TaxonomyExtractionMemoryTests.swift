@@ -15,6 +15,7 @@ import XCTest
 import LungfishCore
 import LungfishIO
 import LungfishTestSupport
+import Synchronization
 @testable import LungfishWorkflow
 
 final class TaxonomyExtractionMemoryTests: XCTestCase {
@@ -158,23 +159,20 @@ final class TaxonomyExtractionMemoryTests: XCTestCase {
 }
 
 /// Reads the process's footprint every 2 ms on a thread of its own and keeps the largest reading.
-private final class FootprintSampler: @unchecked Sendable {
-    private let lock = NSLock()
-    private var peakBytes: UInt64 = 0
-    private var stopped = false
+private final class FootprintSampler: Sendable {
+    private struct State {
+        var peakBytes: UInt64 = 0
+        var stopped = false
+    }
+
+    private let state = Mutex(State())
     private let finished = DispatchSemaphore(value: 0)
 
     func start() {
         DispatchQueue.global(qos: .userInteractive).async { [self] in
-            while true {
-                lock.lock()
-                let done = stopped
-                lock.unlock()
-                if done { break }
+            while !state.withLock({ $0.stopped }) {
                 if let now = ProcessMemoryShare.currentFootprint() {
-                    lock.lock()
-                    peakBytes = max(peakBytes, now)
-                    lock.unlock()
+                    state.withLock { $0.peakBytes = max($0.peakBytes, now) }
                 }
                 usleep(2_000)
             }
@@ -184,12 +182,8 @@ private final class FootprintSampler: @unchecked Sendable {
 
     /// Ends the sampling and returns the largest footprint read.
     func stop() -> UInt64 {
-        lock.lock()
-        stopped = true
-        lock.unlock()
+        state.withLock { $0.stopped = true }
         finished.wait()
-        lock.lock()
-        defer { lock.unlock() }
-        return peakBytes
+        return state.withLock { $0.peakBytes }
     }
 }
