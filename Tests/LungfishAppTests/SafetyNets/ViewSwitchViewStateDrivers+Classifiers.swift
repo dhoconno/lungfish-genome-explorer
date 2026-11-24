@@ -241,6 +241,12 @@ struct NvdViewStateDriver: ViewStateDriver {
     func readingAfterRestore(changed: [String], in harness: ViewSwitchWindowHarness) throws -> [String] {
         var reading = changed
         reading[Self.splitLine] = try read(in: harness)[Self.splitLine]
+        // The live position is the overview's clamp, so it is not compared. What the restore was given is: the share the
+        // person left, which `restoreSplit` keeps (MANAGER-RULING-VS-CLASS-NVD-DIVIDER).
+        let viewer = try XCTUnwrap(viewer(in: harness))
+        let given = NvdVisitMemo.memo(for: viewer).restoredSplit?.fractions.first
+        XCTAssertEqual(given.map { String(format: "split %.2f", $0) }, changed[Self.splitLine],
+                       "the restore was given the divider the person left")
         return reading
     }
 }
