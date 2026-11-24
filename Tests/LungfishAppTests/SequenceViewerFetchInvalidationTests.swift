@@ -129,6 +129,49 @@ final class SequenceViewerFetchInvalidationTests: XCTestCase {
         XCTAssertFalse(viewer.viewerView.testCommitConsensusFetch(selectedFetch, sequence: "stale", region: .init(chromosome: "chr1", start: 10, end: 20)))
     }
 
+    /// BIO R7 of the VS-MAP review. The consensus row draws a cached sequence whenever its contig name and window
+    /// match, so a consensus cached for one row's evidence is dropped when the action context changes to another
+    /// identity or to none: another sample's bases on the same contig name never show under the new row.
+    func testAChangedActionContextIdentityDropsTheConsensusCachedForTheOldOne() throws {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        let whole = GenomicRegion(chromosome: "chr1", start: 0, end: 100)
+        func cache(_ base: Character) {
+            let fetch = viewer.viewerView.testBeginConsensusFetch(bundleURL: bundleURL("A"), trackID: nil, region: whole)
+            XCTAssertTrue(viewer.viewerView.testCommitConsensusFetch(fetch, sequence: String(repeating: base, count: 100), region: whole))
+        }
+
+        viewer.alignmentActionContext = try consensusContext(sample: "s")
+        cache("A")
+        viewer.alignmentActionContext = try consensusContext(sample: "s")
+        XCTAssertEqual(viewer.viewerView.testCachedConsensusSequence?.first, "A", "the same evidence keeps its consensus")
+
+        viewer.alignmentActionContext = try consensusContext(sample: "t")
+        XCTAssertNil(viewer.viewerView.testCachedConsensusSequence, "another sample's row drew the old sample's consensus")
+        XCTAssertNil(viewer.viewerView.cachedConsensusRegion)
+
+        cache("C")
+        viewer.alignmentActionContext = nil
+        XCTAssertNil(viewer.viewerView.testCachedConsensusSequence, "a row with no context drew the old row's consensus")
+        XCTAssertNil(viewer.viewerView.cachedConsensusRegion)
+    }
+
+    private func consensusContext(sample: String) throws -> AlignmentActionContext {
+        let bam = URL(fileURLWithPath: "/tmp/\(sample).bam")
+        let bai = URL(fileURLWithPath: "/tmp/\(sample).bam.bai")
+        return try AlignmentActionContext(
+            identity: .init(workflow: "mapping", resultID: "r", sampleID: sample, evidenceID: "e-\(sample)"),
+            alignmentURL: bam, indexURL: bai, decodingReferenceURL: nil,
+            contig: "chr1", contigLength: 100,
+            alignmentSnapshot: .init(url: bam, byteCount: 1, sha256: "bam-\(sample)"),
+            indexSnapshot: .init(url: bai, byteCount: 1, sha256: "bai-\(sample)"),
+            decodingReferenceSnapshot: nil,
+            filters: .init(minimumDepth: 3, minimumMapQ: 20, minimumBaseQuality: 12, excludedFlags: 0x904, readGroups: ["rg1"]),
+            outputCapability: .userSelectedDestination, sourceReads: .bamFallback,
+            presentationLabel: "\(sample) chr1"
+        )
+    }
+
     func testThreeRapidDetachedRequestsInvalidateEarlierCompletions() {
         let view = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 320))
         let region = GenomicRegion(chromosome: "chr1", start: 0, end: 50)
