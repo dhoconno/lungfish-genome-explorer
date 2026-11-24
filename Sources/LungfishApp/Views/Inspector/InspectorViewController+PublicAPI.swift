@@ -870,7 +870,7 @@ extension InspectorViewController {
     func updateMultipleSequenceAlignmentSelection(_ state: MultipleSequenceAlignmentSelectionState?) {
         viewModel.selectedAnnotation = nil
         viewModel.selectionSectionViewModel.select(multipleSequenceAlignmentSelection: state)
-        if !takeMSASelectionTabHold(), state != nil { viewModel.selectedTab = .selectedItem }
+        if !takeMSASelectionTabHold(), state != nil { viewModel.setAppTab(.selectedItem) }
     }
 
     /// Updates the Selected Item inspector with phylogenetic-tree node metadata.

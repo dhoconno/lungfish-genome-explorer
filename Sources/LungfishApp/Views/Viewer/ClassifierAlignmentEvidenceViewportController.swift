@@ -92,14 +92,14 @@ final class ClassifierAlignmentEvidenceViewportController: NSObject, ClassifierA
                 // tabs go away; fall back to the summary when one was selected.
                 let available = inspector.viewModel.availableTabs
                 if !available.contains(inspector.viewModel.selectedTab) {
-                    inspector.viewModel.selectedTab = available.contains(.resultSummary)
+                    inspector.viewModel.setAppTab(available.contains(.resultSummary)
                         ? .resultSummary
-                        : (available.first ?? .bundle)
+                        : (available.first ?? .bundle))
                 }
                 return
             }
             inspector.viewModel.contentMode = .metagenomics
-            inspector.viewModel.selectedTab = .view
+            inspector.viewModel.setAppTab(.view)
             inspector.updateClassifierAlignmentInspector(
                 capabilities: capabilities,
                 applySettings: { [weak self] payload in

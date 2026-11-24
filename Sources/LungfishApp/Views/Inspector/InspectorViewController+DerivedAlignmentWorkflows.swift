@@ -105,7 +105,7 @@ extension InspectorViewController {
                     }
                 )
             )
-            viewModel.selectedTab = .analysis
+            viewModel.setAppTab(.analysis)
             presentSimpleAlert(
                 title: "Mapped Reads Converted",
                 message: "Created annotation track \"\(createdTrackName)\" from \"\(sourceTrackName)\". Open the annotation table to sort and filter mapped-read fields."
@@ -270,7 +270,7 @@ extension InspectorViewController {
         viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID = createdTrackID
         viewModel.documentSectionViewModel.markRecentlyCreatedAlignmentTrack(createdTrackID)
         viewModel.documentSectionViewModel.visibleAlignmentTrackID = createdTrackID
-        viewModel.selectedTab = .analysis
+        viewModel.setAppTab(.analysis)
     }
 
     static func makeFilteredAlignmentWorkflowStartOutcome(
