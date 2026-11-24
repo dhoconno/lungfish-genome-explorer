@@ -40,6 +40,8 @@ public class ViewerViewController: NSViewController {
             if oldValue?.identity != alignmentActionContext?.identity {
                 explicitAlignmentSelection = nil
                 viewerView?.clearSelection()
+                // A consensus cached for other evidence never draws under this row (VS-MAP BIO R7).
+                viewerView?.invalidateConsensusScientificRequest()
             }
             viewerView?.needsDisplay = true
             onAlignmentConsensusActionStateChanged?()
