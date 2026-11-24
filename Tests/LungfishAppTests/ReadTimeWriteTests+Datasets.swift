@@ -21,6 +21,8 @@ extension ReadTimeWriteTests {
             let project = try SafetyNetFiles.makeDirectory(root.appendingPathComponent("Views.lungfish", isDirectory: true))
             let fixture = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: driver.kind), in: project)
             let other = try await ViewSwitchFixtures.build(try ViewSwitchFixtures.kind(named: "Status only"), in: project)
+            // The files a finished run leaves, such as the contigs index, which the catalog would otherwise write.
+            try driver.prepare(fixture)
             let storeRoot = root.appendingPathComponent("view-memory", isDirectory: true)
             // The digest comes before the store reads the project, so a write by that read shows too.
             let before = try ProjectDigest(of: project)

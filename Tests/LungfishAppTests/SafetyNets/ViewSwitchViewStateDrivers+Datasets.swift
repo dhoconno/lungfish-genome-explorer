@@ -12,6 +12,7 @@ import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishAssemblyUI
+import LungfishIO
 @testable import LungfishKit
 import LungfishTestSupport
 
@@ -175,6 +176,13 @@ struct AssemblyViewStateDriver: ViewStateDriver {
             "actions read \(viewer.selectedContigNames.joined(separator: ", "))",
             divider(in: viewer),
         ]
+    }
+
+    /// A finished run indexes its contigs as it ends (`AssemblyOutputNormalizer`), and the catalog writes an index only
+    /// when none beside the file matches it, so the fixture gets the index a run leaves before a digest of the project.
+    func prepare(_ fixture: ViewSwitchFixture) throws {
+        let result = try XCTUnwrap(fixture.item.url)
+        try FASTAIndexBuilder.buildAndWrite(for: result.appendingPathComponent("contigs.fasta"))
     }
 
     /// Moves the contigs file's date, so its stamp and the data key change.
