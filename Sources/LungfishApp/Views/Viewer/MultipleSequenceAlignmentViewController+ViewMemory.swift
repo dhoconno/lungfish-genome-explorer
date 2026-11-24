@@ -22,7 +22,7 @@ import LungfishKit
 /// - `findText` is the toolbar's find field. A find moves the selection and hides no row or column, so it is no count
 ///   filter of VS B6. Presentation, restored on any key, and the restore runs no find.
 /// - `bottomPaneOpen` and `bottomPaneTab` are the bottom pane. Presentation, restored on any key through the pane's own
-///   show, hide and tab, as a click is, which also store the pane's app-wide choice as a click does.
+///   show, hide and tab, which store no choice, since a restore is no pick.
 /// - `selection` holds rows by their row id (VS B4). Whole rows restore by identity on any key, a row that is gone is
 ///   dropped and the line says so. A block of rows and columns is a coordinate selection and restores only on an equal
 ///   data key, dropped otherwise and never clamped (VS B3). It is nil while the selection is the one the open makes,
@@ -113,12 +113,8 @@ extension MultipleSequenceAlignmentSurface: ViewMemoryAdopting {
             controller.configureCanvasViews()
         }
         controller.searchField.stringValue = state.findText
-        let pane = controller.bottomPane
-        if let tab = MSABottomPaneView.Tab(rawValue: state.bottomPaneTab), tab != pane.selectedTab {
-            pane.select(tab)
-        }
-        if state.bottomPaneOpen != pane.isOpen {
-            pane.setOpen(state.bottomPaneOpen, animated: false)
+        if let tab = MSABottomPaneView.Tab(rawValue: state.bottomPaneTab) {
+            controller.bottomPane.showKept(open: state.bottomPaneOpen, tab: tab)
         }
         let lost = controller.restoreViewMemorySelection(state.selection, dataChanged: dataChanged)
         // The zoom comes last, so it centres on the restored selection.

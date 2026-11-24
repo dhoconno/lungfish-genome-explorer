@@ -418,6 +418,20 @@ final class MSABottomPaneView: NSView {
         onTabChanged?(tab)
     }
 
+    /// Shows the pane as a kept view had it and stores neither choice, since a restore is no pick (VS S4). The
+    /// toolbar button still follows through the callbacks a click uses.
+    func showKept(open: Bool, tab: Tab) {
+        if tab != selectedTab {
+            if tab == .distances { isDistancesGrowPending = true }
+            selectedTab = tab
+            tabControl.selectedSegment = tab.rawValue
+            showContent()
+            onTabChanged?(tab)
+        }
+        if open != isOpen { applyOpen(open, animated: false, persist: false) }
+        growToFitDistances()
+    }
+
     /// Changes the open height by `delta`, clamped. Backs the divider drag,
     /// its arrow keys and View > Make Drawer Taller / Shorter.
     func resize(by delta: CGFloat, persist: Bool = true) {
