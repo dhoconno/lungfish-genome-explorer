@@ -2831,7 +2831,7 @@ public final class GenotypeResultViewController: NSViewController, NSMenuItemVal
             contentHostTopConstraint,
             contentHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             contentHost.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            contentHost.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            contentHost.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ])
     }
 

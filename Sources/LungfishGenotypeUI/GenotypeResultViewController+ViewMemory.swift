@@ -302,6 +302,7 @@ extension GenotypeResultViewController {
         session.task?.cancel()
         session.line?.removeFromSuperview()
         session.settingsLine?.removeFromSuperview()
+        setViewMemoryLineRoom(top: 0, bottom: 0)
         viewMemory = nil
     }
 
@@ -314,6 +315,7 @@ extension GenotypeResultViewController {
         session.start = captureViewMemory()
         session.line?.removeFromSuperview()
         session.line = nil
+        setViewMemoryLineRoom(top: 0)
         clearSettingsLine(in: session)
         guard session.applied else {
             session.resetBeforeApply = true
@@ -323,8 +325,11 @@ extension GenotypeResultViewController {
         session.store.reset(key, kind: GenotypeViewMemory.kind, folder: read.item?.folder)
     }
 
+    /// Shows word 2 or 3 at the top of the viewport. The viewer's controls and content follow the top safe area, so
+    /// the line's height there moves them below it and it covers nothing (BIO SF-2).
     private func showViewMemoryLine(_ words: String, in session: GenotypeViewMemorySession) {
         session.line?.removeFromSuperview()
+        setViewMemoryLineRoom(top: 0)
         let line = ViewMemoryResetLineView(words: words)
         line.wantsLayer = true
         line.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
@@ -334,6 +339,8 @@ extension GenotypeResultViewController {
             line.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             line.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
+        view.layoutSubtreeIfNeeded()
+        setViewMemoryLineRoom(top: line.fittingSize.height)
         session.line = line
         NSAccessibility.post(element: line.label, notification: .announcementRequested, userInfo: [
             .announcement: words, .priority: NSAccessibilityPriorityLevel.high.rawValue,
@@ -357,12 +364,26 @@ extension GenotypeResultViewController {
         }
         session.restoredBases = captureViewMemory().bases
         line.showRestored(.changesValues)
+        // The content host's foot follows the bottom safe area, so the line's height there keeps the last row and the
+        // matrix's own foot above it (BIO SF-2).
+        view.layoutSubtreeIfNeeded()
+        setViewMemoryLineRoom(bottom: line.fittingSize.height)
     }
 
-    /// The person changed a restored basis, or Reset View ran, so the line goes.
+    /// The person changed a restored basis, or Reset View ran, so the line and its room go.
     private func clearSettingsLine(in session: GenotypeViewMemorySession) {
         session.settingsLine?.clear()
         session.restoredBases = nil
+        setViewMemoryLineRoom(bottom: 0)
+    }
+
+    /// Sets the room a line takes at the top or the foot of the viewport as an additional safe area inset.
+    private func setViewMemoryLineRoom(top: CGFloat? = nil, bottom: CGFloat? = nil) {
+        guard isViewLoaded else { return }
+        var insets = view.additionalSafeAreaInsets
+        if let top { insets.top = top }
+        if let bottom { insets.bottom = bottom }
+        view.additionalSafeAreaInsets = insets
     }
 
     /// Keeps the view when the window closes or the app quits, since nothing removes the viewer on those ways out, and
