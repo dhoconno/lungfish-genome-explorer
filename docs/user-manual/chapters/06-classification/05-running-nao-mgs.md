@@ -3,7 +3,7 @@ title: Importing NAO-MGS Results
 chapter_id: 06-classification/05-running-nao-mgs
 audience: analyst
 prereqs: [06-classification/01-what-is-classification]
-estimated_reading_min: 13
+estimated_reading_min: 14
 task: Import externally produced NAO-MGS wastewater-surveillance results and read the taxon viewport.
 tags: [classification, nao-mgs, wastewater, surveillance, import]
 tools: [nao-mgs]
@@ -35,7 +35,7 @@ Lungfish Genome Explorer (LGE) imports a finished NAO-MGS table so you can revie
 
 [NAO-MGS](../../GLOSSARY.md#nao-mgs) is a metagenomic surveillance pipeline built by SecureBio. A pipeline is a chain of programs that run in order. [Metagenomics](../../GLOSSARY.md#metagenomics) sequences genetic material from a mixed sample. Surveillance uses repeated sampling, here of wastewater, to track what circulates in a population and sometimes detect pathogens before cases are reported.
 
-The pipeline aligns reads against a fixed collection of viral genomes, its reference. Aligning a read means finding where it matches a reference sequence. Each row in the table records where a read or a [read pair](../../GLOSSARY.md#read-pair) matched the reference. A read pair contains two reads from one [fragment](../../GLOSSARY.md#fragment), a piece of DNA. [Paired-end](../../GLOSSARY.md#paired-end) sequencing reads that fragment from both ends. LGE counts each aligned read as one hit, so a pair adds two hits when both reads align. The hits table holds only viral [taxa](../../GLOSSARY.md#taxon), named groups of organisms. LGE groups hits by taxon and sample, keeping the reads behind each row. The [viewport](../../GLOSSARY.md#viewport) is the main area of the window for one result.
+The pipeline aligns reads against a fixed collection of viral genomes, its reference. Aligning a read means finding where it matches a reference sequence. Each row in the NAO-MGS table records where a read or a [read pair](../../GLOSSARY.md#read-pair) matched the reference. A read pair contains two reads from one [fragment](../../GLOSSARY.md#fragment), a piece of DNA. [Paired-end](../../GLOSSARY.md#paired-end) sequencing reads that fragment from both ends. LGE counts each aligned read as one hit, so a pair adds two hits when both reads align. The NAO-MGS table holds only viral [taxa](../../GLOSSARY.md#taxon), named groups of organisms. LGE groups hits by taxon and sample, keeping the reads behind each row. The [viewport](../../GLOSSARY.md#viewport) is the main area of the window for one result.
 
 The combined table is `virus_hits_final.tsv.gz`. A [TSV](../../GLOSSARY.md#tsv) is a text table with tabs between columns. Gzip compresses files so they take up less space. LGE opens it as supplied. Newer versions of the pipeline write one file per sequencing lane, each ending in `_virus_hits.tsv.gz`. A lane is a channel on a flow cell, the slide a sequencer loads DNA onto.
 
@@ -105,7 +105,7 @@ Use the table to compare samples and the detail pane to inspect reads.
 
 ### The summary bar and the sample filter
 
-**Samples** counts the samples in view, including controls. Four of the fixture's samples are named for wastewater sites. The fifth, ending in `Water_20260323`, is named like a water blank. A water blank uses water in place of a sample to check for stray DNA. **Taxa** counts each distinct taxon once across the samples in view. The fixture shows 5 samples and 4 taxa, with more rows because the table lists a taxon once per sample where it appears.
+**Samples** counts the samples in view, including controls, which are samples run only to check for stray DNA. Four of the fixture's samples are named for wastewater sites. The fifth, ending in `Water_20260323`, is named like a water blank, a control that uses water in place of a sample. **Taxa** counts each distinct taxon once across the samples in view. The fixture shows 5 samples and 4 taxa, with more rows because the table lists a taxon once per sample where it appears.
 
 To focus on particular samples, click **All Samples** or the current count, such as **2 of 5 Samples**, and choose which samples to show. The whole viewport follows the selection.
 
@@ -125,7 +125,7 @@ To focus on particular samples, click **All Samples** or the current count, such
 
 For **Unique Reads**, LGE sets aside probable copies within each sample and taxon. A pair is a probable copy when each read shares its reference, start position, strand and length with the read in the same position in another pair. A strand is one of DNA's two complementary chains. A read with no aligned mate is a probable copy if another read with no aligned mate shares those same features.
 
-Independent fragments can occasionally share all these features, so a match signals a probable copy. The share of hits that are unique measures PCR copying on that row. Use the unique count for read support. The unique share cannot tell you how much virus a sample holds.
+Independent fragments can occasionally share all these features, so a match signals a probable copy. The share of hits that are unique measures PCR copying within one sample and taxon. Use the unique count for read support. The unique share cannot tell you how much virus a sample holds.
 
 In the fixture, IL_CHI_StickneyWS has 12 Rotavirus A hits from 8 unique reads, so 4 of the 12 are probable copies. The Rotavirus A row for CA_LosAngeles_County has 28 hits from 26 unique reads. The sample has more rotavirus reads on a separate row for Human rotavirus A, a taxon within Rotavirus A.
 
@@ -139,9 +139,9 @@ With no taxon selected, **Total Hits** adds the hits for the samples in view, **
 
 To inspect a match in one sample, select its row. The line below the name gives its taxonomy identifier, read counts and accession count. For Rotavirus A in CA_LosAngeles_County it reads `Taxid: 28875  •  26 unique / 28 total reads  •  7 accessions`.
 
-An aligner is the program that matches reads to the reference. It can clip a read by leaving an unmatched end out of the alignment. **Avg Edit Dist** averages the number of single-base differences from the reference, including gaps, places where a base is missing from one of the aligned sequences. Clipped ends are excluded from this count. Lower values mean fewer differences.
+An aligner is the program that matches reads to the reference. It can clip a read by leaving an unmatched end out of the alignment. LGE uses the first read's numbers for every aligned read in the NAO-MGS row, or the second read's numbers if the row has no first read. **Avg Edit Dist** averages the number of single-base differences from the reference, including gaps, places where a base is missing from one of the aligned sequences. Clipped ends are excluded from this count. Lower values mean fewer differences.
 
-For **Avg Identity**, LGE divides each read's edit distance by its full length, subtracts the result from one and averages the resulting percentages. Clipped bases count as matches, so even a read that aligns only in part can have high identity. **Avg Bit Score** averages the aligner's own score, with higher scores indicating stronger alignments. [BLAST](../../GLOSSARY.md#blast) is a search of NCBI's public sequence collection. Its scores use a different scale, so you cannot compare **Avg Bit Score** with scores in **BLAST Results**.
+For **Avg Identity**, LGE divides the edit distance it uses by the full length of the same read, subtracts the result from one and averages the resulting percentages. Clipped bases count as matches, so even a read that aligns only in part can have high identity. For **Avg Bit Score**, LGE averages the aligner's scores using the same counting rule, with higher scores indicating stronger alignments. [BLAST](../../GLOSSARY.md#blast) is a search of NCBI's public sequence collection. Its scores use a different scale, so you cannot compare **Avg Bit Score** with a BLAST score.
 
 See **miniBAM Panels** for read positions. Each [miniBAM](../../GLOSSARY.md#minibam) panel shows every aligned read for that taxon and accession. The depth curve counts reads at each position. The pileup below it uses color to mark bases that differ from the reference. The panels show up to five accessions ranked by total hits, as in `miniBAM Panels (Top 5: 5 of 7 accessions)`. The note under the heading says unique read count. See [NAO-MGS panel order](../appendices/troubleshooting.md#defect-naomgs-order) for details on this known defect.
 
@@ -157,7 +157,9 @@ A reverse-strand note under **miniBAM Panels** warns of false mismatches when st
 
 A classifier assigns reads to taxa. The shared classifier action bar has **Verify with BLAST…**, **Export**, **Extract Reads…**, and **BLAST Results**. See [The action bar](02-running-kraken2.md#the-action-bar-and-the-provenance-popover) for details on the controls. The information button opens **NAO-MGS Pipeline Info** for import details.
 
-To check whether the best matches support the name on a row, choose **Verify with BLAST…**. LGE sends reads to NCBI for [BLAST](../../GLOSSARY.md#blast), a search of its public sequence collection. Choose how many reads to send, 20 by default. LGE sends the first reads that lack duplicate marks, up to that count, from the taxon's five accessions with the most unique reads. BLAST searches all of `core_nt`, a version of NCBI's general DNA sequence collection, without filtering by organism. The **BLAST Results** drawer, a panel that opens along the bottom of the viewport, shows the verdict and one row per read. See [BLAST Verification](06-blast-verification.md) for how to read the verdict.
+To check whether the best matches support the name on a row, choose **Verify with BLAST…**. LGE sends reads to NCBI for [BLAST](../../GLOSSARY.md#blast). Choose how many reads to send, 20 by default. LGE sends the first reads that lack duplicate marks, up to that count, from the taxon's five accessions with the most unique reads. BLAST searches all of `core_nt`, a version of NCBI's general DNA sequence collection, without filtering by organism.
+
+The **BLAST Results** drawer, a panel that opens along the bottom of the viewport, shows one row per read and a verdict. The verdict needs NCBI Taxonomy, NCBI's catalog of named groups of organisms, which you install in the **Databases** tab of **Tools > Plugin Manager…**, where LGE manages optional tools and data. Without it the drawer reads **Not judged**. See [BLAST Verification](06-blast-verification.md) for how to read the verdict.
 
 To save the table as shown, review your filters and sort order, then click **Export**. The Export NAO-MGS Summary save sheet, a dialog at the top of the window, suggests `<name>_naomgs_summary.tsv`. For a table with several samples, the name uses the first one in alphabetical order. Rename it to reflect the samples covered. LGE runs `lungfish-cli nao-mgs export table` to save a TSV with your filters, sort and metadata columns. Open it in a spreadsheet.
 
@@ -177,7 +179,7 @@ The fixture's two Rotavirus A rows have 67 and 93 percent unique reads. Check th
 
 A match at several sites carries more weight only when those samples were extracted and sequenced separately. Contamination, unwanted material from another source, can recur across samples that share a reagent or run. A blank carried through the run is one kind of [negative control](../../GLOSSARY.md#negative-control), a comparison for checking contamination here. LGE shows it as another sample. Find it by sample name and check whether the same taxon appears there. In the fixture, `Cressdnaviricota sp.` appears at two sites and in the sample named Water.
 
-In the hits table, NAO-MGS names each read by the [lowest common ancestor](../../GLOSSARY.md#lowest-common-ancestor) of the viruses it aligned to, the most specific taxon that contains all of them. That can put one virus on two rows in a sample, as in CA_LosAngeles_County. Report broad matches at the level the row names. For example, `Cressdnaviricota sp.` names an unplaced member of a viral phylum, a broad rank in the system for grouping organisms. NCBI lists it under `unclassified Cressdnaviricota`.
+In the NAO-MGS table, each read is named by the [lowest common ancestor](../../GLOSSARY.md#lowest-common-ancestor) of the viruses it aligned to, the most specific taxon that contains all of them. That can put one virus on two rows in a sample, as in CA_LosAngeles_County. Report broad matches at the level the row names. For example, `Cressdnaviricota sp.` names an unplaced member of a viral phylum, a broad rank in the system for grouping organisms. NCBI lists it under `unclassified Cressdnaviricota`.
 
 **Verify with BLAST…** runs a second search on a subset of the same reads and can support the reported name. NAO-MGS reports names from its viral collection, so a virus outside that collection or a bacterium cannot appear by name. Start with the pipeline's entry in the [Tool Bibliography](../appendices/bibliography.md#imported-classification-results) to see which viruses it covers. For a broader survey, the [Running Kraken 2](02-running-kraken2.md) chapter covers classification beyond viruses.
 
