@@ -478,6 +478,9 @@ final class ViewSwitchViewStateTests: XCTestCase {
     }
 
     func testCzIdKeepsItsViewThroughARelaunch() async throws {
+        // The taxonomy viewer saves its collections drawer to the runner's defaults, so the key goes back as it was.
+        let drawerDefaults = HostDefaultsRestorer(keys: [TaxonomyViewController.taxaDrawerOpenKey])
+        defer { drawerDefaults.restore() }
         try await assertRelaunch(CzIdViewStateDriver())
     }
 
