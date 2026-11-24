@@ -33,7 +33,8 @@ import ObjectiveC
 ///
 /// The count filters that hide rows (the minimum reads, percent and prevalence, the low-support switch and its
 /// minimum, the row and sample filter texts, diagnostic alleles only, the ancillary and included loci) and the cohort
-/// flag are not kept: they show only in the Inspector, and the line for hidden rows (word 5a) has no genotype noun.
+/// flag are not kept: they show only in the Inspector, and one `ViewMemoryFilterLineView` shows one form at a time, so a
+/// restored hiding filter beside restored bases would need a second line or a combined form (BIO ruling 1).
 ///
 /// The older in-bundle file also holds `viewMode`, `panelLayout`, `cardDensity` and `cardDensityThreshold`, which no
 /// control of the viewer reads, so only its `preferredSummaryViewMode` is taken. It holds no count filter.
