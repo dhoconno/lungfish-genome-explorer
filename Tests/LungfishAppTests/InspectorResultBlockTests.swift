@@ -218,7 +218,8 @@ final class InspectorResultBlockTests: XCTestCase {
             rootView: MetagenomicsResultSummarySection(
                 viewModel: inspector.documentSectionViewModel,
                 twelveSViewModel: inspector.twelveSResultDisplaySectionViewModel,
-                windowStateScope: inspector.windowStateScope
+                windowStateScope: inspector.windowStateScope,
+                isSamplesExpanded: Bindable(inspector).samplesExpanded
             )
         )
         host.frame = NSRect(x: 0, y: 0, width: 460, height: 720)

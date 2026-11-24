@@ -14,6 +14,7 @@ import LungfishCore
 @testable import LungfishGenotypeUI
 @testable import LungfishKit
 import LungfishTestSupport
+import SwiftUI
 
 /// An Inspector tab a kind offers that is not the tab its content opens on.
 struct InspectorTabCase {
@@ -247,6 +248,49 @@ extension ViewSwitchViewStateTests {
         XCTAssertEqual(block.minMapQ, 0, "the block reads the open's filter")
         XCTAssertEqual(try viewport().shownReadFilters, opened, "the viewer shows the open's reads")
         XCTAssertNil(try viewport().readFilterLine, "no filter line stays")
+    }
+
+    /// The item is enabled while the view differs from its starting view: off at a first visit, on after a zoom, and
+    /// off again after Reset View (VS U3, W8).
+    func testResetViewIsEnabledOnlyWhileTheViewDiffersFromItsStart() async throws {
+        let driver = ReferenceViewStateDriver(route: .reference)
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let inspector = harness.split.inspectorController!
+        XCTAssertFalse(inspector.openViewDiffersFromItsStart, "a first visit shows its starting view")
+        try await driver.change(in: harness)
+        XCTAssertTrue(inspector.openViewDiffersFromItsStart, "a zoom on a first visit enables the item")
+        chooseResetView(in: harness)
+        XCTAssertFalse(inspector.openViewDiffersFromItsStart, "Reset View disables the item")
+    }
+
+    /// The Appearance section's Reset returns the app-wide look, and its help tag says what it resets (word 6).
+    func testAppearanceSectionResetReturnsTheAppWideLookAndNamesIt() async throws {
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        let model = harness.split.inspectorController.viewModel
+        let preferences = LungfishAppIdentity.current.preferences
+        let saved = preferences.object(forKey: "com.lungfish.appSettings")
+        let appearance = AppSettings.shared.sequenceAppearance
+        defer {
+            if let saved { preferences.set(saved, forKey: "com.lungfish.appSettings") }
+            else { preferences.removeObject(forKey: "com.lungfish.appSettings") }
+            AppSettings.shared.sequenceAppearance = appearance
+        }
+        model.appearanceSectionViewModel.trackHeight = 42
+        model.qualitySectionViewModel.isQualityOverlayEnabled = !SequenceAppearance.default.showQualityOverlay
+        let reset = try XCTUnwrap(model.appearanceSectionViewModel.onResetToDefaults, "the button runs the coordinated reset")
+        reset()
+        XCTAssertEqual(model.appearanceSectionViewModel.trackHeight, AppearanceSectionViewModel.defaultTrackHeight)
+        XCTAssertEqual(model.qualitySectionViewModel.isQualityOverlayEnabled, SequenceAppearance.default.showQualityOverlay)
+        XCTAssertEqual(AppSettings.shared.sequenceAppearance, SequenceAppearance.default, "the base colours return")
+        XCTAssertEqual(
+            ResetViewWords.appearanceResetHelp,
+            "Restores default nucleotide colors, track height and quality overlay in every bundle.",
+            "word 6 as SCR/codex/VS-WORDS-decisions.md section 1 sets it")
     }
 
     /// Reset View also returns the genotype minimums, which the viewer does not keep, to their defaults (VS U3, the

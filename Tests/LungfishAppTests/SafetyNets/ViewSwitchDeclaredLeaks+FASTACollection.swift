@@ -13,12 +13,6 @@ extension ViewSwitchDeclaredLeaks {
             "- inspector: fastqStatistics",
             "- provenance: fastqBundle Reads/illumina-reads.lungfishfastq",
         ]),
-        leak("Tree", to: ["FASTA collection"], "INSPECTOR-STALE", [
-            "+ inspectorTab: genomics selection of [document, selection, view, derive, provenance]",
-            "+ inspectorBlocks: selection, variant",
-            "- inspectorTab: genomics document of [document, selection, view, derive, provenance]",
-            "- inspectorBlocks: document",
-        ]),
         leak("FASTA document", to: ["FASTA collection"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),

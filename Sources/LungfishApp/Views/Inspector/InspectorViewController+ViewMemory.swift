@@ -173,7 +173,11 @@ extension InspectorViewController {
         NotificationCenter.default.post(
             name: .bundleViewStateResetRequested, object: self, userInfo: windowScopedUserInfo())
         viewer.surfaceHost.resetViewMemory()
-        viewer.genotypeResultViewController?.resetViewMemory()
+        if let genotype = viewer.genotypeResultViewController {
+            genotype.resetViewMemory()
+            // The minimums the viewer does not keep return to their defaults too (VS-GENO BIO ruling 6).
+            viewModel.genotypeResultDisplaySectionViewModel.resetCountFilters()
+        }
     }
 
     /// Whether View > Reset View has a view to reset: the open view's live capture differs from its starting view.

@@ -9,12 +9,6 @@
 
 extension ViewSwitchDeclaredLeaks {
     static let fromThePDFKind: [DeclaredViewSwitchLeak] = [
-        leak("Tree", to: ["PDF"], "INSPECTOR-STALE", [
-            "+ inspectorTab: preview selection of [document, selection]",
-            "+ inspectorBlocks: selection, variant",
-            "- inspectorTab: preview document of [document, selection]",
-            "- inspectorBlocks: document",
-        ]),
         leak("FASTA document", to: ["PDF"], "NET-PROVENANCE-STAYS, NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
             "- status: figure.pdf (1 page)",

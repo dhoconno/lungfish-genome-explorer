@@ -40,13 +40,9 @@ extension ViewSwitchDeclaredLeaks {
         leak("FASTQ", to: ["Tree", "TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
-        leak("Tree", to: ["Quick Look"], "INSPECTOR-STALE, NET-DOCUMENT-STAYS", [
+        leak("Tree", to: ["Quick Look"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-            "+ inspectorTab: preview selection of [document, selection]",
-            "+ inspectorBlocks: selection, variant",
             "- status: Previewing: main.nf",
-            "- inspectorTab: preview document of [document, selection]",
-            "- inspectorBlocks: document",
         ]),
         leak("Quick Look", to: ["TaxTriage"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
@@ -63,12 +59,6 @@ extension ViewSwitchDeclaredLeaks {
         ]),
         leak("Quick Look", to: ["NAO-MGS", "Assembly", "Genotype", "MHC reference"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
-        ]),
-        leak("Tree", to: ["Status only"], "INSPECTOR-STALE", [
-            "+ inspectorTab: empty selection of [document, selection]",
-            "+ inspectorBlocks: selection, variant",
-            "- inspectorTab: empty document of [document, selection]",
-            "- inspectorBlocks: document",
         ]),
         leak("Status only", to: ["CZ ID"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: primerScheme=QIASeqDIRECT-SARS2",
@@ -147,12 +137,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspector: bundle=../k08-reference/Reference Sequences/MT192765.1.lungfishref",
             "+ inspectorBlocks: organism, seeTheViewer, panelLayout, sampleFilter=1",
             "- inspectorBlocks: panelLayout, sampleFilter=1",
-        ]),
-        leak("Tree", to: ["Reference"], "INSPECTOR-STALE", [
-            "+ inspectorTab: mapping selection of [document, selection, view, derive, provenance]",
-            "+ inspectorBlocks: selection, variant",
-            "- inspectorTab: mapping document of [document, selection, view, derive, provenance]",
-            "- inspectorBlocks: document, alignmentBundle",
         ]),
         leak("Assembly", to: ["TaxTriage"], "NET-INSPECTOR-DOCUMENT-STAYS", [
             "+ inspector: assembly",

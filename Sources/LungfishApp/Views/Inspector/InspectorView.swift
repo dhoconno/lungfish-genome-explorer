@@ -180,7 +180,7 @@ public struct InspectorView: View {
             MetagenomicsResultSummarySection(
                 viewModel: viewModel.documentSectionViewModel,
                 twelveSViewModel: viewModel.twelveSResultDisplaySectionViewModel,
-                windowStateScope: viewModel.windowStateScope
+                windowStateScope: viewModel.windowStateScope, isSamplesExpanded: $viewModel.samplesExpanded
             )
 
         case .twelveSDetail:
@@ -497,7 +497,7 @@ struct MetagenomicsResultSummarySection: View {
     @Bindable var viewModel: DocumentSectionViewModel
     @Bindable var twelveSViewModel: TwelveSResultDisplaySectionViewModel
     let windowStateScope: WindowStateScope?
-    @State private var isSamplesExpanded = true
+    @Binding var isSamplesExpanded: Bool // the item's kept state (VS-INSP item 2)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
