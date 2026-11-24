@@ -3,7 +3,7 @@ title: Novel Virus Diagnostics
 chapter_id: 06-classification/09-novel-virus-detection
 audience: analyst
 prereqs: [06-classification/01-what-is-classification]
-estimated_reading_min: 15
+estimated_reading_min: 17
 task: Import Novel Virus Diagnostics (NVD) pipeline results and read the contig-keyed BLAST viewport.
 tags: [classification, nvd, novel-virus, blast, import, wastewater]
 tools: [nvd]
@@ -43,13 +43,15 @@ A [read](../../GLOSSARY.md#read) is a sequence reported by a sequencing instrume
 |---|---|
 | Illumina read | 75 to 300 bases |
 
-LGE needs only the `*_blast_concatenated.csv` table in `05_labkey_bundling/`. A [CSV](../../GLOSSARY.md#csv) is a plain-text table with commas between fields. The asterisk stands for the run's prefix, and LGE also accepts `.csv.gz`, the form compressed with gzip. You can import without the earlier stage folders. LGE opens a [viewport](../../GLOSSARY.md#viewport), the main area of the window, where you can expand each contig to see its BLAST matches.
+LGE needs only the `*_blast_concatenated.csv` table in `05_labkey_bundling/`. A [CSV](../../GLOSSARY.md#csv) is a plain-text table with commas between fields. The asterisk stands for the run's prefix, and LGE also accepts `.csv.gz`, the form compressed with gzip. You can import without the earlier stage folders. LGE opens a [viewport](../../GLOSSARY.md#viewport), the main area of the window. If a contig has more than one match, expand its row to see all its reported BLAST matches.
 
 ## Why you would do this
 
-A match across thousands of bases is less likely to occur by chance than a match on a single 150-base read. In a search for new viruses, look more closely at a long contig if only part of it matches a known virus or if the match has low [percent identity](../../GLOSSARY.md#percent-identity). Percent identity is the share of aligned positions that agree. The synthetic NVD demo results illustrate the known-virus case. All their best matches have at least 96 percent identity.
+A match across thousands of bases is less likely to occur by chance than a match on a single 150-base read. In a search for new viruses, look more closely at a long contig if only part of it matches a known virus or if its [percent identity](../../GLOSSARY.md#percent-identity), the share of aligned positions that agree, is low. The imported table holds only contigs that BLAST matched, so a contig that matched nothing never reaches this viewport. This view alone cannot tell you a run held no unknown sequence.
 
-LGE groups the spreadsheet rows by contig so you can see whether other strong matches name the same organism. It sorts matches by [e-value](../../GLOSSARY.md#e-value), the expected number of matches this strong or stronger by chance, lowest first. When e-values tie, LGE puts the higher [bit score](../../GLOSSARY.md#bit-score) first. A bit score measures alignment strength. The first row is the contig's best match.
+The synthetic NVD demo results illustrate the known-virus case. All their best matches have at least 96 percent identity.
+
+LGE groups the spreadsheet rows by contig so you can see whether other strong matches name the same organism. NVD keeps at most five matches per contig, so a match naming another organism can sit just outside the list. LGE sorts matches by [e-value](../../GLOSSARY.md#e-value), the expected number of matches this strong or stronger by chance, lowest first. When e-values tie, LGE puts the higher [bit score](../../GLOSSARY.md#bit-score) first. A bit score measures alignment strength. The first row is the contig's best match.
 
 ## Before you start
 
@@ -65,6 +67,8 @@ LGE looks in two locations for optional files and copies the files it finds into
 | BAM file for each sample, with the sample name in its file name | `02_human_viruses/03_human_virus_results/mapped_reads/` | LGE's own read count, [Unique Reads](../../GLOSSARY.md#unique-reads), the reads in **Contig Alignment**, and **Extract Reads…** |
 
 The demo has the table and simulated contig FASTA files, so you can verify a match. To count Unique Reads, view mapped reads, or extract reads, use a run with the sample's BAM file. A plugin pack is an add-on that supplies tools. This import needs no plugin pack and the demo import can take well under a second.
+
+NCBI Taxonomy is NCBI's catalog of named groups of organisms. It is an optional download in the **Databases** tab of the **Plugin Manager**. The verdict in the last verification step needs it.
 
 ## Procedure
 
@@ -104,23 +108,23 @@ Four summary cards repeat the preview counts under **Experiment**, **Samples**, 
 
    <!-- SHOT: nvd-result-viewport -->
 
-   The assembler, the program that joined the reads, supplies the full name. In this example, `NODE_2` is the contig number and `length_300` is its length in bases. Read depth is how many reads cover a base. `cov_5.0` may describe average read depth. The outline and detail pane shorten the name to `NODE_2 (300 bp)`, and search also uses the full name.
+   The assembler, the program that joined the reads, supplies the full name. In this example, `NODE_2` is the contig number and `length_300` is its length in bases. `cov_5.0` is the assembler's coverage figure for the contig. A k-mer is a short stretch of sequence of a fixed length. In names of this form, the coverage figure usually counts how often those stretches occur in the reads, averaged across the contig. This average k-mer coverage runs lower than the number of reads over each base, so use it to compare contigs from the same run. The outline and detail pane shorten the name to `NODE_2 (300 bp)`, and search also uses the full name.
 
-2. Select a contig row to see its details. It shows the contig name, sample, organism and rank, the level of the organism's name, such as species or genus. The six badges, small labeled values, are **Identity**, **E-value**, **Bit Score**, **Mapped Reads**, **RPB**, and **Length**. Mapped reads are reads placed back on the contig. Reads per billion (RPB) puts the mapped count on the same scale across samples.
+2. Select a contig row to see its details. It shows the contig name, sample, organism and rank, the level of the organism's name, such as species or genus. The six badges, small labeled values, are **Identity**, **E-value**, **Bit Score**, **Mapped Reads**, **RPB**, and **Length**. Mapped reads are reads placed back on the contig. Reads per billion (RPB) rescales the mapped count by how deeply the sample was sequenced.
 
    **Contig Alignment** names the best match and stacks the reads mapped back to the contig from the sample's BAM file at their aligned positions. Expect the heading and best match above an empty read view in the demo.
 
 ### Verify a contig with BLAST
 
-To check a match with a fresh BLAST search, LGE uses the contig's sequence from the sample's FASTA file. All four simulated contigs in the demo use sequence from the SARS-CoV-2 reference, a sequence used for comparison. SampleA's `NODE_1_length_500_cov_10.0` tests a row whose reported match and sequence refer to the same virus.
+To check a match with a fresh BLAST search, LGE uses the contig's sequence from the sample's FASTA file. All four simulated contigs in the demo use sequence from the SARS-CoV-2 reference, a sequence used for comparison. SampleA's `NODE_1_length_500_cov_10.0` tests a row whose reported match and sequence refer to the same virus. The other three demo contigs hold SARS-CoV-2 sequence under rows that name HIV-1, a herpesvirus, or a norovirus. With NCBI Taxonomy installed, verifying one of those three returns a mismatch. The simulated files produce those mismatches.
 
 1. Select one contig row or one of its expanded matches. For the demo, use SampleA's `NODE_1_length_500_cov_10.0`. A [taxon](../../GLOSSARY.md#taxon) is a named group of organisms. The **By Taxon** headings label those groups, so selecting one leaves verification grayed.
 
 2. Click **Verify with BLAST…** in the action bar at the bottom of the window. If the button is grayed, point to it to see the reason in its tooltip, the note shown beside the pointer.
 
-3. Confirm in the **Run BLAST at NCBI?** sheet. LGE submits the contig sequence to NCBI and checks the result against the organism in the selected row's **Classification** cell. Selecting a lower-ranked hit that names a different organism checks that name.
+3. Confirm in the **Run BLAST at NCBI?** sheet. LGE submits the contig sequence to NCBI and looks for a copy of NCBI Taxonomy that you have already installed. If it finds one, LGE judges the result against the species of the organism in the selected row's **Classification** cell. If you select a lower-ranked hit that names a different organism, LGE judges the result against that organism's species instead.
 
-4. Read the verdict for the contig's single search in the **BLAST Results** drawer at the bottom of the window. For what the verdict means, see the [BLAST Verification](06-blast-verification.md#the-summary-bar-and-the-verdict) chapter.
+4. Read the verdict for the contig's single search in the **BLAST Results** drawer at the bottom of the window. If the badge reads **Not judged**, install NCBI Taxonomy in the **Databases** tab of the **Plugin Manager** and run **Verify with BLAST…** again. For what the verdict means, see the [BLAST Verification](06-blast-verification.md#the-summary-bar-and-the-verdict) chapter.
 
    <!-- SHOT: nvd-blast-drawer -->
 
@@ -138,15 +142,15 @@ Three controls above the outline change what you see. For `lungfish-cli nvd expo
 
 ## Reading the results
 
-The outline has fourteen columns, six of which also appear as detail badges. A library is a collection of fragments prepared for sequencing.
+The outline has fourteen columns, six of which also appear as detail badges. NVD's taxonomy adjustment uses the contig's matches together to assign an organism name.
 
 | Column | What it holds |
 |---|---|
-| Sample | Library the contig was assembled from |
+| Sample | Sample the contig was assembled from, as the pipeline named it |
 | Contig | Short name such as `NODE_2 (300 bp)`. **Copy Name** and the export give the full name |
 | Length | Contig length in bases (badge) |
-| Classification | Organism name recorded for this match |
-| Rank | Level of the organism name recorded for this match |
+| Classification | Organism the pipeline assigned to this contig, after its own taxonomy adjustment |
+| Rank | Level of the organism name the pipeline assigned to the contig |
 | Accession | ID of the matched database record |
 | Subject | Full title of the matched record |
 | Identity % | Share of aligned positions that agree (badge) |
@@ -161,7 +165,7 @@ The outline lists contigs longest first, and clicking a header keeps that order.
 
 <!-- SHOT: nvd-column-menu -->
 
-**Length and Aln Length.** Compare these to estimate how much of the contig a match covers. Aln Length counts alignment columns, which can include gaps. A gap is a position where one sequence has no base opposite the other. The difference between the two lengths only approximates how much sequence lies outside that match. Other stretches may align to another record or have matches too weak to report.
+**Length and Aln Length.** Compare these to estimate how much of the contig a match covers. Aln Length counts alignment columns, which can include gaps. A gap is a position where one sequence has no base opposite the other. The difference between the two lengths only approximates how much sequence lies outside that match. A local alignment finds a matching stretch within a sequence. Other stretches may align to the same record in a second local alignment, align to another record, or have matches too weak to report.
 
 | Contig | Length in bases | Aln Length |
 |---|---|---|
@@ -170,15 +174,17 @@ The outline lists contigs longest first, and clicking a header keeps that order.
 
 <!-- ILLUSTRATION: contig-alignment-length -->
 
-Identity describes the aligned stretch. In the demo it is high for all four best matches. Use identity and length together to decide which contig to inspect.
+Identity describes the aligned stretch. In the demo it is high for all four best matches. An isolate is a virus sample obtained from a particular source. Look at how much of the contig aligns and how the identity compares with matches among isolates of the named virus.
 
 | What you see | How to read it |
 |---|---|
 | Near 100% identity across nearly all of a long contig | Supports a match to a known viral sequence |
-| Less than half of a long contig covered, or below about 90% identity | Consider expanding the row and using **Verify with BLAST…** |
+| A match that covers only part of a long contig, or with identity well below matches among isolates of the named virus | Expand the row if it has multiple matches. Compare **Length** with **Aln Length** for each match to estimate how much of the contig lies outside it |
 | Demo best matches at 99.5%, 96.0%, 99.0%, and 97.5% identity | Inspect alignment length to see how much of each contig agrees |
 
-An e-value shown as `0` is too small for BLAST to print at its displayed precision. See how the scores fit together in [BLAST Verification](06-blast-verification.md#reading-the-results). Report the match at the rank shown, such as genus or family if the row gives a broad name.
+A fresh search from **Verify with BLAST…** runs megablast, a BLAST mode tuned for nearly identical sequences. It can confirm a near-identical contig but can miss a distant relative. For a possible new virus, use a protein-level search outside LGE. It compares sequences of amino acids, the building blocks of proteins, and can find relatives whose base sequences are too different for a nucleotide search, which compares bases directly.
+
+An e-value shown as `0` is too small for BLAST to print at its displayed precision. See how the scores fit together in [BLAST Verification](06-blast-verification.md#reading-the-results). Report the match at the rank shown, such as genus or family if the row gives a broad name. The name comes from the pipeline's adjustment across the contig's matches, so check the row's **Subject** and **Accession** before you report it.
 
 **Mapped Reads and Unique Reads.** Mapped Reads comes from NVD's table. [Mates](../../GLOSSARY.md#mate) are the two reads from one fragment, and NVD may count them separately. LGE marks duplicates, reads that appear to be copies from the same original fragment, at import, then counts BAM records on the contig for Unique Reads. It skips records marked as unmapped, secondary (an alternative placement), supplementary (another part of a split placement), or duplicate. Each mate has its own record and counts once if retained. The demo shows dashes in Unique Reads because it has no BAM files.
 
@@ -189,7 +195,7 @@ An e-value shown as `0` is too small for BLAST to print at its displayed precisi
 | SampleA SARS-CoV-2 | 50 | 1,000,000 | 50,000 |
 | SampleB herpesvirus | 100 | 2,000,000 | 50,000 |
 
-The same share of each sample's reads mapped to its contig, even though the SampleB contig had twice the mapped reads. RPB has no fixed good value. Use it to compare mapped shares within a run, and use the alignment and read support to judge each match.
+The same share of each sample's reads mapped to its contig, even though the SampleB contig had twice the mapped reads. RPB has no fixed good value. It corrects only for sequencing depth, the total reads from a sample. Contig length and how much virus survived collection and extraction can still affect RPB. Compare RPB between contigs of similar length or for the same contig across samples. Use the alignment and read support to judge each match.
 
 ### The NVD action bar and row menu
 
@@ -218,11 +224,11 @@ The menu ends with **Copy Name**, **Copy Accession**, **Open on NCBI** for the m
 
 Apply the [read classification evidence checklist](01-what-is-classification.md#the-evidence-checklist) to each contig before reporting a match.
 
-1. Check **Samples** against the number of libraries your lab sequenced for the run. If an expected library is missing, check whether the table has any rows for it. **Hits** should equal or exceed **Contigs** because each contig has at least one hit.
+1. Check **Samples** against the number of samples you submitted for the run. If an expected sample is missing, check whether the table has any rows for it. **Hits** should equal or exceed **Contigs** because each reported contig has at least one hit.
 
-2. Start with the longest contigs. Compare Length, Aln Length, and Identity % to see whether the match spans most of the contig or calls for a closer look.
+2. Start with the longest contigs. Compare **Length** with **Aln Length** to see how much of the contig a match covers. Look more closely if the match covers only part of the contig or its percent identity is well below matches among isolates of the named virus.
 
-3. Expand the contig and compare bit scores across organism names. A clear score gap favors the higher match among the records searched. If matches for different organisms score within a few percent of each other, compare how much of the contig each match covers and report uncertainty if the evidence leaves the names unresolved. SampleA's HIV-1 contig has scores of 750, 720, 700, 680, and 660, all for the same organism.
+3. If the contig has multiple matches, expand it and compare bit scores across organism names. A clear score gap favors the higher match among the records searched. If matches for different organisms score within a few percent of each other, compare how much of the contig each match covers and report uncertainty if the evidence leaves the names unresolved. SampleA's HIV-1 contig has scores of 750, 720, 700, 680, and 660, all naming HIV-1. Databases often hold many isolates of a common virus, so seeing one name throughout the list is common and a nearly equal match to another organism can still fall outside it.
 
 4. Check Mapped Reads. A contig with little read support may be an assembly artifact, a sequence created by an error when joining reads. If you have the sample's BAM file, compare Unique Reads with Mapped Reads. The counts can differ because they use different rules. Check the [pileup](../../GLOSSARY.md#pileup), the stack of reads at each position, in **Contig Alignment**. Reads spread across the contig can support the assembly. If reads cover only a short stretch, inspect the rest of the contig more closely.
 
