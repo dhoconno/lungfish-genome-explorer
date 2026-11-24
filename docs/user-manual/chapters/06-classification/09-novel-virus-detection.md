@@ -29,7 +29,7 @@ illustrations:
 glossary_refs: [nvd, contig, blast, e-value, percent-identity, bit-score, accession, taxon, read, fastq, bam, bundle, provenance, checksum, reads-per-billion, inspector, operations-panel, pileup, unique-reads, primary-alignment, mate, viewport, tsv, relative-abundance, fasta, csv, secondary-alignment, working-directory, sample-metadata, pipeline, mapper, command-line-flag, reference-bundle]
 features_refs: [import.nvd]
 fixtures_refs: [nvd-demo]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
@@ -64,9 +64,9 @@ LGE looks in two locations for optional files and copies the files it finds into
 | Optional file | Where LGE looks | What the file enables |
 |---|---|---|
 | Contig FASTA file for each sample, named `<sample>.human_virus.fasta` | `02_human_viruses/03_human_virus_results/` | **Verify with BLAST…** and the other commands that use the contig's sequence |
-| BAM file for each sample, with the sample name in its file name | `02_human_viruses/03_human_virus_results/mapped_reads/` | LGE's own read count, [Unique Reads](../../GLOSSARY.md#unique-reads), the reads in **Contig Alignment**, and **Extract Reads…** |
+| BAM file for each sample, with the sample name in its file name | `02_human_viruses/03_human_virus_results/mapped_reads/` | LGE's own read count, [**Unique Reads**](../../GLOSSARY.md#unique-reads), the reads in **Contig Alignment**, and **Extract Reads…** |
 
-The demo has the table and simulated contig FASTA files, so you can verify a match. To count Unique Reads, view mapped reads, or extract reads, use a run with the sample's BAM file. A plugin pack is an add-on that supplies tools. This import needs no plugin pack and the demo import can take well under a second.
+The demo has the table and simulated contig FASTA files, so you can verify a match. To count **Unique Reads**, view mapped reads, or extract reads, use a run with the sample's BAM file. A plugin pack is an add-on that supplies tools. This import needs no plugin pack and the demo import can take well under a second.
 
 NCBI Taxonomy is NCBI's catalog of named groups of organisms. It is an optional download in the **Databases** tab of the **Plugin Manager**, the window where you install plugin packs and databases. Choose **Tools > Plugin Manager…** (Cmd-Shift-B) to open it. Without NCBI Taxonomy, LGE cannot judge the BLAST result in the last verification step.
 
@@ -78,7 +78,7 @@ NCBI Taxonomy is NCBI's catalog of named groups of organisms. It is an optional 
 
 2. Click **Classification Results**. The **NVD Results** card has the hint "NVD run folder containing *_blast_concatenated.csv(.gz)".
 
-   <!-- SHOT: nvd-import-card -->
+    <!-- SHOT: nvd-import-card -->
 
 3. Click **Import…** on the **NVD Results** card. **NVD Import** opens as a sheet, a dialog attached to the window.
 
@@ -90,9 +90,9 @@ NCBI Taxonomy is NCBI's catalog of named groups of organisms. It is an optional 
 
 3. Check **Preview** before importing. It shows **Experiment**, **Samples**, **Contigs**, and **BLAST hits**, with **Total BAM size** when alignment files are present. For the demo, expect experiment `100`, 3 samples, 4 contigs, and 10 BLAST hits.
 
-   <!-- SHOT: nvd-import-preview -->
+    <!-- SHOT: nvd-import-preview -->
 
-   **Experiment** identifies the run. **Samples** counts the distinct sample names in the table. If the preview warns that it cannot find the table, check the selected folder and look for the table in `05_labkey_bundling/`.
+    **Experiment** identifies the run. **Samples** counts the distinct sample names in the table. If the preview warns that it cannot find the table, check the selected folder and look for the table in `05_labkey_bundling/`.
 
 ### Import and open the NVD result
 
@@ -104,15 +104,15 @@ NCBI Taxonomy is NCBI's catalog of named groups of organisms. It is an optional 
 
 Four summary cards repeat the preview counts under **Experiment**, **Samples**, **Contigs**, and **Hits**. The outline is a table whose rows expand to show more rows. Each contig row shows its best BLAST match. The detail pane shows information about the selected row.
 
-1. Expand a contig with the triangle beside its name to compare matches. The first expanded row, Hit #1, repeats the best match. In SampleA, `NODE_2_length_300_cov_5.0` has five HIV-1 matches and `NODE_1_length_500_cov_10.0` has three SARS-CoV-2 matches.
+1. Expand a contig with the triangle beside its name to compare matches. The first expanded row, **Hit #1**, repeats the best match. In SampleA, `NODE_2_length_300_cov_5.0` has five HIV-1 matches and `NODE_1_length_500_cov_10.0` has three SARS-CoV-2 matches.
 
-   <!-- SHOT: nvd-result-viewport -->
+    <!-- SHOT: nvd-result-viewport -->
 
-   The assembler, the program that joined the reads, supplies the full name. In this example, `NODE_2` is the contig number and `length_300` is its length in bases. `cov_5.0` is the assembler's coverage figure for the contig. A k-mer is a short stretch of sequence of a fixed length. In names of this form, the coverage figure usually counts how often those stretches occur in the reads, averaged across the contig. This average k-mer coverage runs lower than the number of reads over each base, so use it to compare contigs from the same run. The outline and detail pane shorten the name to `NODE_2 (300 bp)`, and search also uses the full name.
+    The assembler, the program that joined the reads, supplies the full name. In this example, `NODE_2` is the contig number and `length_300` is its length in bases. `cov_5.0` is the assembler's coverage figure for the contig. A k-mer is a short stretch of sequence of a fixed length. In names of this form, the coverage figure usually counts how often those stretches occur in the reads, averaged across the contig. This average k-mer coverage runs lower than the number of reads over each base, so use it to compare contigs from the same run. The outline and detail pane shorten the name to `NODE_2 (300 bp)`, and search also uses the full name.
 
 2. Select a contig row to see its details. It shows the contig name, sample, organism and rank, the level of the organism's name, such as species or genus. The six badges, small labeled values, are **Identity**, **E-value**, **Bit Score**, **Mapped Reads**, **RPB**, and **Length**. Mapped reads are reads placed back on the contig. Reads per billion (RPB) rescales the mapped count by how deeply the sample was sequenced.
 
-   **Contig Alignment** names the best match and stacks the reads mapped back to the contig from the sample's BAM file at their aligned positions. Expect the heading and best match above an empty read view in the demo.
+    **Contig Alignment** names the best match and stacks the reads mapped back to the contig from the sample's BAM file at their aligned positions. Expect the heading and best match above an empty read view in the demo.
 
 ### Verify a contig with BLAST
 
@@ -128,7 +128,7 @@ With NCBI Taxonomy installed, verifying one of those three gives **Unsupported**
 
 4. Read the verdict for the contig's single search in the **BLAST Results** drawer at the bottom of the window. If the badge reads **Not judged**, install NCBI Taxonomy in the **Databases** tab of the **Plugin Manager** and run **Verify with BLAST…** again. For what the verdict means, see the [BLAST Verification](06-blast-verification.md#the-summary-bar-and-the-verdict) chapter.
 
-   <!-- SHOT: nvd-blast-drawer -->
+    <!-- SHOT: nvd-blast-drawer -->
 
 ## Settings
 
@@ -148,26 +148,26 @@ The outline has fourteen columns, six of which also appear as detail badges. NVD
 
 | Column | What it holds |
 |---|---|
-| Sample | Sample the contig was assembled from, as the pipeline named it |
-| Contig | Short name such as `NODE_2 (300 bp)`. **Copy Name** and the export give the full name |
-| Length | Contig length in bases (badge) |
-| Classification | Organism the pipeline assigned to this contig, after its own taxonomy adjustment |
-| Rank | Level of the organism name the pipeline assigned to the contig |
-| Accession | ID of the matched database record |
-| Subject | Full title of the matched record |
-| Identity % | Share of aligned positions that agree (badge) |
-| E-value | Expected number of equally strong or stronger matches by chance (badge) |
-| Bit Score | Alignment strength on a scale independent of database size (badge) |
-| Mapped Reads | Reads mapped back to this contig, as counted by NVD (badge) |
-| Unique Reads | LGE's filtered count from the sample's BAM file, or a dash when unavailable |
-| RPB | Reads per billion, the mapped count scaled to the sample's total reads (badge) |
-| Aln Length | Number of columns in the BLAST alignment |
+| **Sample** | Sample the contig was assembled from, as the pipeline named it |
+| **Contig** | Short name such as `NODE_2 (300 bp)`. **Copy Name** and the export give the full name |
+| **Length** | Contig length in bases (badge) |
+| **Classification** | Organism the pipeline assigned to this contig, after its own taxonomy adjustment |
+| **Rank** | Level of the organism name the pipeline assigned to the contig |
+| **Accession** | ID of the matched database record |
+| **Subject** | Full title of the matched record |
+| **Identity %** | Share of aligned positions that agree (badge) |
+| **E-value** | Expected number of equally strong or stronger matches by chance (badge) |
+| **Bit Score** | Alignment strength on a scale independent of database size (badge) |
+| **Mapped Reads** | Reads mapped back to this contig, as counted by NVD (badge) |
+| **Unique Reads** | LGE's filtered count from the sample's BAM file, or a dash when unavailable |
+| **RPB** | Reads per billion, the mapped count scaled to the sample's total reads (badge) |
+| **Aln Length** | Number of columns in the BLAST alignment |
 
 The outline lists contigs longest first, and clicking a header keeps that order. Drag headers to move columns, or drag dividers to resize them. Right-click a header for **Standard Columns** and **Reset Column Widths**. Once you attach [sample metadata](../../GLOSSARY.md#sample-metadata), details such as collection dates, **Sample Metadata** lets you show those columns.
 
 <!-- SHOT: nvd-column-menu -->
 
-**Length and Aln Length.** Compare these to estimate how much of the contig a match covers. Aln Length counts alignment columns, which can include gaps. A gap is a position where one sequence has no base opposite the other. The difference between the two lengths only approximates how much sequence lies outside that match. A local alignment finds a matching stretch within a sequence. Other stretches may align to the same record in a second local alignment, align to another record, or have matches too weak to report.
+**Length and Aln Length.** Compare these to estimate how much of the contig a match covers. **Aln Length** counts alignment columns, which can include gaps. A gap is a position where one sequence has no base opposite the other. The difference between the two lengths only approximates how much sequence lies outside that match. A local alignment finds a matching stretch within a sequence. Other stretches may align to the same record in a second local alignment, align to another record, or have matches too weak to report.
 
 | Contig | Length in bases | Aln Length |
 |---|---|---|
@@ -188,9 +188,9 @@ A fresh search from **Verify with BLAST…** runs megablast, a BLAST mode tuned 
 
 An e-value shown as `0` is too small for BLAST to print at its displayed precision. See how the scores fit together in [BLAST Verification](06-blast-verification.md#reading-the-results). Report the match at the rank shown, such as genus or family if the row gives a broad name. The name comes from the pipeline's own adjustment, so check the row's **Subject** and **Accession** before you report it.
 
-**Mapped Reads and Unique Reads.** Mapped Reads comes from NVD's table. [Mates](../../GLOSSARY.md#mate) are the two reads from one fragment, and NVD may count them separately. LGE marks duplicates, reads that appear to be copies from the same original fragment, at import, then counts BAM records on the contig for Unique Reads. It skips records marked as unmapped, secondary (an alternative placement), supplementary (another part of a split placement), or duplicate. Each mate has its own record and counts once if retained. The demo shows dashes in Unique Reads because it has no BAM files.
+**Mapped Reads and Unique Reads.** **Mapped Reads** comes from NVD's table. [Mates](../../GLOSSARY.md#mate) are the two reads from one fragment, and NVD may count them separately. LGE marks duplicates, reads that appear to be copies from the same original fragment, at import, then counts BAM records on the contig for **Unique Reads**. It skips records marked as unmapped, secondary (an alternative placement), supplementary (another part of a split placement), or duplicate. Each mate has its own record and counts once if retained. The demo shows dashes in **Unique Reads** because it has no BAM files.
 
-**RPB.** To calculate [reads per billion](../../GLOSSARY.md#reads-per-billion), divide Mapped Reads by the sample's total read count and multiply by a billion. Find the denominator, `total_reads`, in `demo_blast_concatenated.csv`. The viewport does not display it.
+**RPB.** To calculate [reads per billion](../../GLOSSARY.md#reads-per-billion), divide **Mapped Reads** by the sample's total read count and multiply by a billion. Find the denominator, `total_reads`, in `demo_blast_concatenated.csv`. The viewport does not display it.
 
 | Demo contig | Mapped Reads | Total reads | RPB |
 |---|---|---|---|
@@ -203,7 +203,7 @@ The same share of each sample's reads mapped to its contig, even though the Samp
 
 The NVD action bar has **Verify with BLAST…**, **Export**, **Extract Reads…**, and **BLAST Results**. The [Running Kraken 2](02-running-kraken2.md#the-action-bar-and-the-provenance-popover) chapter describes the shared controls.
 
-**Export** saves the best match of each contig shown in the outline. It uses the checked samples and any text in **Search contigs…**, includes any visible sample metadata columns, and writes rows independently of the outline's sort or grouping. The save sheet may be titled **Export NVD Contigs**, with `<experiment>_nvd_contigs.tsv` as the default name. LGE runs `lungfish-cli nvd export contigs` in the Operations Panel. The [tab-separated file](../../GLOSSARY.md#tsv) puts a tab between fields and has all fourteen standard columns, with Aln Length after Identity % and empty cells where the outline shows dashes.
+**Export** saves the best match of each contig shown in the outline. It uses the checked samples and any text in **Search contigs…**, includes any visible sample metadata columns, and writes rows independently of the outline's sort or grouping. The save sheet may be titled **Export NVD Contigs**, with `<experiment>_nvd_contigs.tsv` as the default name. LGE runs `lungfish-cli nvd export contigs` in the Operations Panel. The [tab-separated file](../../GLOSSARY.md#tsv) puts a tab between fields and has all fourteen standard columns, with **Aln Length** after **Identity %** and empty cells where the outline shows dashes.
 
 **Export** becomes available once the result opens and at least one sample is checked. If you clear every sample, its tooltip reads "Pick a sample to export." **Extract Reads…** needs BAM files and saves each read behind the selected rows once in a new [FASTQ](../../GLOSSARY.md#fastq) [bundle](../../GLOSSARY.md#bundle). FASTQ stores reads with their quality scores, and a bundle groups related files. Follow the steps for [the Extract Reads dialog](02-running-kraken2.md#the-extract-reads-dialog) to use it.
 
@@ -232,7 +232,7 @@ Apply the [read classification evidence checklist](01-what-is-classification.md#
 
 3. If the contig has multiple matches, expand it and compare bit scores across organism names. A clear score gap favors the higher match among the records searched. If matches for different organisms score within a few percent of each other, compare how much of the contig each match covers and report uncertainty if the evidence leaves the names unresolved. SampleA's HIV-1 contig has scores of 750, 720, 700, 680, and 660, all naming HIV-1. Databases often hold many isolates of a common virus, so seeing one name throughout the list is common and a nearly equal match to another organism can still fall outside it.
 
-4. Check Mapped Reads. A contig with little read support may be an assembly artifact, a sequence created by an error when joining reads. If you have the sample's BAM file, compare Unique Reads with Mapped Reads. The counts can differ because they use different rules. Check the [pileup](../../GLOSSARY.md#pileup), the stack of reads at each position, in **Contig Alignment**. Reads spread across the contig can support the assembly. If reads cover only a short stretch, inspect the rest of the contig more closely.
+4. Check **Mapped Reads**. A contig with little read support may be an assembly artifact, a sequence created by an error when joining reads. If you have the sample's BAM file, compare **Unique Reads** with **Mapped Reads**. The counts can differ because they use different rules. Check the [pileup](../../GLOSSARY.md#pileup), the stack of reads at each position, in **Contig Alignment**. Reads spread across the contig can support the assembly. If reads cover only a short stretch, inspect the rest of the contig more closely.
 
 If your lab ran controls, samples used for comparison, check them before reporting a match. A negative control omits the material you want to detect. A similar signal in a negative control can suggest contamination.
 
