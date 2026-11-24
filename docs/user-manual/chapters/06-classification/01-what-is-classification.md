@@ -257,7 +257,7 @@ The Kraken 2, EsViritu, TaxTriage, NAO-MGS, and NVD views share **Panel Layout**
 |---|---|
 | Kraken 2 **Confidence** | Threshold on the share of k-mers that support an assignment |
 | TaxTriage **Confidence** | **High**, **Medium**, or **Low**, based on the TASS score |
-| BLAST verification verdict | **Supported**, **Not specific**, **Mixed**, **Unsupported**, or **Inconclusive**. See [The summary bar and the verdict](06-blast-verification.md#the-summary-bar-and-the-verdict) for their meanings. |
+| BLAST verification verdict | **Supported**, **Not specific**, **Mixed**, **Unsupported**, **Inconclusive**, or **Not judged**. See [The summary bar and the verdict](06-blast-verification.md#the-summary-bar-and-the-verdict) for their meanings. |
 
 In an Oxford Nanopore run, **Unclassified** labels reads assigned to no [barcode](../../GLOSSARY.md#barcode), the tag identifying a sample in a run that combines several samples.
 
