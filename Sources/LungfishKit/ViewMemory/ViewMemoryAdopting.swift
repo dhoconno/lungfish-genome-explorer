@@ -136,6 +136,8 @@ struct ViewMemoryOpening {
 @MainActor
 final class ViewMemoryStart<State: ViewMemoryState> {
     var view: State
+    /// A Reset View was made before a pending adopter's own load committed, so its late apply leaves the reset alone.
+    var resetBeforeApply = false
 
     init(_ view: State) {
         self.view = view

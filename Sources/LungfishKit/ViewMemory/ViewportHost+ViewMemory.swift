@@ -46,7 +46,7 @@ extension ViewportHost {
             let handle = ViewMemoryHandle<Adopter.ViewState> { [weak self, weak adopter] startingView in
                 guard let self, let adopter, self.activeViewport === adopter else { return }
                 if let startingView { start.view = startingView }
-                guard let kept, adopter.captureViewMemory() == start.view else { return }
+                guard !start.resetBeforeApply, let kept, adopter.captureViewMemory() == start.view else { return }
                 let changed = Self.dataChanged(from: kept.dataKey, to: adopter.viewMemoryDataKey)
                 let loss = adopter.restoreViewMemory(kept.view, dataChanged: changed)
                 if let line = ViewMemoryWords.line(loss: loss, selectionDropped: kept.selectionDropped) {
@@ -69,8 +69,9 @@ extension ViewportHost {
                 store.keep(adopter.captureViewMemory(), startingView: start.view, for: key,
                            dataKey: adopter.viewMemoryDataKey, folder: item.folder)
             },
-            reset: { [weak self, weak adopter] in
+            reset: { [weak self, weak adopter, pending] in
                 store.reset(key, kind: Adopter.ViewState.kind, folder: item.folder)
+                if pending?.isApplied == false { start.resetBeforeApply = true }
                 self?.removeResetLine()
                 _ = adopter?.restoreViewMemory(start.view, dataChanged: false)
                 adopter?.announceViewMemory()
