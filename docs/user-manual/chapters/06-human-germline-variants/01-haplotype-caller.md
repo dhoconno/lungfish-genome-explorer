@@ -100,7 +100,7 @@ The Thresholds fields do nothing for GATK HaplotypeCaller. They drive the thresh
 
 ### Run HaplotypeCaller
 
-Check that the Alignment Track picker names `HG002 minimap2`, or `HG002 minimap2 [unmarked]` after duplicate marking, leave every field alone, and click **Run**. If it names another sample, close the dialog and click another `minimap2-` result. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
+Check that the Alignment Track picker names `HG002 minimap2`, or `HG002 minimap2 [dup-marked]` after duplicate marking, leave every field alone, and click **Run**. If it names another sample, close the dialog and click another `minimap2-` result. Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P).
 
 The row runs `lungfish-cli variants call --caller gatk`, which runs GATK inside the `gatk-core` environment, writes the VCF to the bundle's `variants/gatk/` folder, and attaches it as a variant track described as "GATK HaplotypeCaller variants from <alignment>". Each call keeps its own run record, and Copy CLI Command on the row copies the command with every value the dialog chose. The dialog always asks for a plain VCF of variant positions, `--emit-ref-confidence NONE`, never a GVCF. That matters only when you combine this sample with others, which [Joint Genotyping](02-joint-genotyping.md) covers and which needs a GVCF from the command line.
 
@@ -110,7 +110,7 @@ With the bundle still loaded, the rows appear on the **Variants** tab of the [ta
 
 ### Use the command line for the phased route
 
-The phased route adds WhatsHap, a separate program that reads a set of calls and works out which nearby variants sit on the same copy of a chromosome. The dialog does not list it, so four steps on the command line run it.
+The phased route adds WhatsHap, a separate program that reads a set of calls and works out which nearby variants sit on the same copy of a chromosome. The dialog does not list it, so the route takes four steps, two in the app and two in Terminal.
 
 1. Install the Variant Phasing (`phasing`) pack, as Before you start says.
 2. Run `lungfish-cli variants phase` from the `LGE GATK` folder, as [On the command line](#on-the-command-line) shows. It runs GATK and then WhatsHap and writes `phased/HG002.phased.vcf.gz`.
@@ -133,7 +133,7 @@ The GATK HaplotypeCaller entry shows five controls. Where the dialog's `variants
 
 ## Reading the results
 
-A finished run on the fixture writes 1,026 rows. The `Type` column judges each row by its first alternate allele, but types a row carrying a `*` allele, VCF's mark for a position an earlier deletion already covers, as `COMPLEX`. On the run recorded for this manual it reads 843 [SNVs](../../GLOSSARY.md#snv), single-base changes, 178 indels, and 5 complex rows, worked out from that run's type tally and this rule, so confirm them by clicking the **SNV** chip and then the **Indel** [chip](../05-variants/02-reading-the-variant-browser.md#filter-with-the-preset-chips) and reading the table's count with only the GATK track shown.
+A finished run on the fixture writes 1,026 rows. The `Type` column judges each row by its first alternate allele, but types a row carrying a `*` allele, VCF's mark for a position an earlier deletion already covers, as `COMPLEX`. On the run recorded for this manual it reads 843 [SNVs](../../GLOSSARY.md#snv), single-base changes, 178 indels, and 5 complex rows, worked out from that run's type tally and this rule, so confirm the SNV and indel counts by clicking the **SNV** chip and then the **Indel** [chip](../05-variants/02-reading-the-variant-browser.md#filter-with-the-preset-chips) and reading the table's count with only the GATK track shown, and the complex rows are the rest of the 1,026.
 
 A [genotype](../../GLOSSARY.md#genotype) of `0/1` means one of the two chromosome copies carries the change and `1/1` means both do. On the recorded run 589 rows read `0/1`, which are [heterozygous](../../GLOSSARY.md#heterozygous), 418 read `1/1`, which are [homozygous](../../GLOSSARY.md#homozygous), and 19 read `1/2`, two different alternate alleles and no reference copy. Heterozygous calls are about 57 percent of the total, which is what a single human sample at this depth looks like, and about 59 percent with the 19 `1/2` rows, whose two copies also differ. With only the GATK track shown, click **Genotypes** in the **Calls / Genotypes** switch, right-click the `GT` header, choose **Filter GT Equals…**, type `0/1`, and click **Apply**, and the count reads `589 genotypes` on the recorded run, after which **Clear Genotype Column Filters** in the same menu removes the filter. Read genotype notation in full in [Variants and VCF Files](../01-foundations/05-variants-and-vcf.md#the-eight-standard-columns-and-what-may-follow-them).
 
