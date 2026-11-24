@@ -68,6 +68,7 @@ enum ViewStateDrivers {
         RNASeqViewStateDriver(), CellMapViewStateDriver(),
         Kraken2ViewStateDriver(), EsVirituViewStateDriver(), CzIdViewStateDriver(),
         GenotypeViewStateDriver(),
+        FASTQViewStateDriver(), AssemblyViewStateDriver(), FASTACollectionViewStateDriver(),
     ]
 }
 
@@ -952,6 +953,74 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await show(fixture, in: harness, driver: driver)
         XCTAssertEqual(try driver.read(in: harness), driver.readingAfterChangedBundle(changed: changed), driver.kind)
         XCTAssertEqual(driver.resetLineWords(in: harness), driver.lineAfterChangedBundle, "\(driver.kind): the one line")
+    }
+
+    // MARK: - FASTQ, assembly and FASTA collection (VS-DATA)
+
+    func testFASTQKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(FASTQViewStateDriver())
+    }
+
+    func testFASTQKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(FASTQViewStateDriver())
+    }
+
+    func testFASTQKeepsItsTabAndListWidthOnAChangedBundleWithNoLine() async throws {
+        try await assertChangedBundle(FASTQViewStateDriver())
+    }
+
+    func testAssemblyKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(AssemblyViewStateDriver())
+    }
+
+    func testAssemblyKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(AssemblyViewStateDriver())
+    }
+
+    func testAssemblyOpensAChangedBundleWithItsFilterDroppedAndOneLine() async throws {
+        try await assertChangedBundle(AssemblyViewStateDriver())
+    }
+
+    func testFASTACollectionKeepsItsViewThroughASwitch() async throws {
+        try await assertSwitchAwayAndBack(FASTACollectionViewStateDriver())
+    }
+
+    func testFASTACollectionKeepsItsViewThroughARelaunch() async throws {
+        try await assertRelaunch(FASTACollectionViewStateDriver())
+    }
+
+    func testFASTACollectionOpensAChangedFileWithItsFilterDroppedAndOneLine() async throws {
+        try await assertChangedBundle(FASTACollectionViewStateDriver())
+    }
+
+    /// Back from one record shows the same list again. A change made after that way back is kept when the person
+    /// leaves, and the way back alone keeps nothing new and loses nothing (VS S3).
+    func testFASTACollectionKeepsAChangeMadeAfterTheWayBackFromOneRecord() async throws {
+        let driver = FASTACollectionViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try await driver.change(in: harness)
+        await driver.settle(in: harness)
+        let changed = try driver.read(in: harness)
+
+        let viewer = harness.split.viewerController
+        let list = try XCTUnwrap(viewer.fastaCollectionController)
+        list.open(row: 0)
+        XCTAssertNil(viewer.fastaCollectionController, "one record shows in place of the list")
+        viewer.collectionBackButtonTapped(nil)
+        let back = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
+        XCTAssertTrue(back, "the way back shows the list")
+        await driver.settle(in: harness)
+        XCTAssertEqual(try driver.read(in: harness), changed, "the way back shows the list as left")
+        list.testFilter("")
+        let cleared = try driver.read(in: harness)
+
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(try driver.read(in: harness), cleared, "the change made after the way back is kept")
     }
 
     // MARK: - Support
