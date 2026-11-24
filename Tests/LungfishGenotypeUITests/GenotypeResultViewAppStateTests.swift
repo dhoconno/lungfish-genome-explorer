@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import XCTest
 import LungfishCore
@@ -154,6 +155,13 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         await waitUntil(budget: .standard) { second.viewMemoryIsSettled }
         XCTAssertEqual(second.testingDisplayState.summaryViewMode, .outline, "the late restore undid a change")
         XCTAssertEqual(second.testingDisplayState.layout, .listLeading)
+        // The change is kept when the restore lands, not only at the leave (VS-GENO SWIFT SF-2).
+        let item = ViewMemoryItem.read(at: fixture.bundleURL)
+        let key = try XCTUnwrap(fixture.store.key(for: item))
+        guard case .view(let kept, _, _) = fixture.store.restorable(GenotypeViewMemory.self, for: key, folder: item.folder) else {
+            return XCTFail("the change made before the restore landed was not kept at once")
+        }
+        XCTAssertEqual(kept.layout, GenotypeResultPanelLayout.listLeading.rawValue)
         second.detachHostPresentationCallbacks()
 
         let third = try await openRemembered(fixture)
@@ -322,6 +330,129 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
             "the export writes the basis the view shows")
     }
 
+    // MARK: - Fix round 1 (the BIO and SWIFT reviews)
+
+    /// BIO SF-1: the matrix a malformed analysis shows in place of Haplotype Calls is never kept as the person's mode,
+    /// so the kept mode is there again once the analysis is usable.
+    func testAMalformedAnalysisFallbackNeverReplacesTheKeptSummaryMode() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let first = try await openRemembered(fixture)
+        var state = first.testingDisplayState
+        state.layout = .listLeading
+        first.applyDisplayState(state)
+        first.detachHostPresentationCallbacks()
+
+        let malformed = try await open(malformedResult(fixture), store: fixture.store)
+        XCTAssertEqual(malformed.presentationPolicy?.persistencePolicy, .preserveStoredPreference)
+        XCTAssertEqual(malformed.testingDisplayState.summaryViewMode, .matrix, "the fallback shows the matrix")
+        malformed.detachHostPresentationCallbacks()
+
+        let repaired = try await openRemembered(fixture)
+        XCTAssertEqual(repaired.testingDisplayState.summaryViewMode, .outline, "the fallback matrix replaced the kept mode")
+        XCTAssertEqual(repaired.testingDisplayState.layout, .listLeading)
+    }
+
+    /// BIO SF-1 on the path of SWIFT SF-2: a change made before the restore lands on a malformed analysis is kept
+    /// with the kept mode, not with the fallback matrix.
+    func testAChangeBeforeTheRestoreOnAMalformedAnalysisKeepsTheKeptSummaryMode() async throws {
+        let fixture = try makeFixture()
+        defer { cleanup(fixture) }
+        let first = try await openRemembered(fixture)
+        var state = first.testingDisplayState
+        state.layout = .listLeading
+        first.applyDisplayState(state)
+        first.detachHostPresentationCallbacks()
+
+        let malformed = configuredController(fixture, result: malformedResult(fixture), store: fixture.store)
+        var early = malformed.testingDisplayState
+        early.cellColorMode = .none
+        malformed.applyDisplayState(early) // before the main actor's next turn, so before the read lands
+        let settled = await waitUntil(budget: .standard) { malformed.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "the open's restore did not run")
+        malformed.detachHostPresentationCallbacks()
+
+        let repaired = try await openRemembered(fixture)
+        XCTAssertEqual(repaired.testingDisplayState.summaryViewMode, .outline, "the fallback matrix replaced the kept mode")
+        XCTAssertEqual(repaired.testingDisplayState.cellColorMode, .none, "the early change was kept")
+    }
+
+    /// BIO SF-2: word 2 at the top and word 5c at the foot sit beside the viewer's content, never over it, and the
+    /// room they take goes when they go.
+    func testTheViewMemoryLinesDoNotCoverTheViewersContent() async throws {
+        // Word 2: the bundle changed, so the kept percent bases were dropped.
+        let changed = try makeFixture()
+        defer { cleanup(changed) }
+        let left = try await openRemembered(changed)
+        changePickersAndBases(left)
+        left.detachHostPresentationCallbacks()
+        try Data("sample,genotype\n".utf8).write(to: changed.bundleURL.appendingPathComponent("rerun-calls.csv"))
+        let (withWord2, window2) = try await openInWindow(changed)
+        XCTAssertEqual(resetLine(in: withWord2), ViewMemoryWords.dataChanged(.filters))
+        assertLinesCoverNothing(in: withWord2)
+        withWord2.detachHostPresentationCallbacks()
+        XCTAssertEqual(withWord2.view.additionalSafeAreaInsets.top, 0, "the line went, so its room goes")
+        window2.contentView = nil
+
+        // Word 5c: the kept percent bases came back on the same data.
+        let same = try makeFixture()
+        defer { cleanup(same) }
+        let kept = try await openRemembered(same)
+        changePickersAndBases(kept)
+        kept.detachHostPresentationCallbacks()
+        let (withWord5c, window5c) = try await openInWindow(same)
+        XCTAssertEqual(settingsLine(in: withWord5c), ViewMemoryFilterLineForm.changesValues.text)
+        assertLinesCoverNothing(in: withWord5c)
+        var state = withWord5c.testingDisplayState
+        state.supportDenominator = .viewedLocus
+        withWord5c.applyDisplayState(state)
+        XCTAssertNil(settingsLine(in: withWord5c))
+        XCTAssertEqual(withWord5c.view.additionalSafeAreaInsets.bottom, 0, "the line went, so its room goes")
+        withWord5c.detachHostPresentationCallbacks()
+        XCTAssertEqual(withWord5c.view.additionalSafeAreaInsets.top, 0)
+        XCTAssertEqual(withWord5c.view.additionalSafeAreaInsets.bottom, 0)
+        window5c.contentView = nil
+    }
+
+    private func malformedResult(_ fixture: Fixture) -> ONTGenotypeResultBundleData {
+        makeResult(bundleURL: fixture.bundleURL, samples: [], calls: [], haplotypeAnalysis: makeEmptyHaplotypeAnalysis())
+    }
+
+    /// Opens the result in a window, as the app shows it, and waits for the open's restore.
+    private func openInWindow(_ fixture: Fixture) async throws -> (GenotypeResultViewController, NSWindow) {
+        let controller = makeMatrixAnnotationGuardedController()
+        controller.viewMemoryStore = fixture.store
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_000, height: 700), styleMask: [.titled], backing: .buffered,
+            defer: false)
+        window.contentView = controller.view
+        controller.configure(result: fixture.result)
+        let settled = await waitUntil(budget: .standard) { controller.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "the open's restore did not run")
+        return (controller, window)
+    }
+
+    /// Every line on show has a height and covers no point of another visible part of the viewer.
+    private func assertLinesCoverNothing(
+        in controller: GenotypeResultViewController, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let root = controller.view
+        root.layoutSubtreeIfNeeded()
+        let isMemoryLine: (NSView) -> Bool = { $0 is ViewMemoryResetLineView || $0 is ViewMemoryFilterLineView }
+        let lines = root.subviews.filter { isMemoryLine($0) && !$0.isHidden }
+        XCTAssertFalse(lines.isEmpty, "no line shows", file: file, line: line)
+        for memoryLine in lines {
+            XCTAssertGreaterThan(memoryLine.frame.height, 0, file: file, line: line)
+            for other in root.subviews where !isMemoryLine(other) && !other.isHidden {
+                let overlap = memoryLine.frame.intersection(other.frame)
+                let covered = overlap.isNull || overlap.width == 0 ? 0 : overlap.height
+                XCTAssertLessThan(
+                    covered, 0.5, "\(type(of: memoryLine)) covers \(covered) points of \(type(of: other))",
+                    file: file, line: line)
+            }
+        }
+    }
+
     private func changePickersAndBases(_ controller: GenotypeResultViewController) {
         var state = controller.testingDisplayState
         state.cellColorMode = .none
@@ -411,11 +542,13 @@ final class GenotypeResultViewAppStateTests: GenotypeResultViewportTestCase {
         try older.save(toBundleAt: fixture.bundleURL)
     }
 
-    private func configuredController(_ fixture: Fixture, store: ViewMemoryStore? = nil) -> GenotypeResultViewController {
+    private func configuredController(
+        _ fixture: Fixture, result: ONTGenotypeResultBundleData? = nil, store: ViewMemoryStore? = nil
+    ) -> GenotypeResultViewController {
         let controller = makeMatrixAnnotationGuardedController()
         controller.viewMemoryStore = store
         _ = controller.view
-        controller.configure(result: fixture.result)
+        controller.configure(result: result ?? fixture.result)
         return controller
     }
 

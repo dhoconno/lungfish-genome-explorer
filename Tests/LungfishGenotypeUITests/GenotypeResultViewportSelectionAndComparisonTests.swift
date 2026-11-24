@@ -2311,6 +2311,61 @@ final class GenotypeResultViewportSelectionAndComparisonTests: GenotypeResultVie
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "audit")
     }
 
+    /// The same AI revision with the view memory store the app always hands the viewer (VS-GENO SWIFT SF-1): the
+    /// matrix the open itself showed is no person's choice, so it follows the new shape of the result, as at the base.
+    func testAIHaplotypingCompletionResetsGenotypeOnlyMatrixDefaultToOutlineWithAStore() async throws {
+        let storeRoot = try TestTempDirectory.make(prefix: "GenotypeAIRevisionStore")
+        defer { TestTempDirectory.cleanup(storeRoot) }
+        let controller = makeMatrixAnnotationGuardedController()
+        controller.viewMemoryStore = ViewMemoryStore(root: storeRoot.appendingPathComponent("view-memory", isDirectory: true))
+        _ = controller.view
+        let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue
+        ))
+        let settled = await waitUntil(budget: .standard) { controller.viewMemoryIsSettled }
+        XCTAssertTrue(settled, "the open's restore did not run")
+        XCTAssertEqual(controller.testingSummaryViewMode, .matrix)
+
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "ai-provisional:test",
+            definitionSetName: "AI provisional",
+            speciesName: "Test macaque",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M9B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["12_M9_B_001_01"]
+                        )
+                    ]
+                )
+            ]
+        )
+
+        controller.applyAIHaplotypingCompleted(result: makeResult(
+            samples: [],
+            calls: calls,
+            kind: GenotypeResultWorkflowKind.fullLengthONTMHCGenotype.rawValue,
+            haplotypeAnalysis: analysis
+        ))
+
+        XCTAssertEqual(controller.testingSummaryViewMode, .outline, "the open's own matrix stayed after the AI revision")
+        XCTAssertFalse(controller.testingLensControlIsHidden)
+        XCTAssertEqual(controller.testingContentHostTopInset, 48)
+        controller.detachHostPresentationCallbacks()
+    }
+
 
     func testHaplotypedCompletionReturningToGenotypeOnlyRestoresMatrixOnlyView() {
         let controller = makeMatrixAnnotationGuardedController()
