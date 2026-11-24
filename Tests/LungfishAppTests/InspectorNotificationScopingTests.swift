@@ -122,7 +122,7 @@ final class InspectorNotificationScopingTests: XCTestCase {
     }
 
     func testInspectorOriginatedAnnotationSettingsNotificationIncludesWindowScope() {
-        // Changing an annotation setting saves `AppSettings` to `UserDefaults.standard`.
+        // A listener of an annotation setting can save `AppSettings` to `UserDefaults.standard`.
         restoreHostDefaultsAfterTest(keys: ["com.lungfish.appSettings"])
         let inspector = InspectorViewController()
         _ = inspector.view
@@ -139,7 +139,9 @@ final class InspectorNotificationScopingTests: XCTestCase {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        inspector.resetAllAppearanceSettings()
+        // View > Reset View posts the annotation block's settings through this path (`resetOpenView()`, VS-INSP);
+        // the Appearance section's Reset no longer touches the annotation block.
+        inspector.postAnnotationSettings()
 
         XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
     }
@@ -206,7 +208,7 @@ final class InspectorNotificationScopingTests: XCTestCase {
     func testFASTQAnalysisNavigationDoesNotUseGlobalActiveProjectOrMainWindow() throws {
         let source = combinedInspectorViewControllerSource()
         let start = try XCTUnwrap(source.range(of: "@objc func handleFASTQDatasetLoaded"))
-        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "viewModel.selectedTab = .bundle"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "viewModel.setContentTab(.bundle)"))
         let body = String(source[start.lowerBound..<end.lowerBound])
 
         XCTAssertFalse(
