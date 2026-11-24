@@ -68,6 +68,10 @@ struct BundleExportGFF3Subcommand: AsyncParsableCommand {
         let outputURL = URL(fileURLWithPath: invocation.output)
         let source = try readSource(invocation, outputURL: outputURL)
         guard !source.annotations.isEmpty else {
+            // BIO item 6. A bundle whose listed databases could none be read has annotations, so say why.
+            guard source.leftOut.isEmpty else {
+                throw ViewerExportRefusal(AnnotationDatabase.LeftOutWords.noneCouldBeRead(sourceName: source.name, source.leftOut))
+            }
             throw ViewerExportRefusal("\(source.name) has no annotations to export.")
         }
 
@@ -80,6 +84,10 @@ struct BundleExportGFF3Subcommand: AsyncParsableCommand {
         if invocation.force {
             explicitOptions["force"] = .boolean(true)
         }
+        var resolved: [String: ParameterValue] = ["annotationCount": .integer(source.annotations.count)]
+        if !source.leftOut.isEmpty {
+            resolved[AnnotationDatabase.LeftOutWords.provenanceKey] = .array(source.leftOut.map { .string($0.name) })
+        }
         try Task.checkCancellation()
         try ScientificFileExportProvenance.writeAtomically(.cliLeaf(
             workflowName: AnnotationGFF3Export.workflowName,
@@ -89,16 +97,20 @@ struct BundleExportGFF3Subcommand: AsyncParsableCommand {
             argv: invocation.canonicalArgv(),
             explicitOptions: explicitOptions,
             defaults: ["outputFormat": .string("gff3"), "featureSource": .string(AnnotationGFF3Export.featureSource)],
-            resolved: ["annotationCount": .integer(source.annotations.count)],
+            resolved: resolved,
             runClock: runClock
         )) { stagedURL in
             try FileManager.default.copyItem(at: scratch, to: stagedURL)
             try ViewerExportLeaf.checkpointAfterStaging()
         }
+        AnnotationDatabase.LeftOutWords.writeStandardErrorLines(source.leftOut, notIn: "file")
         let noun = source.annotations.count == 1 ? "annotation" : "annotations"
         return ViewerExportLeafOutcome(
             outputURL: outputURL,
-            message: "Exported \(source.annotations.count) \(noun) from \(source.name) to \(outputURL.lastPathComponent)"
+            message: AnnotationDatabase.LeftOutWords.message(
+                "Exported \(source.annotations.count) \(noun) from \(source.name) to \(outputURL.lastPathComponent)",
+                leftOut: source.leftOut, notIn: "file"
+            )
         )
     }
 
@@ -106,7 +118,7 @@ struct BundleExportGFF3Subcommand: AsyncParsableCommand {
     private func readSource(
         _ invocation: AnnotationGFF3Export.Invocation,
         outputURL: URL
-    ) throws -> (name: String, annotations: [SequenceAnnotation], inputURLs: [URL]) {
+    ) throws -> (name: String, annotations: [SequenceAnnotation], inputURLs: [URL], leftOut: [AnnotationDatabase.LeftOutTrack]) {
         if let bundle = invocation.bundle {
             let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
             let inputURLs: [URL]
@@ -120,7 +132,9 @@ struct BundleExportGFF3Subcommand: AsyncParsableCommand {
             }
             try ViewerExportLeaf.refuseUnsafeOutput(outputURL, inputs: inputURLs, force: invocation.force)
             let loaded = try AnnotationGFF3Export.loadBundleAnnotations(bundleURL: bundleURL)
-            return (bundleURL.deletingPathExtension().lastPathComponent, loaded.annotations, loaded.inputURLs)
+            return (
+                bundleURL.deletingPathExtension().lastPathComponent, loaded.annotations, loaded.inputURLs, loaded.leftOutTracks
+            )
         }
         let selectionURL = URL(fileURLWithPath: invocation.selection ?? "")
         guard FileManager.default.fileExists(atPath: selectionURL.path) else {
@@ -138,6 +152,6 @@ struct BundleExportGFF3Subcommand: AsyncParsableCommand {
                 "The selection file at \(selectionURL.path) holds no document annotations. Pass a bundle instead."
             )
         }
-        return (document.sourceName, document.annotations, [selectionURL])
+        return (document.sourceName, document.annotations, [selectionURL], [])
     }
 }

@@ -26,10 +26,10 @@ extension ExtractSequenceSubcommand {
         let eventsOn = globalOptions.outputFormat == .json
         let events = CLIEventEmitter(enabled: eventsOn, emit: printEventLine)
         let startedAt = Date()
-        let pendingCancel = PendingTaskCancel<Result<(URL, Int), any Error>>()
+        let pendingCancel = PendingTaskCancel<Result<(URL, Int, [AnnotationDatabase.LeftOutTrack]), any Error>>()
         let termination = SIGTERMCancellation(cancelling: pendingCancel, secondSignalEndsProcess: true)
         let command = self
-        let task = Task { () -> Result<(URL, Int), any Error> in
+        let task = Task { () -> Result<(URL, Int, [AnnotationDatabase.LeftOutTrack]), any Error> in
             do {
                 return .success(try await fromFASTA ? command.buildFASTARegionBundle(events: events) : command.buildRegionBundle(events: events))
             } catch {
@@ -41,10 +41,21 @@ extension ExtractSequenceSubcommand {
         let outcome = await task.value
         termination.end()
         switch outcome {
-        case .success(let (bundleURL, length)):
-            events.emitComplete(output: bundleURL.path, message: "Bundle ready")
+        case .success(let (bundleURL, length, leftOut)):
+            // ANNOT-EXPORT-MISSING-TRACK. Each source track whose database could not be read is named on standard
+            // error, in the row's last words and in the completion line.
+            AnnotationDatabase.LeftOutWords.writeStandardErrorLines(leftOut, notIn: "bundle")
+            events.emitComplete(
+                output: bundleURL.path,
+                message: AnnotationDatabase.LeftOutWords.message("Bundle ready", leftOut: leftOut, notIn: "bundle")
+            )
             if !globalOptions.quiet {
-                printHumanLine("Extracted \(length) bp to \(bundleURL.path)", eventsOn: eventsOn)
+                printHumanLine(
+                    AnnotationDatabase.LeftOutWords.message(
+                        "Extracted \(length) bp to \(bundleURL.path)", leftOut: leftOut, notIn: "bundle"
+                    ),
+                    eventsOn: eventsOn
+                )
             }
         case .failure(let error) where error is CancellationError:
             await recordCancelledBundleRun(startedAt: startedAt)
@@ -62,7 +73,7 @@ extension ExtractSequenceSubcommand {
     }
 
     /// The run, which returns the published bundle and the length of the extracted sequence.
-    private func buildRegionBundle(events: CLIEventEmitter) async throws -> (URL, Int) {
+    private func buildRegionBundle(events: CLIEventEmitter) async throws -> (URL, Int, [AnnotationDatabase.LeftOutTrack]) {
         let runClock = ProvenanceRunClock()
         let sourceURL = URL(fileURLWithPath: input, isDirectory: true).standardizedFileURL
         guard let output, output.hasSuffix(".lungfishref") else {
@@ -125,7 +136,7 @@ extension ExtractSequenceSubcommand {
             inputURLs: [],
             runClock: runClock
         )
-        let bundleURL = try await SequenceExtractionBundleBuilder().buildBundle(
+        let built = try await SequenceExtractionBundleBuilder().buildBundleNamingLeftOutTracks(
             request: SequenceExtractionBundleBuildRequest(
                 result: result,
                 outputDirectory: outputURL.deletingLastPathComponent(),
@@ -143,7 +154,7 @@ extension ExtractSequenceSubcommand {
             ),
             progressHandler: { fraction, message in events.emitProgress(fraction, message: message) }
         )
-        return (bundleURL, result.nucleotideSequence.count)
+        return (built.url, result.nucleotideSequence.count, built.leftOutAnnotationTracks)
     }
 
     /// The words a record of a GenBank document's region keeps, since the bundle keeps no annotation
@@ -155,7 +166,7 @@ extension ExtractSequenceSubcommand {
     /// a feature of several parts as the viewer does from the sequence it shows, and records the options
     /// the in-process route recorded, the FASTA it read and, with `--source-document`, the document the
     /// FASTA was written from. A GenBank document's annotations are not carried, and the record says so.
-    private func buildFASTARegionBundle(events: CLIEventEmitter) async throws -> (URL, Int) {
+    private func buildFASTARegionBundle(events: CLIEventEmitter) async throws -> (URL, Int, [AnnotationDatabase.LeftOutTrack]) {
         let runClock = ProvenanceRunClock()
         guard let output else { throw ExtractSequenceBundleRefusal("Add -o <name>.lungfishref.") }
         let outputURL = URL(fileURLWithPath: output, isDirectory: true).standardizedFileURL
@@ -226,7 +237,7 @@ extension ExtractSequenceSubcommand {
             ),
             progressHandler: { fraction, message in events.emitProgress(fraction, message: message) }
         )
-        return (bundleURL, result.nucleotideSequence.count)
+        return (bundleURL, result.nucleotideSequence.count, [])
     }
 
     /// The request for the region or the feature of the FASTA sequence the region names, and that

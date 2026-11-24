@@ -26,6 +26,8 @@ public enum AnnotationGFF3Export {
         public let annotations: [SequenceAnnotation]
         /// `manifest.json`, then each annotation database opened, in the manifest's track order.
         public let inputURLs: [URL]
+        /// Each listed track whose database is missing or cannot be read, in the manifest's order.
+        public var leftOutTracks: [AnnotationDatabase.LeftOutTrack] = []
     }
 
     /// The annotation databases of a bundle's tracks that exist, in the manifest's track order. A track with no
@@ -62,17 +64,19 @@ public enum AnnotationGFF3Export {
         try loadBundleAnnotations(bundleURL: bundleURL, manifest: BundleManifest.load(from: bundleURL))
     }
 
+    /// The databases open through the shared reader (ANNOT-EXPORT-MISSING-TRACK), so a listed track whose database is
+    /// missing or cannot be read is left out by name, never in silence. The caller says so.
     public static func loadBundleAnnotations(bundleURL: URL, manifest: BundleManifest) throws -> BundleAnnotations {
-        let databases = annotationDatabases(bundleURL: bundleURL, manifest: manifest)
+        let tracks = AnnotationDatabase.openBundleTracks(bundleURL: bundleURL, manifest: manifest)
         var annotations: [SequenceAnnotation] = []
-        for database in databases {
-            let db = try AnnotationDatabase(url: database.url)
-            let records = db.query(limit: Int.max)
-            annotations.append(contentsOf: records.map { $0.toAnnotation(trackID: database.trackID) })
+        for track in tracks.opened {
+            let records = track.database.query(limit: Int.max)
+            annotations.append(contentsOf: records.map { $0.toAnnotation(trackID: track.id) })
         }
         return BundleAnnotations(
             annotations: annotations,
-            inputURLs: [bundleURL.appendingPathComponent("manifest.json")] + databases.map(\.url)
+            inputURLs: [bundleURL.appendingPathComponent("manifest.json")] + tracks.opened.map(\.url),
+            leftOutTracks: tracks.leftOut
         )
     }
 }

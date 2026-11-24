@@ -145,9 +145,19 @@ extension AnnotationTableDrawerView {
     /// - Returns: The row's id and the task that runs the leaf and settles the row, or nil when the row did not
     ///   start.
     @discardableResult
+    /// The words the drawer's label and the Operations row show at the end of a table export. A track whose database
+    /// is missing or cannot be read is named, in the drawer's words (ANNOT-EXPORT-MISSING-TRACK).
+    nonisolated static func tableExportCompletionWords(
+        rowCount: Int, fileName: String, leftOut: [AnnotationDatabase.LeftOutTrack]
+    ) -> String {
+        let rows = rowCount == 1 ? "1 row" : "\(rowCount) rows"
+        return AnnotationDatabase.LeftOutWords.message("Exported \(rows) to \(fileName)", leftOut: leftOut, notIn: "table")
+    }
+
     static func beginAnnotationTableExportOperation(
         invocation: ViewerExportInvocation,
         rowCount: Int,
+        leftOutTracks: [AnnotationDatabase.LeftOutTrack] = [],
         runner: CLIViewerExportRunner = CLIViewerExportRunner(),
         reporter: any OperationReporting = OperationCenter.shared,
         environmentAdditions: [String: String] = [:],
@@ -174,7 +184,9 @@ extension AnnotationTableDrawerView {
                 arguments: arguments,
                 outputURL: outputURL,
                 operationID: operationID,
-                completionDetail: "Exported \(rows) to \(outputURL.lastPathComponent)",
+                completionDetail: tableExportCompletionWords(
+                    rowCount: rowCount, fileName: outputURL.lastPathComponent, leftOut: leftOutTracks
+                ),
                 environmentAdditions: environmentAdditions
             )
             if case .failed(let failure) = outcome {

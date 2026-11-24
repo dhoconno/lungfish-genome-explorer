@@ -87,6 +87,10 @@ public final class AnnotationSearchIndex {
     /// Public accessor for variant database handles (for delete operations and background queries).
     public var variantDatabaseHandles: [(trackId: String, db: VariantDatabase)] { variantDatabases }
 
+    /// Each listed annotation track whose database the last build could not read, in the manifest's order. The
+    /// drawer's table export and Go to Gene name them (ANNOT-EXPORT-MISSING-TRACK).
+    public private(set) var leftOutAnnotationTracks: [AnnotationDatabase.LeftOutTrack] = []
+
     /// Public accessor for annotation database handles (for background gene-region queries).
     public var annotationDatabaseHandles: [(trackId: String, db: AnnotationDatabase)] { annotationDatabases }
 
@@ -307,25 +311,20 @@ public final class AnnotationSearchIndex {
         bundleGenomeTotalLength = bundle.manifest.genome?.totalLength ?? 0
         bundlePloidyHint = inferPloidyHint(from: bundle.manifest)
 
-        for trackId in bundle.annotationTrackIds {
-            if let trackInfo = bundle.annotationTrack(id: trackId),
-               let dbPath = trackInfo.databasePath {
-                guard let dbURL = try? bundle.memberURL(
-                    for: dbPath,
-                    field: "annotations[\(trackId)].databasePath"
-                ) else {
-                    searchLogger.warning("AnnotationSearchIndex: Skipping unsafe annotation database path '\(dbPath, privacy: .public)'")
-                    continue
-                }
-                guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
-                do {
-                    let db = try AnnotationDatabase(url: dbURL)
-                    annotationDatabases.append((trackId: trackId, db: db))
-                    annotationTrackNames[trackId] = trackInfo.name
-                } catch {
-                    searchLogger.warning("AnnotationSearchIndex: Failed to open annotation database '\(trackId, privacy: .public)': \(error.localizedDescription)")
-                }
-            }
+        // The shared reader (ANNOT-EXPORT-MISSING-TRACK) opens each listed track's database and names each one it
+        // could not read: a path that leaves the bundle, a missing file or a file SQLite cannot open.
+        let tracks = AnnotationDatabase.openTracks(bundle.annotationTrackIds.compactMap { trackId in
+            guard let trackInfo = bundle.annotationTrack(id: trackId), let dbPath = trackInfo.databasePath else { return nil }
+            let dbURL = try? bundle.memberURL(for: dbPath, field: "annotations[\(trackId)].databasePath")
+            return AnnotationDatabase.ListedTrack(id: trackId, name: trackInfo.name, url: dbURL)
+        })
+        for track in tracks.opened {
+            annotationDatabases.append((trackId: track.id, db: track.database))
+            annotationTrackNames[track.id] = track.name
+        }
+        leftOutAnnotationTracks = tracks.leftOut
+        for track in tracks.leftOut {
+            searchLogger.warning("AnnotationSearchIndex: Could not read the annotation database of track '\(track.id, privacy: .public)'")
         }
 
         if let first = annotationDatabases.first {

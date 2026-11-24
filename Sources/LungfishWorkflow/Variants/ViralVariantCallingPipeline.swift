@@ -29,6 +29,11 @@ public struct ViralVariantCallingPipeline: Sendable {
         /// bcftools only: `"explicit"` when the user chose it, otherwise the
         /// `VariantCallingPloidyInference.Basis` that derived it.
         let ploidyBasis: String?
+        /// iVar only, and only when its codon merging was off because the first annotation track's database is
+        /// missing or cannot be read (ANNOT-EXPORT-MISSING-TRACK): `"off"`, the reason, and the track by name.
+        let ivarCodonMerging: String?
+        let ivarCodonMergingOffReason: String?
+        let left_out_tracks: [String]?
     }
 
     public typealias ProgressHandler = @Sendable (Double, String) -> Void
@@ -479,8 +484,27 @@ public struct ViralVariantCallingPipeline: Sendable {
                 plan: plan
             ),
             commandLine: executedCommandLine,
-            provenanceSteps: provenanceSteps
+            provenanceSteps: provenanceSteps,
+            notes: ivarCodonMergingLeftOutTrack().map { [Self.codonMergingOffNote($0)] } ?? []
         )
+    }
+
+    /// The bundle's first annotation track when iVar's codon merging cannot read it, because its database is missing
+    /// or cannot be read. It opens through the shared reader, as the GFF passthrough does. Nil for another caller, for
+    /// a bundle with no annotation track and for a first track with no database, which are normal.
+    private func ivarCodonMergingLeftOutTrack() -> AnnotationDatabase.LeftOutTrack? {
+        guard request.caller == .ivar, let manifest = try? BundleManifest.load(from: request.bundleURL),
+              let first = manifest.annotations.first, first.databasePath != nil else { return nil }
+        let listed = AnnotationDatabase.listedTracks(bundleURL: request.bundleURL, manifest: manifest)
+            .filter { $0.id == first.id }.prefix(1)
+        return AnnotationDatabase.openTracks(Array(listed)).leftOut.first
+    }
+
+    /// The run's words when codon merging was off for a left-out track.
+    static func codonMergingOffNote(_ track: AnnotationDatabase.LeftOutTrack) -> String {
+        "Codon merging was off for this run, so its calls carry no codon or amino-acid change, because the "
+            + "annotation database of \(track.name), the bundle's first annotation track, is missing or cannot be read. "
+            + AnnotationDatabase.LeftOutWords.remedy
     }
 
     /// A post-call `bcftools view -i` filter applied to the raw caller VCF,
@@ -1533,16 +1557,22 @@ public struct ViralVariantCallingPipeline: Sendable {
             // Skip codon merging silently.
             return nil
         }
-        guard let databasePath = firstAnnotation.databasePath else {
+        guard firstAnnotation.databasePath != nil else {
             // Annotation present but no database path; nothing we can convert
             // to GFF for iVar.
             return nil
         }
-        let dbURL = request.bundleURL.appendingPathComponent(databasePath)
+        // The shared reader (ANNOT-EXPORT-MISSING-TRACK). A first track it cannot read turns codon merging off, and
+        // the run's result and caller settings say so (`codonMergingOffNote`).
+        let listed = AnnotationDatabase.listedTracks(bundleURL: request.bundleURL, manifest: manifest)
+            .filter { $0.id == firstAnnotation.id }.prefix(1)
+        guard let opened = AnnotationDatabase.openTracks(Array(listed)).opened.first else {
+            logger.error("iVar codon merging is off: the first annotation track's database is missing or cannot be read")
+            return nil
+        }
         do {
-            let database = try AnnotationDatabase(url: dbURL)
             let outURL = plan.workingDirectory.appendingPathComponent("ivar-annotations.gff3")
-            try AnnotationDatabaseGFFExporter.export(database: database, to: outURL)
+            try AnnotationDatabaseGFFExporter.export(database: opened.database, to: outURL)
             return outURL
         } catch {
             // The bundle has annotations but we couldn't open the database or
@@ -1638,6 +1668,7 @@ public struct ViralVariantCallingPipeline: Sendable {
         let isIvar = request.caller == .ivar
         let isBcftools = request.caller == .bcftools
         let isLongReadCaller = request.caller == .medaka || request.caller == .clair3
+        let codonLeftOut = isIvar ? ivarCodonMergingLeftOutTrack() : nil
         let payload = CallerParametersPayload(
             caller: request.caller.rawValue,
             threads: request.threads,
@@ -1655,7 +1686,10 @@ public struct ViralVariantCallingPipeline: Sendable {
             advancedArguments: request.advancedArguments,
             extraArgs: AdvancedCommandLineOptions.join(request.advancedArguments),
             ploidy: isBcftools ? resolvedPloidy.rawValue : nil,
-            ploidyBasis: isBcftools ? resolvedPloidyBasis : nil
+            ploidyBasis: isBcftools ? resolvedPloidyBasis : nil,
+            ivarCodonMerging: codonLeftOut == nil ? nil : "off",
+            ivarCodonMergingOffReason: codonLeftOut.map(Self.codonMergingOffNote),
+            left_out_tracks: codonLeftOut.map { [$0.name] }
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

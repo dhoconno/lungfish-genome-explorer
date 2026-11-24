@@ -51,7 +51,8 @@ package struct SequenceExtractionBundleBuildRequest: Sendable {
     package let desiredBundleName: String?
     /// The source bundle's chromosomes, which map a track's chromosome names to the region's.
     package let sourceBundleChromosomes: [ChromosomeInfo]
-    package let sourceAnnotationTracks: [SequenceExtractionSourceAnnotationTrack]
+    /// The source's annotation tracks. The builder keeps only those the shared reader can read, and names the rest.
+    package var sourceAnnotationTracks: [SequenceExtractionSourceAnnotationTrack]
     package let sourceVariantTracks: [SequenceExtractionSourceVariantTrack]
     /// The samples whose calls the variant tracks keep, or nil for every sample.
     package let sampleFilter: Set<String>?
@@ -126,6 +127,26 @@ package final class SequenceExtractionBundleBuilder: Sendable {
         request: SequenceExtractionBundleBuildRequest,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
+        try await buildBundleNamingLeftOutTracks(request: request, progressHandler: progressHandler).url
+    }
+
+    /// Builds the bundle and returns it with each source annotation track whose database is missing or cannot be read
+    /// (ANNOT-EXPORT-MISSING-TRACK). Those tracks open through the shared reader before the build, so none is skipped
+    /// in silence, and the record names them as `left_out_tracks`. The caller's completion words name them too.
+    package func buildBundleNamingLeftOutTracks(
+        request sourceRequest: SequenceExtractionBundleBuildRequest,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> (url: URL, leftOutAnnotationTracks: [AnnotationDatabase.LeftOutTrack]) {
+        var request = sourceRequest
+        var leftOut: [AnnotationDatabase.LeftOutTrack] = []
+        if !request.isConcatenated, !request.sourceAnnotationTracks.isEmpty {
+            let read = AnnotationDatabase.openTracks(request.sourceAnnotationTracks.map {
+                AnnotationDatabase.ListedTrack(id: $0.id, name: $0.name, url: $0.databaseURL)
+            })
+            let opened = Set(read.opened.map(\.id))
+            request.sourceAnnotationTracks = request.sourceAnnotationTracks.filter { opened.contains($0.id) }
+            leftOut = read.leftOut
+        }
         let runClock = request.commandContext.runClock ?? ProvenanceRunClock()
         let startedAt = runClock.startedAt
         let tempDirectory = try ProjectTempDirectory.createFromContext(
@@ -184,6 +205,7 @@ package final class SequenceExtractionBundleBuilder: Sendable {
             let completedAt = runClock.now
             try writeProvenance(
                 request: request,
+                leftOutTracks: leftOut,
                 bundleURL: bundleURL,
                 toolSteps: try await genomeToolSteps(bundleURL: bundleURL, startedAt: startedAt, completedAt: completedAt),
                 startedAt: startedAt,
@@ -195,7 +217,7 @@ package final class SequenceExtractionBundleBuilder: Sendable {
         }
 
         progressHandler?(1.0, "Bundle ready: \(bundleURL.lastPathComponent)")
-        return bundleURL
+        return (bundleURL, leftOut)
     }
 
     private func resolvedBundleName(for request: SequenceExtractionBundleBuildRequest) throws -> String {
@@ -383,6 +405,7 @@ package final class SequenceExtractionBundleBuilder: Sendable {
 
     private func writeProvenance(
         request: SequenceExtractionBundleBuildRequest,
+        leftOutTracks: [AnnotationDatabase.LeftOutTrack],
         bundleURL: URL,
         toolSteps: [ProvenanceStep],
         startedAt: Date,
@@ -418,7 +441,11 @@ package final class SequenceExtractionBundleBuilder: Sendable {
         .options(
             explicit: request.commandContext.explicitOptions,
             defaults: request.commandContext.defaultOptions,
-            resolved: request.commandContext.resolvedOptions
+            resolved: leftOutTracks.isEmpty
+                ? request.commandContext.resolvedOptions
+                : request.commandContext.resolvedOptions.merging([
+                    AnnotationDatabase.LeftOutWords.provenanceKey: .array(leftOutTracks.map { .string($0.name) }),
+                ]) { _, new in new }
                 .merging(["output_bundle": .file(bundleURL)]) { current, published in tookAnotherName ? published : current }
         )
         .runtime(ProvenanceRuntimeIdentity())

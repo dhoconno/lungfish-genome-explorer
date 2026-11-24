@@ -1,4 +1,5 @@
 import AppKit
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 import UniformTypeIdentifiers
@@ -185,15 +186,20 @@ extension AnnotationTableDrawerView {
     /// or "Could not export the table", with the leaf's message behind Show Details.
     private func startAnnotationTableExport(invocation: ViewerExportInvocation, rowCount: Int) {
         let fileName = URL(fileURLWithPath: invocation.output).lastPathComponent
+        // ANNOT-EXPORT-MISSING-TRACK. The annotations tab reads the index, which holds only the databases that opened,
+        // so the words name each track whose database is missing or cannot be read.
+        let leftOut = invocation.tab == AnnotationTableExport.Tab.annotations.rawValue
+            ? (searchIndex?.leftOutAnnotationTracks ?? []) : []
+        let words = Self.tableExportCompletionWords(rowCount: rowCount, fileName: fileName, leftOut: leftOut)
         guard let begun = Self.beginAnnotationTableExportOperation(
-            invocation: invocation, rowCount: rowCount,
+            invocation: invocation, rowCount: rowCount, leftOutTracks: leftOut,
             onFailure: { [weak self] failure in
                 self?.presentScientificExportError(AnnotationTableExportLeafFailure(message: failure.message))
             }
         ) else { return }
         Task { @MainActor [weak self] in
             if case .completed = await begun.task.value {
-                self?.queryProgressLabel.stringValue = "Exported \(rowCount) rows to \(fileName)"
+                self?.queryProgressLabel.stringValue = words
             }
         }
     }

@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import LungfishOperations
 import LungfishWorkflow
@@ -109,9 +110,21 @@ extension AppDelegate {
             onFailure: { failure in reportFailure(AppFailureReports.exportAnnotations(failure)) }
         ) else { return }
         let count = annotations.count
+        // ANNOT-EXPORT-MISSING-TRACK. A sidebar bundle's tracks go through the leaf's shared reader, so the completion
+        // words name each listed track whose database it could not read, as the leaf's own message does.
+        let leftOut: [AnnotationDatabase.LeftOutTrack]
+        if source.kind == .sidebarBundle, let bundleURL = source.urls.first,
+           let manifest = try? BundleManifest.load(from: bundleURL) {
+            leftOut = AnnotationDatabase.openBundleTracks(bundleURL: bundleURL, manifest: manifest).leftOut
+        } else {
+            leftOut = []
+        }
         Task { @MainActor in
             if case .completed = await begun.task.value {
-                report("Export complete", "Exported \(count) annotations from \(source.name) to \(outputURL.lastPathComponent).")
+                report("Export complete", AnnotationDatabase.LeftOutWords.message(
+                    "Exported \(count) annotations from \(source.name) to \(outputURL.lastPathComponent).",
+                    leftOut: leftOut, notIn: "file"
+                ))
             }
         }
     }

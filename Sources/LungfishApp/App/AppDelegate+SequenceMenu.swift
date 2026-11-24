@@ -148,7 +148,10 @@ extension AppDelegate {
                         ?? viewerController.viewerView.activeSequence?.name
                         ?? viewerController.viewerView.sequence?.name
                 ) else {
-                    showAlert(title: "Gene Not Found", message: "No annotation matching \"\(query)\" was found in the current dataset.")
+                    showAlert(
+                        title: "Gene Not Found",
+                        message: Self.geneNotFoundMessage(query: query, leftOut: searchIndex.leftOutAnnotationTracks)
+                    )
                     return
                 }
 
@@ -167,6 +170,14 @@ extension AppDelegate {
                 }
             }
         }
+    }
+
+    /// The not-found words of Go to Gene. The search reads the drawer's index, so a gene on a track whose database is
+    /// missing or cannot be read is never found, and the words name each track not searched (ANNOT-EXPORT-MISSING-TRACK).
+    nonisolated static func geneNotFoundMessage(query: String, leftOut: [AnnotationDatabase.LeftOutTrack]) -> String {
+        let base = "No annotation matching \"\(query)\" was found in the current dataset."
+        guard let notSearched = AnnotationDatabase.LeftOutWords.notSearched(leftOut) else { return base }
+        return "\(base) \(notSearched)"
     }
 
     func preferredGeneSearchResult(

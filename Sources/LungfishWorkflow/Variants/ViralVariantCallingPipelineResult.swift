@@ -13,6 +13,9 @@ public struct ViralVariantCallingPipelineResult: Sendable, Equatable {
     public let callerParametersJSON: String
     public let commandLine: String
     public let provenanceSteps: [VariantCallingProvenanceStep]
+    /// Words the person reads about the run, such as iVar's codon merging being off because the first annotation
+    /// track's database is missing or cannot be read (ANNOT-EXPORT-MISSING-TRACK).
+    public let notes: [String]
 
     public init(
         normalizedVCFURL: URL,
@@ -23,8 +26,10 @@ public struct ViralVariantCallingPipelineResult: Sendable, Equatable {
         callerVersion: String,
         callerParametersJSON: String,
         commandLine: String = "",
-        provenanceSteps: [VariantCallingProvenanceStep] = []
+        provenanceSteps: [VariantCallingProvenanceStep] = [],
+        notes: [String] = []
     ) {
+        self.notes = notes
         self.normalizedVCFURL = normalizedVCFURL
         self.stagedVCFGZURL = stagedVCFGZURL
         self.stagedTabixURL = stagedTabixURL

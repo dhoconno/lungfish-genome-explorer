@@ -150,9 +150,11 @@ struct ConvertCommand: AsyncParsableCommand {
         var allAnnotations: [SequenceAnnotation] = []
         var provenanceInputs: [FileRecord] = []
         var inputFormats: [String] = []
+        var leftOut: [AnnotationDatabase.LeftOutTrack] = []
         for (position, inputURL) in inputURLs.enumerated() {
             let read = try await readInput(inputURL)
             provenanceInputs += read.records
+            leftOut += read.leftOut
             if !inputFormats.contains(read.format) { inputFormats.append(read.format) }
             let readAnnotations = read.annotations.map { Self.withInputTrackTag($0, input: position) }
             sourced += read.sequences.map { ($0, readAnnotations) }
@@ -276,6 +278,10 @@ struct ConvertCommand: AsyncParsableCommand {
         if inputURLs.count > 1 {
             recordedParameters["inputs"] = .array(inputURLs.map { .file($0) })
         }
+        // ANNOT-EXPORT-MISSING-TRACK. Each listed track whose database could not be read, by name.
+        if !leftOut.isEmpty {
+            recordedParameters[AnnotationDatabase.LeftOutWords.provenanceKey] = .array(leftOut.map { .string($0.name) })
+        }
         if let compress {
             recordedParameters["compress"] = .string(compress.rawValue)
         }
@@ -312,10 +318,13 @@ struct ConvertCommand: AsyncParsableCommand {
             try publication.rollback(after: error)
         }
 
+        AnnotationDatabase.LeftOutWords.writeStandardErrorLines(leftOut, notIn: "file")
         // Success message, on standard error under `--format json`
         if !globalOptions.quiet {
             printHumanLine(
-                formatter.success("Converted \(sequences.count) sequence(s) to \(outputURL.lastPathComponent)"),
+                formatter.success(AnnotationDatabase.LeftOutWords.message(
+                    "Converted \(sequences.count) sequence(s) to \(outputURL.lastPathComponent)", leftOut: leftOut, notIn: "file"
+                )),
                 eventsOn: globalOptions.outputFormat == .json
             )
         }
@@ -340,7 +349,8 @@ struct ConvertCommand: AsyncParsableCommand {
     /// Reads one input by its extension. The record names the files it read, and they are checked again after
     /// the read, so an input that changed while it was read fails the conversion.
     private func readInput(_ inputURL: URL) async throws -> (
-        format: String, sequences: [Sequence], annotations: [SequenceAnnotation], records: [FileRecord]
+        format: String, sequences: [Sequence], annotations: [SequenceAnnotation], records: [FileRecord],
+        leftOut: [AnnotationDatabase.LeftOutTrack]
     ) {
         // Strip .gz extension for format detection
         var detectURL = inputURL
@@ -352,6 +362,7 @@ struct ConvertCommand: AsyncParsableCommand {
             includeAnnotations: includeAnnotations)
         let sequences: [Sequence]
         let annotations: [SequenceAnnotation]
+        var leftOut: [AnnotationDatabase.LeftOutTrack] = []
         switch ext {
         case "fa", "fasta", "fna", "faa":
             let reader = try FASTAReader(url: inputURL)
@@ -379,7 +390,7 @@ struct ConvertCommand: AsyncParsableCommand {
             annotations = []
 
         case "lungfishref":
-            (sequences, annotations) = try await Self.readReferenceBundle(
+            (sequences, annotations, leftOut) = try await Self.readReferenceBundle(
                 inputURL,
                 includeAnnotations: includeAnnotations
             )
@@ -393,7 +404,7 @@ struct ConvertCommand: AsyncParsableCommand {
         guard observedInputs == provenanceInputs else {
             throw CLIError.conversionFailed(reason: "Input files changed while conversion was reading them; retry with a stable source.")
         }
-        return (ext, sequences, annotations, provenanceInputs)
+        return (ext, sequences, annotations, provenanceInputs, leftOut)
     }
 
     /// The bytes that count as white space in an input: tab, line feed, vertical tab, form feed, carriage
@@ -518,7 +529,7 @@ struct ConvertCommand: AsyncParsableCommand {
     private static func readReferenceBundle(
         _ bundleURL: URL,
         includeAnnotations: Bool
-    ) async throws -> ([Sequence], [SequenceAnnotation]) {
+    ) async throws -> ([Sequence], [SequenceAnnotation], [AnnotationDatabase.LeftOutTrack]) {
         let manifest = try BundleManifest.load(from: bundleURL)
         guard let genome = manifest.genome else {
             throw CLIError.conversionFailed(reason: "Reference bundle has no genome sequence: \(bundleURL.path)")
@@ -537,19 +548,17 @@ struct ConvertCommand: AsyncParsableCommand {
         }
 
         guard includeAnnotations else {
-            return (sequences, [])
+            return (sequences, [], [])
         }
 
+        // The shared reader (ANNOT-EXPORT-MISSING-TRACK) leaves out by name each track it could not read.
+        let tracks = AnnotationDatabase.openBundleTracks(bundleURL: bundleURL, manifest: manifest)
         var annotations: [SequenceAnnotation] = []
-        for track in manifest.annotations {
-            guard let dbPath = track.databasePath else { continue }
-            let dbURL = bundleURL.appendingPathComponent(dbPath)
-            guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
-            let db = try AnnotationDatabase(url: dbURL)
-            annotations.append(contentsOf: db.query(limit: Int.max).map { $0.toAnnotation(trackID: track.id) })
+        for track in tracks.opened {
+            annotations.append(contentsOf: track.database.query(limit: Int.max).map { $0.toAnnotation(trackID: track.id) })
         }
 
-        return (sequences, annotations)
+        return (sequences, annotations, tracks.leftOut)
     }
 }
 
