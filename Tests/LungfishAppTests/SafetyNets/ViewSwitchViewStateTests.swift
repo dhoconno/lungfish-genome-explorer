@@ -1023,6 +1023,68 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertEqual(try driver.read(in: harness), cleared, "the change made after the way back is kept")
     }
 
+    /// Reset View on the way back from one record shows the starting list and leaves the retire mark (VS U3).
+    func testFASTACollectionResetViewOnTheWayBackFromOneRecordShowsTheStartingList() async throws {
+        let driver = FASTACollectionViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let start = try driver.read(in: harness)
+        try await driver.change(in: harness)
+        await driver.settle(in: harness)
+        let changed = try driver.read(in: harness)
+        XCTAssertNotEqual(changed, start, "the change shows")
+
+        let viewer: ViewerViewController = try XCTUnwrap(harness.split.viewerController)
+        let list = try XCTUnwrap(viewer.fastaCollectionController)
+        list.open(row: 0)
+        viewer.collectionBackButtonTapped(nil)
+        let back = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { driver.isShown(in: harness) }
+        XCTAssertTrue(back, "the way back shows the list")
+        await driver.settle(in: harness)
+        XCTAssertEqual(try driver.read(in: harness), changed, "the way back shows the list as left")
+
+        viewer.surfaceHost.resetViewMemory()
+        await driver.settle(in: harness)
+        XCTAssertEqual(try driver.read(in: harness), start, "Reset View on the way back shows the starting list")
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(try driver.read(in: harness), start, "the reset stays for the next visit")
+    }
+
+    /// Reset View shows the starting view of the assembly result, and the next visit opens there.
+    func testResetViewShowsTheStartingViewOfTheAssembly() async throws {
+        try await assertResetViewShowsTheStartingView(AssemblyViewStateDriver())
+    }
+
+    /// Reset View shows the starting view of the FASTA collection, and the next visit opens there.
+    func testResetViewShowsTheStartingViewOfTheFASTACollection() async throws {
+        try await assertResetViewShowsTheStartingView(FASTACollectionViewStateDriver())
+    }
+
+    /// One window and one project a kind, as every other case here has. The review's one case looped over both kinds
+    /// and threw `InvalidTransition` (phase idle, target failed(deinit)) in the red run, before it asserted anything.
+    private func assertResetViewShowsTheStartingView(_ driver: any ViewStateDriver) async throws {
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let start = try driver.read(in: harness)
+        try await driver.change(in: harness)
+        await driver.settle(in: harness)
+        XCTAssertNotEqual(try driver.read(in: harness), start, "\(driver.kind): the change shows")
+
+        harness.split.viewerController.surfaceHost.resetViewMemory()
+        await driver.settle(in: harness)
+        XCTAssertEqual(try driver.read(in: harness), start, "\(driver.kind): Reset View shows the starting view")
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(try driver.read(in: harness), start, "\(driver.kind): the next visit opens at the start")
+    }
+
     // MARK: - Support
 
     /// Filters the scientific name column for "Homo" through the table's own path, as its header menu does.

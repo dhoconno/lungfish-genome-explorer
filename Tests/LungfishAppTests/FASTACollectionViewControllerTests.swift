@@ -379,6 +379,46 @@ final class FASTACollectionViewControllerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(textView.frame.height, scrollView.contentSize.height)
     }
 
+    // MARK: - View memory
+
+    /// A file that names two records alike keeps them apart: a kept selection comes back on the record of the same
+    /// place among the records of that name, through a sort and through a filter (VS B4).
+    func testAKeptSelectionOfTwoSameNamedRecordsComesBackOnTheSameRecord() throws {
+        // File order: dup (10 bp), dup (20 bp), solo (5 bp). Each call makes fresh records, with new ids.
+        func makeList() throws -> FASTACollectionViewController {
+            let list = FASTACollectionViewController()
+            _ = list.view
+            list.configure(
+                sequences: [
+                    try makeSequence(name: "dup", bases: String(repeating: "A", count: 10)),
+                    try makeSequence(name: "dup", bases: String(repeating: "C", count: 20)),
+                    try makeSequence(name: "solo", bases: String(repeating: "G", count: 5))
+                ],
+                annotations: [],
+                sourceNames: [:]
+            )
+            return list
+        }
+
+        let first = try makeList()
+        first.testTableView.sortDescriptors = [NSSortDescriptor(key: "length", ascending: false)]
+        first.testSelectRows([0])
+        XCTAssertEqual(first.selectedSequences().map(\.length), [20], "by length the second dup sits on row 0")
+        let kept = first.captureFASTACollectionViewMemory()
+
+        let second = try makeList()
+        _ = second.applyFASTACollectionViewMemory(kept, dataChanged: false)
+        XCTAssertEqual(second.sortKey, "length")
+        XCTAssertEqual(second.selectedSequences().map(\.length), [20], "the kept selection is the second dup, not the first")
+
+        first.testFilter("dup")
+        XCTAssertEqual(first.selectedSequences().map(\.length), [20], "the filter keeps the selected record")
+        let filtered = first.captureFASTACollectionViewMemory()
+        let third = try makeList()
+        _ = third.applyFASTACollectionViewMemory(filtered, dataChanged: false)
+        XCTAssertEqual(third.selectedSequences().map(\.length), [20], "the second dup again, after a filter that leaves both dups")
+    }
+
     // MARK: - Keyboard and accessibility
 
     private func makeHostedController(sequenceCount: Int = 3) throws -> (FASTACollectionViewController, NSWindow) {

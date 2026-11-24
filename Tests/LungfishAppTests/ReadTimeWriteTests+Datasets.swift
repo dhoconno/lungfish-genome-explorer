@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+import LungfishIO
 @testable import LungfishKit
 import LungfishTestSupport
 
@@ -37,6 +38,14 @@ extension ReadTimeWriteTests {
             await driver.settle(in: harness)
             try await driver.change(in: harness)
             await driver.settle(in: harness)
+            if driver.kind == "FASTQ" {
+                // The run inputs a person sets in the dashboard: the operation picked and the contaminant mode with its
+                // reference. None of them is a view field (VS B8, U1), so the record below must not hold them.
+                let dashboard = try XCTUnwrap(harness.split.viewerController.fastqDatasetController)
+                _ = dashboard.testingSelectContaminantFilter(
+                    mode: .custom, referenceURL: root.appendingPathComponent("contaminants.fasta")
+                )
+            }
             harness.select(other.item)
             let left = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) { !driver.isShown(in: harness) }
             XCTAssertTrue(left, "\(driver.kind) stayed after the switch")
@@ -52,6 +61,21 @@ extension ReadTimeWriteTests {
             XCTAssertEqual(after.entries, before.entries, "\(driver.kind): viewing and switching write nothing into the project (UX 6)")
             let kept = try FileManager.default.subpathsOfDirectory(atPath: storeRoot.path)
             XCTAssertTrue(kept.contains { $0.hasSuffix(".json") }, "\(driver.kind): the view sits in the store: \(kept)")
+            if driver.kind == "FASTQ" {
+                // The kept view holds the middle tab and the list width and no run input (VS B8, U1).
+                let records = kept.filter { $0.hasSuffix(".json") && !URL(fileURLWithPath: $0).lastPathComponent.hasPrefix(".") }
+                for path in records {
+                    let record = try JSONDecoder().decode(
+                        ViewMemoryRecord.self, from: Data(contentsOf: storeRoot.appendingPathComponent(path))
+                    )
+                    let state = try XCTUnwrap(record.state, "the FASTQ record holds its view")
+                    let fields = try XCTUnwrap(JSONSerialization.jsonObject(with: state) as? [String: Any])
+                    XCTAssertTrue(
+                        Set(fields.keys).isSubset(of: ["middleTab", "operationsListWidth"]),
+                        "the FASTQ view keeps no run input, but its record holds \(fields.keys.sorted()) (VS B8, U1)"
+                    )
+                }
+            }
         }
     }
 }

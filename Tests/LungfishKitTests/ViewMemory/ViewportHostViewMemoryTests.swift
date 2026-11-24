@@ -227,6 +227,25 @@ final class ViewportHostViewMemoryTests: XCTestCase {
                        "a visit that ends before the adopter's own load commits keeps the saved view")
     }
 
+    func testAResetBeforeTheLateRestoreIsNotUndoneWhenItLands() throws {
+        let store = loadedStore()
+        let (host, parent) = makeHost(store: store)
+        defer { _ = parent }
+        try show(host, .init(url: fixture.bundle)).filter = "kept"
+        try show(host, .init(url: other))
+
+        let loading = try show(host, .init(url: fixture.bundle, pending: true))
+        host.resetViewMemory()
+        loading.viewMemoryHandle?.applyPending()
+        XCTAssertEqual(loading.filter, "", "a Reset View made before the load commits is not undone when it does")
+        try show(host, .init(url: other))
+        let key = try XCTUnwrap(store.key(for: ViewMemoryItem.read(at: fixture.bundle)))
+        guard case .nothing = store.restorable(ViewMemoryTestView.self, for: key, folder: loading.viewMemoryItem?.folder) else {
+            return XCTFail("the reset left a view")
+        }
+        XCTAssertEqual(try show(host, .init(url: fixture.bundle)).filter, "", "the reset stays after a leave and a return")
+    }
+
     func testAPendingAdopterWithNoKeptViewMovesItsStartAtApply() throws {
         let store = loadedStore()
         let (host, parent) = makeHost(store: store)
