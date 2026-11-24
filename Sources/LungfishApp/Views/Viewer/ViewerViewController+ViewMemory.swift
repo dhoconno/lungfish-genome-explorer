@@ -455,9 +455,11 @@ extension ViewerViewController {
         keepViewMemory()
     }
 
-    /// Ends the visit: keeps a pending change, then removes the line (VS U2).
+    /// Ends the visit: keeps what stands, then removes the line (VS U2). A change to the viewport's list sets no
+    /// pending save, so the visit keeps the view as it ends, and the store keeps nothing equal to the starting view.
     func leaveViewMemory() {
         saveCurrentViewState()
+        keepViewMemory()
         viewMemory?.line?.removeFromSuperview()
         viewMemory = nil
     }
