@@ -480,7 +480,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
 
     /// VS-TAX item 2: the samples a Kraken2 batch view restores show in the Inspector's picker, which holds the viewer's
     /// own state. A stale Inspector would need the viewer's `announceViewMemory()`.
-    func testKraken2RestoredSamplesShowInTheInspectorAndTheRestoredRowStaysSelected() async throws {
+    func testKraken2RestoredSamplesShowInTheInspector() async throws {
         let analyses = try SafetyNetFiles.makeDirectory(project.appendingPathComponent("Analyses", isDirectory: true))
         let batch = try RoutingSafetyNetFixtures.kraken2Result(
             named: "kraken2-batch-2026-01-15T12-00-00", in: analyses, samples: ["HG002", "MMU-17"],
@@ -507,10 +507,6 @@ final class ViewSwitchViewStateTests: XCTestCase {
         let first = try XCTUnwrap(viewer())
         first.samplePickerState?.selectedSamples = ["HG002"]
         first.applyBatchSampleFilter()
-        let table = try XCTUnwrap(first.batchTableView.tableView)
-        XCTAssertGreaterThan(table.numberOfRows, 0, "the HG002 rows show")
-        table.selectRowIndexes(IndexSet(integer: table.numberOfRows - 1), byExtendingSelection: false)
-        let selected = table.selectedRowIndexes
         try await leave(for: other, in: harness, driver: Kraken2ViewStateDriver())
 
         await visit(expecting: ["HG002"])
@@ -523,12 +519,9 @@ final class ViewSwitchViewStateTests: XCTestCase {
             inspectorShows, "the Inspector shows \(String(describing: summary.classifierPickerState?.selectedSamples))"
         )
         harness.window.displayIfNeeded()
-        // The Inspector is not stale, so no `announceViewMemory()` is added. The batch table's row is a known gap: the
-        // capture keeps only the outline's selection (`TaxonomyViewController+ViewMemory.swift`, `selectedIdentities`),
-        // so a batch row is not kept (VS-TAX cont4 Findings). An unexpected pass fails here once it is kept.
-        XCTExpectFailure("the Kraken2 batch table's selected row is not kept yet (VS B4, VS-TAX cont4 Finding 1)") {
-            XCTAssertEqual(back.batchTableView.tableView?.selectedRowIndexes, selected, "the restored row stays selected")
-        }
+        // The Inspector is not stale, so no `announceViewMemory()` is added. The viewer's batch table is hidden on every
+        // path (`TaxonomyViewController.swift:543,627,819`), so the rows a person selects, and the rows Extract Reads and
+        // BLAST act on, are the outline's, which the drivers' `selected` reading pins.
     }
 
     /// VS A10 and QA 6: the Kraken2 and EsViritu tables write no column layout to the account's defaults when the route
