@@ -263,6 +263,28 @@ extension ViewSwitchViewStateTests {
         assertNoLayoutKeyWritten()
     }
 
+    /// Both samples show and both hold the same organism: the restore selects the row of the sample the person picked,
+    /// never the first row of that organism (VS B4).
+    func testTaxTriageRestoresTheSecondSamplesRowWhileBothSamplesShow() async throws {
+        let driver = TaxTriageViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        let table = try XCTUnwrap(driver.viewer(in: harness)).testBatchFlatTableView
+        XCTAssertEqual(Set(table.displayedRows.compactMap(\.sample)), ["HG002", "MMU-17"], "both samples show")
+        let herpes = TaxTriageViewStateDriver.herpes
+        let first = try XCTUnwrap(table.displayedRows.firstIndex { $0.organism == herpes && $0.sample == "HG002" })
+        let second = try XCTUnwrap(table.displayedRows.firstIndex { $0.organism == herpes && $0.sample == "MMU-17" })
+        XCTAssertLessThan(first, second, "a match by organism would pick HG002's row")
+        table.tableView.selectRowIndexes(IndexSet(integer: second), byExtendingSelection: false)
+        try await leave(for: other, in: harness, driver: driver)
+        try await show(fixture, in: harness, driver: driver)
+        XCTAssertEqual(try driver.read(in: harness)[TaxTriageViewStateDriver.selectedLine], "selected MMU-17 \(herpes)")
+        XCTAssertNil(harness.resetLineWords, "nothing was lost, so no line shows")
+    }
+
     /// A row the person picks after a Reset View made with the rows in is kept: a restore marker that no page will clear
     /// never stands in for the selection the shown list holds.
     func testTaxTriageKeepsARowPickedAfterAResetViewMadeAfterTheFirstPage() async throws {
