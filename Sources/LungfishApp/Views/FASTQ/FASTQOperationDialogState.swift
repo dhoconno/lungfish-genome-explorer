@@ -499,7 +499,7 @@ final class FASTQOperationDialogState {
                     engine: demultiplexEngine,
                     trimBarcodes: demultiplexEngine == .exactBareBarcode ? false : demultiplexTrimBarcodes,
                     minimumOverlap: demultiplexMinimumOverlap,
-                    allowIndels: demultiplexAllowIndels,
+                    allowIndels: demultiplexAllowIndels ? nil : false,
                     sampleAssignments: nil,
                     kitOverride: nil, keepUncheckedSamples: demultiplexKeepUncheckedSamplesForRun
                 ),
