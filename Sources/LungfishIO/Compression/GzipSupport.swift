@@ -560,17 +560,24 @@ private actor MultiFileLineSource {
     init(_ urls: [URL]) { self.urls = urls[...] }
 
     func next() async throws -> String? {
-        while true {
-            if var iterator = current {
-                if let line = try await iterator.next(isolation: self) {
-                    current = iterator
-                    return line
+        do {
+            while true {
+                if var iterator = current {
+                    if let line = try await iterator.next(isolation: self) {
+                        current = iterator
+                        return line
+                    }
+                    current = nil
+                } else {
+                    guard let url = urls.popFirst() else { return nil }
+                    current = url.linesAutoDecompressing().makeAsyncIterator()
                 }
-                current = nil
-            } else {
-                guard let url = urls.popFirst() else { return nil }
-                current = url.linesAutoDecompressing().makeAsyncIterator()
             }
+        } catch {
+            // The stream ends at its first error, as the old producer ended it.
+            current = nil
+            urls.removeAll()
+            throw error
         }
     }
 }
