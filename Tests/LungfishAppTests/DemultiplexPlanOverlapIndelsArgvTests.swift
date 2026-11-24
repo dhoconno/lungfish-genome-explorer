@@ -167,4 +167,35 @@ final class DemultiplexNoIndelsRunConformanceTests: XCTestCase {
         XCTAssertEqual(envelope.options.defaults["noIndels"], .boolean(false))
         XCTAssertTrue(envelope.steps.contains { $0.argv.contains("--no-indels") }, "\(envelope.steps.map(\.argv))")
     }
+
+    /// The same run without the flag records and runs as before: no `--no-indels` in the argv or in any step, no explicit
+    /// `noIndels`, and the default `false` that every Cutadapt run writes (BIO 3, BIO 4 of the DEMUX review).
+    func testARunWithoutTheFlagRecordsNoNoIndelsOption() async throws {
+        guard await NativeToolRunner.shared.isToolAvailable(.cutadapt),
+              await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
+            try ToolAvailability.skipOrFail("managed cutadapt or seqkit is not installed")
+        }
+        let project = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let input = project.appendingPathComponent("reads.fastq")
+        let reads = (1...3).map { ("p\($0)", "TGGGCGAA" + "CCCCC" + Self.insert) }
+            + (1...3).map { ("q\($0)", "GGCGAAGT" + "CCCCC" + Self.insert) }
+        try reads.map { "@\($0.0)\n\($0.1)\n+\n\(String(repeating: "I", count: $0.1.count))\n" }.joined()
+            .write(to: input, atomically: true, encoding: .utf8)
+        let kit = project.appendingPathComponent("kit.csv")
+        try "id,sequence\nP,TGGGCGAA\nQ,GGCGAAGT\n".write(to: kit, atomically: true, encoding: .utf8)
+        let output = project.appendingPathComponent("Analyses/demux", isDirectory: true)
+
+        var command = try FastqDemultiplexSubcommand.parse([
+            input.path, "--kit", kit.path, "-o", output.path, "--engine", "cutadapt", "--location", "5prime",
+            "--error-rate", "0",
+        ])
+        try await command.run()
+
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.loadCanonical(from: output))
+        XCTAssertFalse(envelope.argv.contains("--no-indels"), "\(envelope.argv)")
+        XCTAssertNil(envelope.options.explicit["noIndels"])
+        XCTAssertEqual(envelope.options.defaults["noIndels"], .boolean(false))
+        XCTAssertFalse(envelope.steps.contains { $0.argv.contains("--no-indels") }, "\(envelope.steps.map(\.argv))")
+    }
 }
