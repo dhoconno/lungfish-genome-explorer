@@ -311,6 +311,36 @@ extension ViewSwitchViewStateTests {
         assertNoLayoutKeyWritten()
     }
 
+    /// A Reset View made with the rows in reloads no page, so it leaves no restore waiting: the next sample change
+    /// selects its list's top row, as any sample change does (VS-CLASS fix round, Finding 1).
+    func testTaxTriageSelectsTheTopRowOfASampleChangeAfterAResetViewMadeAfterTheFirstPage() async throws {
+        let driver = TaxTriageViewStateDriver()
+        let (fixture, _) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        await driver.settle(in: harness)
+        let viewer = try XCTUnwrap(driver.viewer(in: harness))
+        let table = viewer.testBatchFlatTableView
+        harness.split.viewerController.surfaceHost.resetViewMemory()
+
+        let segments = viewer.testSampleFilterControl
+        segments.selectedSegment = 2
+        _ = segments.sendAction(segments.action, to: segments.target)
+        // The page that shows MMU-17's rows selects in the same turn, so the selection is read once they show.
+        let shown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+            !table.displayedRows.isEmpty && table.displayedRows.allSatisfy { $0.sample == "MMU-17" }
+        }
+        XCTAssertTrue(shown, "the segment shows MMU-17's rows")
+        let top = try XCTUnwrap(table.displayedRows.first, "MMU-17's list has a top row")
+        XCTAssertEqual(
+            try driver.read(in: harness)[TaxTriageViewStateDriver.selectedLine], "selected MMU-17 \(top.organism)",
+            "the sample change after the reset selects its top row"
+        )
+        assertNoLayoutKeyWritten()
+    }
+
     /// The batch table and the organism table declare view memory, so their column layouts reach neither the account's
     /// defaults nor the test's suite (VS A10, QA 6).
     func testTaxTriageTablesDeclareViewMemoryAndWriteNoLayout() async throws {
