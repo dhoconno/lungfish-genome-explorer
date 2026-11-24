@@ -136,6 +136,26 @@ extension ExtractReadsSubcommand {
         if case .readNames(let selection) = invocation.selection {
             names = try readNames(in: selection.file)
         }
+        // An alignment mapped from placeholder reads holds the written `I` on every base, and so do source FASTQs of such
+        // reads. The bundle this route publishes has no mark, so it would open with Mean Q 40.0 (FLUIDIGM-3 review B1):
+        // refuse in the words of the read-ID extraction before anything is hashed or staged.
+        var placeholderSource: String?
+        switch invocation.selection {
+        case .regions:
+            placeholderSource = ReadExtractionService.placeholderScoreSourceName(ofAlignment: invocation.alignmentURL)
+        case .readNames(let selection) where selection.sourceFASTQs.isEmpty:
+            placeholderSource = ReadExtractionService.placeholderScoreSourceName(ofAlignment: invocation.alignmentURL)
+        case .readNames(let selection):
+            placeholderSource = selection.sourceFASTQs
+                .first(where: { FASTQQualityScoreOrigin.readsCarryPlaceholderScores(fastqURL: $0) })
+                .map { source in
+                    let folder = source.deletingLastPathComponent()
+                    return FASTQBundle.isBundleURL(folder) ? folder.lastPathComponent : source.lastPathComponent
+                }
+        }
+        if let bundleName = placeholderSource {
+            throw LungfishWorkflow.ExtractionError.placeholderScores(bundleName: bundleName)
+        }
         // Scientific gate 1: the evidence as the run found it, hashed before staging.
         var snapshots: [AlignmentEvidenceFileSnapshot] = []
         for (_, url) in evidence { snapshots.append(try await snapshot(url)) }
