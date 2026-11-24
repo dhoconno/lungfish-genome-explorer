@@ -13,7 +13,7 @@ public enum AlignmentMeanDepth {
         alignmentURL: URL,
         chromosome: String,
         runner: NativeToolRunner = .shared,
-        timeout: TimeInterval = 300
+        timeout: TimeInterval? = nil
     ) async -> Double? {
         guard alignmentURL.pathExtension.lowercased() == "bam",
               FileManager.default.fileExists(atPath: alignmentURL.path),
