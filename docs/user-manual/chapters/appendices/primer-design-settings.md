@@ -3,7 +3,7 @@ title: Primer Design Settings
 chapter_id: appendices/primer-design-settings
 audience: power-user
 prereqs: [10-primer-design/01-what-is-primer-design]
-estimated_reading_min: 16
+estimated_reading_min: 17
 task: Look up every control of the PCR Primer Design dialog, engine by engine, with its default, what it does, and its command-line flag.
 tags: [reference, primer-design, primer3, primalscheme, olivar, varvamp, settings]
 tools: [primer3, primalscheme3, olivar, varvamp]
@@ -14,7 +14,7 @@ entry_points:
   - "Tools > PCR Primer Design > varVAMP…"
 shots: []
 illustrations: []
-glossary_refs: [degenerate-base, design-reference, gc-clamp, gc-content, iupac-ambiguity-code, melting-temperature, oligo, primer, primer-dimer, primer-pool, probe, blast, msa, hydrolysis-probe, qpcr]
+glossary_refs: [bundle, degenerate-base, design-reference, gc-clamp, gc-content, iupac-ambiguity-code, melting-temperature, oligo, primer, primer-dimer, primer-pool, probe, blast, msa, hydrolysis-probe, qpcr]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -23,11 +23,11 @@ lead_approved: false
 
 ## What it is
 
-Lungfish Genome Explorer (LGE) runs four primer design engines from one dialog, **Tools > PCR Primer Design**, and between them they expose about a hundred controls. The Primer Design chapters carry the ones a first design touches. This appendix carries all of them, engine by engine, so a reader tuning a design has one place to look.
+Lungfish Genome Explorer (LGE) runs four primer design engines from one dialog, **Tools > PCR Primer Design**, and between them they expose about a hundred controls. The Primer Design chapters carry the ones a first design touches. This appendix carries the rest, engine by engine, and names the chapter for each control a chapter already explains, so a reader tuning a design can start here.
 
 Each entry names the control as the dialog labels it, says what it does, gives the default and why it is the default, says when to change it, and names the command-line flag. Where an engine's own documentation sets a value, the entry says so, because LGE passes that engine's value through rather than inventing one. Positions and lengths are 1-based and inclusive, as [Counting from one and from zero](../02-sequences/03-extracting-and-comparing.md#counting-from-one-and-from-zero) describes for the manual as a whole.
 
-Three groups of controls are shared. The input section holds **Records** and **Template row**, the choice of which sequences become templates. "Design settings" and "Scheme settings" hold the assay or mode and the product sizes. "Advanced settings" holds everything else and stays collapsed until you open it. Every engine also has **Analysis name**, which names the `.lungfishprimeranalysis` bundle LGE writes into the project's `Analyses` folder, defaults to "Primer analysis" with a number added when that name is taken, and refuses a name already used in the project. On the command line the name is the last part of the `--output` path.
+Three groups of controls are shared. The input section, **Selected project inputs**, lists what was selected in the sidebar, and for Primer3 it also holds **Records** and **Template row**, the choice of which sequences become templates. "Design settings" and "Scheme settings" hold the assay or mode and the product sizes. "Advanced settings" holds everything else and stays collapsed until you open it. Every engine also has **Analysis name**, which names the `.lungfishprimeranalysis` [bundle](../../GLOSSARY.md#bundle), the folder LGE treats as one item, that LGE writes into the project's `Analyses` folder. It defaults to "Primer analysis" with a number added when that name is taken, and the dialog refuses a name already used in the project. On the command line `--name` sets it when `--project` names the project, and the command takes the next free name instead of refusing one in use.
 
 ## Primer3
 
@@ -35,13 +35,13 @@ Primer3 designs one primer pair, or a pair plus a [hydrolysis probe](../../GLOSS
 
 ### Inputs and the assay
 
-**Records.** Chooses which records of a FASTA file or reference bundle become templates. The default ticks every record, because LGE cannot guess which one you want. Untick the rest for a design on one sequence, since Primer3 designs each ticked record separately. On the command line this is `--fasta-record`, repeated once per record.
+**Records.** Chooses which records of a FASTA file or reference bundle become templates. The default selects every record, because LGE cannot guess which one you want. Clear the other checkboxes for a design on one sequence, since Primer3 designs each selected record separately. On the command line this is `--fasta-record`, repeated once per record.
 
 **Template row.** Chooses which row of a [multiple sequence alignment](../../GLOSSARY.md#msa) Primer3 designs on. There is no default, and Run stays disabled until you pick a row, because target positions and reported positions are counted on that row. On the command line this is `--msa-template`.
 
 **Assay.** Chooses the rule set and loads its values into every field below, which you may still edit. The default is "PCR primers". The two qPCR choices replace the product range, primer lengths, melting temperatures, GC limits and complementarity thresholds, so pick the assay before you adjust anything. On the command line this is `--assay`, with `pcr`, `qpcr-dye` or `qpcr-probe`.
 
-**Require binding sites conserved across all alignment rows.** Stops Primer3 from placing an [oligo](../../GLOSSARY.md#oligo) over any alignment column where the rows disagree, where a row has a gap, or where a row carries an ambiguous base. It is on by default whenever an alignment is among the inputs, because a primer on a variable column mismatches some of the aligned sequences. Turn it off to see the best pair for the template row alone. On the command line this is `--binding-site-policy`, with `exclude-variable-and-gapped-columns` for on and `template-only` for off.
+**Require binding sites conserved across all alignment rows.** Stops Primer3 from placing an [oligo](../../GLOSSARY.md#oligo), a short synthetic DNA strand, over any alignment column where the rows disagree, where a row has a gap, or where a row carries an ambiguous base. It is on by default whenever an alignment is among the inputs, because a primer on a variable column mismatches some of the aligned sequences. Turn it off to see the best pair for the template row alone. On the command line this is `--binding-site-policy`, with `exclude-variable-and-gapped-columns` for on and `template-only` for off.
 
 The three assays differ as follows. Every value is Primer3's own unless the table gives a number, and a blank cell in the dialog means Primer3's built-in value is used.
 
@@ -87,11 +87,7 @@ The "Keep these oligos (design the rest around them)" group lets you fix part of
 
 ## PrimalScheme
 
-PrimalScheme designs tiled two-pool schemes and handles variation by adding one exact-match oligo per variant at a site. [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md) runs it. Its size fields, **Output grouping** and **Primer pools** are covered there.
-
-**Minimum overlap (bp).** Sets how many bases neighbouring amplicons must share. The default is 10, enough to join reads across a join. It appears only with one scheme per alignment, and a combined design always uses 10. On the command line this is `--min-overlap`.
-
-**Minimum base frequency.** Sets how common a base must be at a site before PrimalScheme makes an oligo for it. The default is 0, so every variant in the alignment gets an oligo. Raise it, for example to 0.1, to drop oligos for variants carried by one or two sequences, accepting that those sequences will carry a mismatch. On the command line this is `--minimum-base-frequency`.
+PrimalScheme designs tiled two-pool schemes and handles variation by adding one exact-match oligo per variant at a site. [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md) runs it and covers its size fields, **Output grouping**, **Primer pools**, **Minimum base frequency**, **Backtrack when extending the scheme** and **Use high-GC design settings**. The entries below follow the order of its "Advanced settings".
 
 **CPU cores.** Sets how many processor cores PrimalScheme uses. The default is 4, or fewer on a Mac with fewer cores. Raise it on a large alignment to finish sooner. On the command line this is `--core-count`.
 
@@ -99,25 +95,39 @@ PrimalScheme designs tiled two-pool schemes and handles variation by adding one 
 
 **Check the primer mispriming database.** Checks each candidate against a database PrimalScheme builds from the sequences you supplied, for other places in those sequences where the primer could bind and make an unwanted product. It is on by default. It knows nothing about genes you did not include, so it is not a paralog check. Turn it off only to test whether it is why a design fails. On the command line, off is `--disable-matchdb`.
 
-**Backtrack when extending the scheme.** Lets PrimalScheme revisit earlier amplicon choices when it cannot place the next one. It is off by default, which is faster. Turn it on when a design stops short of the end of the alignment. On the command line this is `--backtrack`.
+The next two controls, like **Backtrack when extending the scheme**, appear only with "One scheme per MSA".
+
+**Minimum overlap (bp).** Sets how many bases neighboring amplicons must share. The default is 10, enough for reads to link one amplicon to the next, and a combined design always uses 10. Raise it when you want more shared sequence at each join. On the command line this is `--min-overlap`.
 
 **Ignore unknown bases (N).** Leaves `N` bases out of the site sequences PrimalScheme collects. It is off by default. Turn it on when some sequences carry runs of `N` from low-quality sequencing. On the command line this is `--ignore-n`.
 
-**Use high-GC design settings.** Switches PrimalScheme to its own settings for GC-rich targets. It is off by default. Try it when a GC-rich target leaves gaps under the standard settings. On the command line this is `--high-gc`.
+**"Treat uncovered alignment ends as missing observations".** Tells PrimalScheme that a sequence stopping before the end of the alignment has no data there, rather than a gap that counts against a primer. It is on by default, so shorter sequences do not block sites near the ends, and missing data never counts as a match. Turn it off only to use PrimalScheme's `legacy` handling of alignment ends, which a gap-completion follow-up always uses and shows as a dimmed switch reading "Follow-up uses legacy alignment-end policy". On the command line this is `--terminal-gap-policy`, with `observed-only` for on and `legacy` for off.
 
-**"Treat uncovered alignment ends as missing observations".** Tells PrimalScheme that a sequence stopping before the end of the alignment has no data there rather than a gap that counts against a primer. It is on by default, so shorter sequences do not block sites near the ends, and missing data never counts as a match. Turn it off only to reproduce a design made under the older behaviour. On the command line this is `--terminal-gap-policy`, with `observed-only` for on and `legacy` for off.
-
-**Choose verified executable….** Runs a PrimalScheme program you select instead of the one the plugin pack installed, shown as "Managed runtime (legacy defaults)" until you pick one. Leave it alone unless a developer asks you to test a build. On the command line this is `--primalscheme3-path`.
+**Choose verified executable….** Runs a PrimalScheme program you select instead of the one the plugin pack installed, shown as "Managed runtime (legacy defaults)" until you pick one, and **Clear** returns to the installed one. Leave it alone unless a developer asks you to test a build. On the command line this is `--primalscheme3-path`.
 
 A caption in the same group states a fact rather than a setting. PrimalScheme writes its coordinates on the first row of the alignment, so put the sequence you want coordinates on first when you build the alignment. PrimalScheme also accepts a nominal amplicon size only between 100 and 2,000 bases.
 
 ### Combined panels
 
-Six controls appear only with "Combined scheme from selected MSAs", which designs one panel across several alignments. **Panel selection** either weights every position equally, the default, or favours amplicons containing more variation, and neither mode guarantees even amplification. **Maximum panel amplicons** and **Maximum per MSA** cap the panel and are blank by default. **Allow bounded dimer salvage** runs the strict panel first and then retries with relaxed interaction limits, which are search budgets rather than safety thresholds. **Choose parent output…** starts a follow-up design that fills the gaps of an earlier combined panel, and "Generate bounded candidates for uncovered regions" produces candidates for those gaps, with defaults of 2,000 anchors and 1,000 pair checks per alignment. On the command line these are `--panel-mode`, `--max-amplicons`, `--max-amplicons-per-msa`, `--legacy-salvage`, `--gap-completion-parent` and `--gap-expansion`.
+"Combined scheme from selected MSAs" designs one panel across several alignments, and the caption under **Output grouping** says what that means for the chosen engine. PrimalScheme adds amplicons to each alignment in turn and refuses any primer that would form a dimer with primers already in its pool, so with many alignments the pools fill up, coverage drops and run time grows quickly. Olivar tiles each alignment as it would alone, then chooses each tile's primers to keep predicted dimers low across all alignments that share a pool, so expect the same tiles with some primers moved. With one scheme per alignment, primers from different schemes are never checked against each other, so pooling them later can create dimers.
+
+A combined PrimalScheme panel can run for hours, so its Operations row names the alignment it is searching, by number out of the total, then counts the amplicons added so far. On the **Overview** tab, each reference that ends under 90 percent coverage gets a warning that says how many of the panel's references are under 90 percent and that a one-scheme-per-MSA run of that alignment shows the coverage it reaches alone. Six controls appear only for a combined PrimalScheme panel.
+
+**Panel selection.** Chooses how PrimalScheme weights candidate amplicons, "Uniform position weighting" or "Prioritize variable regions (entropy)", and both modes take turns across the alignments. The default is Uniform position weighting, which gives every target position equal weight for broad coverage of conserved and variable regions. Choose entropy to favor amplicons holding more variation between their primers, knowing that neither mode guarantees equal amplification or allele representation. On the command line this is `--panel-mode`, with `equal` or `entropy`.
+
+The command line also has `--selection-algorithm`, which the dialog leaves at `legacy`. Its `coverage` and `allele-coverage` selectors run only on a combined panel with uniform weighting and the mispriming database on, and the [CLI Reference](cli-reference.md#primer-schemes-and-primer-design) lists their flags.
+
+**Maximum panel amplicons (optional)** and **Maximum per MSA (optional)** cap how many amplicons the whole panel and each alignment may hold. Both are blank by default, which leaves PrimalScheme's panel selection unrestricted. Set them to keep the order to a size you can afford, or to stop one long alignment taking most of the panel. On the command line these are `--max-amplicons` and `--max-amplicons-per-msa`.
+
+**Allow bounded dimer salvage.** Runs the strict panel first and then a bounded salvage round that retries with relaxed interaction limits, set by six fields that appear when it is on, such as **Thresholds (comma-separated)** at -28,-30,-32 and **Floor** at -32. It is off by default, and its caption warns that those limits are search budgets, not experimentally established safety thresholds. Turn it on when the strict panel leaves gaps, with uniform weighting and both caps blank, which the dialog requires. On the command line this is `--legacy-salvage bounded`, and the six fields' flags begin `--legacy-salvage-`.
+
+**Choose parent output….** Picks a saved combined PrimalScheme analysis whose gaps a separate follow-up scheme should fill, and the caption says its pools are not additions to the parent's reactions. It reads "No gap-completion parent selected" until you pick one, and a parent cannot be combined with salvage. Use it when a panel left regions without amplicons and you will run a second set of reactions for them. On the command line this is `--gap-completion-parent`.
+
+**"Generate bounded candidates for uncovered regions".** Produces new primer candidates for the parent's gaps, and stays dimmed until a parent is chosen. It is off by default, and when on it shows **Max anchors / MSA** and **Max pair checks / MSA** at 2,000 anchors and 1,000 pair checks per alignment, limits the caption says do not guarantee better coverage when raised. Turn it on when a follow-up without it leaves gaps unfilled. On the command line this is `--gap-expansion bounded`.
 
 ## Olivar
 
-Olivar designs tiled two-pool schemes by scoring every base for risk and placing primers where the risk is lowest. Every control except the amplicon sizes lives under "Advanced settings", most of them in a group named "Olivar native settings". Olivar refuses a minimum amplicon size below 120 bases.
+Olivar designs tiled two-pool schemes by scoring every base for risk and placing primers where the risk is lowest. Every control except the amplicon sizes lives under "Advanced settings", most of them in a group named "Olivar native settings". Olivar refuses a minimum amplicon size below 120 bases. [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md) covers its size fields, **Search effort** and **Random seed**.
 
 **CPU workers.** Sets how many processor cores Olivar uses. The default is 4, or fewer on a Mac with fewer cores. Raise it on a long alignment. On the command line this is `--workers`.
 
@@ -135,19 +145,15 @@ Olivar designs tiled two-pool schemes by scoring every base for risk and placing
 
 **Temperature (°C).** Sets the annealing temperature Olivar assumes when it works out how strongly a primer binds. The default is 60, the temperature most protocols use. Change it only to match a protocol that anneals elsewhere. On the command line this is `--temperature-c`.
 
-**Salinity (M).** Sets the concentration of monovalent salt Olivar assumes, in moles per litre, because salt changes binding strength. The default is 0.18, Olivar's own value. Change it only for a reaction buffer you know differs. On the command line this is `--salinity-m`.
+**Salinity (M).** Sets the concentration of monovalent salt Olivar assumes, in moles per liter, because salt changes binding strength. The default is 0.18, Olivar's own value. Change it only for a reaction buffer you know differs. On the command line this is `--salinity-m`.
 
 **Maximum primer-target binding ΔG (--dG-max).** Sets the free energy in kilocalories per mole a primer's binding to its own target must reach, which is how Olivar bounds primer length and stability. The default is -11.8, Olivar's own value, and a more negative number means stronger binding. It is not a primer-dimer threshold, and the caption beneath it says so. Leave it alone unless Olivar's own documentation guides you otherwise. On the command line this is `--maximum-dimer-delta-g`.
-
-**Random seed.** Fixes the starting point of Olivar's random search, so the same inputs give the same design. The default is 10, Olivar's own value. Change it to see whether a different search finds a better layout, and record the value you used. On the command line this is `--seed`.
-
-**Search effort.** Multiplies how many candidate layouts Olivar tries. The default is 1. Raise it to 2 or more when coverage falls short, at the cost of a longer run. On the command line this is `--effort`.
 
 **Native risk weights.** Six fields, Extreme GC, Low complexity, Non-specificity, Variation, Sensitivity and Combination, set how much each kind of risk counts when Olivar scores the target. All six default to 1. Raise Variation to push primers away from variable sites, or Non-specificity once you have given Olivar something to screen against, and leave Sensitivity and Combination alone while degenerate design is off. On the command line these are `--risk-extreme-gc`, `--risk-low-complexity`, `--risk-non-specificity`, `--risk-variation`, `--risk-sensitivity` and `--risk-combination`.
 
 ## varVAMP
 
-varVAMP builds a consensus of the alignment with [degenerate bases](../../GLOSSARY.md#degenerate-base) and designs on it. Its **Design mode**, **Cumulative consensus threshold**, amplicon sizes, **Maximum primer ambiguities** and **Tiled overlap (bp)** are covered in [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md), and its qPCR controls in [Designing qPCR and dPCR Assays](../10-primer-design/04-designing-qpcr-and-dpcr-assays.md).
+varVAMP builds a consensus of the alignment with [degenerate bases](../../GLOSSARY.md#degenerate-base) and designs on it. Its **Design mode**, **Cumulative consensus threshold**, amplicon sizes, **Maximum primer ambiguities** and **Tiled overlap (bp)** are covered in [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md), and its qPCR controls in [Designing qPCR and dPCR Assays](../10-primer-design/04-designing-qpcr-and-dpcr-assays.md). **CPU workers** works as it does for Olivar, with the same default and flag.
 
 **Scheme name.** Names the scheme inside varVAMP's own output, which is where oligo names such as `varVAMP_0_LEFT` come from. The default is "varVAMP". Change it to tell two designs apart in an order sheet. On the command line this is `--scheme-name`.
 
@@ -155,19 +161,19 @@ varVAMP builds a consensus of the alignment with [degenerate bases](../../GLOSSA
 
 **Compatible-primer input path (optional).** Points at a file of primers a new design must not interact with, so a second scheme can share a tube with one you already ordered. It is blank by default. On the command line this is `--compatible-primers`.
 
-**Terminal masking threshold.** Decides when a gap at the very start or end of the alignment is masked. The default is 0.5, so such a base is masked only when more than half the sequences are missing it. On the command line this is `--terminal-masking-threshold`.
+**Terminal masking threshold.** Decides when a gap at the very start or end of the alignment is masked, and sits in the "Chemistry and masking defaults" disclosure. The default is 0.5, so such a base is masked only when more than half the sequences are missing it. On the command line this is `--terminal-masking-threshold`.
 
 ### Primer constraints
 
-The "Primer constraints" group repeats varVAMP's own primer rules, and LGE sends every one of them on every run, so a value you change here is a value varVAMP obeys. Length is 18, 21 and 24 bases as minimum, optimum and maximum, melting temperature 56, 60 and 63 °C, and GC content 35, 50 and 65 percent. **Maximum homopolymer** and **Maximum dinucleotide repeats** are both 4, **Hairpin threshold** is 47 °C, **Maximum dimer Tm** is 35 °C, and **Unambiguous 3′ bases** is 3, so the last three bases of a primer never carry an ambiguity code. **GC bases at primer 3′ minimum** and **maximum** are 1 and 3, which is varVAMP's [GC clamp](../../GLOSSARY.md#gc-clamp) rule, and **End overlap** is 5. Each field's flag has the same shape as its label, such as `--primer-tm-min`, `--primer-gc-end-max` and `--primer-maximum-poly-x`, and [Primer schemes and primer design](cli-reference.md#primer-schemes-and-primer-design) in the CLI Reference lists them.
+The "Primer constraints" group repeats varVAMP's own primer rules, and LGE sends every one of them on every run, so a value you change here is a value varVAMP obeys. Length is 18, 21 and 24 bases as minimum, optimum and maximum, melting temperature 56, 60 and 63 °C, and GC content 35, 50 and 65 percent. **Maximum homopolymer** and **Maximum dinucleotide repeats** are both 4, **Hairpin threshold** is 47 °C, **Maximum dimer Tm** is 35 °C, and **Unambiguous 3′ bases** is 3, so the last three bases of a primer never carry an ambiguity code. **GC bases at primer 3′ minimum** and **GC bases at primer 3′ maximum** are 1 and 3, which is varVAMP's [GC clamp](../../GLOSSARY.md#gc-clamp) rule, and **End overlap** is 5. Each field's flag has the same shape as its label, such as `--primer-tm-min`, `--primer-gc-end-max` and `--primer-maximum-poly-x`, and [Primer schemes and primer design](cli-reference.md#primer-schemes-and-primer-design) in the CLI Reference lists them.
 
 ### qPCR probe constraints
 
-The "qPCR probe constraints" group appears only in qPCR mode and works the same way. Probe length is 20, 25 and 30 bases, probe melting temperature 64, 67 and 70 °C, and probe GC content 40, 60 and 80 percent, with only the GC fields showing their unit on screen. **GC bases at probe end** runs 0 to 4. **Probe/primer Tm difference** runs 5 to 10 °C, which varVAMP enforces, unlike Primer3's window. **Probe distance** runs 4 to 15 bases, the gap between the probe and the primer on its own strand. **Amplicon GC** runs 40 to 60 percent, **Amplicon deletion cutoff** is 4, so a region is folded only when its deletions are shorter than 4 bases, and **qPCR primer difference** is 2 °C, the gap allowed between the two primers.
+The "qPCR probe constraints" group appears only in qPCR mode and works the same way. Probe length is 20, 25 and 30 bases, probe melting temperature 64, 67 and 70 °C, and probe GC content 40, 60 and 80 percent, with only the GC fields showing their unit on screen. **GC bases at probe end minimum** and **maximum** are 0 and 4. **Probe/primer Tm difference minimum** and **maximum** are 5 and 10 °C, a window varVAMP enforces, unlike Primer3's window. **Probe distance minimum** and **maximum** are 4 and 15 bases, the gap between the probe and the primer on its own strand. **Amplicon GC minimum (%)** and **maximum** are 40 and 60 percent, **Amplicon deletion cutoff** is 4, so a region is folded only when its deletions are shorter than 4 bases, and **qPCR primer difference** is 2 °C, the gap allowed between the two primers.
 
 ### Chemistry and masking defaults
 
-The "Chemistry and masking defaults" disclosure holds the reaction conditions varVAMP assumes when it predicts melting temperatures. They are 100 and 2 millimolar for monovalent and divalent cations, 0.8 millimolar for the deoxynucleotides the polymerase adds, and 15 nanomolar primer. Change them only to match a buffer you know differs, and record the change, because every melting temperature in the result depends on them. On the command line these are `--pcr-monovalent-concentration`, `--pcr-divalent-concentration`, `--pcr-dntp-concentration` and `--pcr-dna-concentration`.
+The "Chemistry and masking defaults" disclosure holds the reaction conditions varVAMP assumes when it predicts melting temperatures. **Monovalent cation** and **Divalent cation** are 100 and 2 millimolar, **dNTP**, the deoxynucleotides the polymerase adds, is 0.8 millimolar, and **DNA**, the primer concentration, is 15 nanomolar. Change them only to match a buffer you know differs, and record the change, because every melting temperature in the result depends on them. On the command line these are `--pcr-monovalent-concentration`, `--pcr-divalent-concentration`, `--pcr-dntp-concentration` and `--pcr-dna-concentration`.
 
 ## Off-target screening
 
