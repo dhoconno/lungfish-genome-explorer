@@ -38,6 +38,10 @@ extension InspectorViewController {
         activeContentSelectionIdentity = notification.userInfo?[NotificationUserInfoKey.contentSelectionIdentity]
             as? ContentSelectionIdentity
         let selectedItems = notification.userInfo?["items"] as? [SidebarItem] ?? [item]
+        // A rescan posts no selection and then the same row with no new display, so the row's visit begins again (VS U7).
+        if viewModel.viewMemoryVisit == nil, selectedItems.count == 1, item.userInfo["documentID"] == nil {
+            beginViewMemoryVisit(for: item.url)
+        }
         selectedFASTQMetadataTargetBundleURLs = Self.fastqBundleURLs(from: selectedItems)
 
         // Update UI state only - document loading is handled by MainSplitViewController
