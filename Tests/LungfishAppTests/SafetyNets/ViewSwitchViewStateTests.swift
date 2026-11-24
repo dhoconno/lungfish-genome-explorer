@@ -66,7 +66,7 @@ enum ViewStateDrivers {
         TwelveSViewStateDriver(), ReferenceViewportViewStateDriver(route: .reference),
         ReferenceViewportViewStateDriver(route: .mapping), MHCReferenceViewStateDriver(),
         RNASeqViewStateDriver(), CellMapViewStateDriver(),
-        Kraken2ViewStateDriver(), EsVirituViewStateDriver(), CzIdViewStateDriver(),
+        Kraken2ViewStateDriver(), EsVirituViewStateDriver(), CzIdViewStateDriver(), NaoMgsViewStateDriver(),
         GenotypeViewStateDriver(),
         FASTQViewStateDriver(), AssemblyViewStateDriver(), FASTACollectionViewStateDriver(),
     ]
@@ -131,8 +131,8 @@ final class ViewSwitchViewStateTests: XCTestCase {
             "The declared gaps only shrink. Lower the ceiling in the change that adopts a kind."
         )
         XCTAssertEqual(
-            ViewStateDeclaredGaps.ceiling, 11,
-            "the ceiling after VS-REF, VS-RNA, VS-TAX, VS-GENO, VS-MAP and VS-DATA, which each family lane lowers"
+            ViewStateDeclaredGaps.ceiling, 10,
+            "the ceiling after VS-REF, VS-RNA, VS-TAX, VS-GENO, VS-MAP, VS-DATA and VS-CLASS, which each family lane lowers"
         )
     }
 
