@@ -209,7 +209,7 @@ None.
 - `BaseColors` enum, `Sources/LungfishApp/Views/Viewer/BaseColors.swift`
 - `BundleDisplayMode` enum, `Sources/LungfishApp/Views/Viewer/BundleDisplayMode.swift`
 - `ChromosomeNavigatorView` class, `Sources/LungfishApp/Views/Viewer/ChromosomeNavigatorView.swift`
-- `ChromosomeReadStat` struct, `Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift`
+- `ChromosomeReadStat` struct, `Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection+MeanDepth.swift`
 - `CLIImportRunner` actor, `Sources/LungfishApp/Services/CLIImportRunner.swift`
 - `CodableWindowFrame` struct, `Sources/LungfishApp/StateManagement/ProjectWindowStateStore.swift`
 - `ColorApplyMode` enum, `Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift`
@@ -2239,6 +2239,7 @@ None.
 - `AlignmentMarkdupPipelineError` enum, `Sources/LungfishWorkflow/Alignment/AlignmentMarkdupPipeline.swift`
 - `AlignmentMarkdupPipelineResult` struct, `Sources/LungfishWorkflow/Alignment/AlignmentMarkdupPipeline.swift`
 - `AlignmentMarkdupPipelining` protocol, `Sources/LungfishWorkflow/Alignment/AlignmentMarkdupPipeline.swift`
+- `AlignmentMeanDepth` enum, `Sources/LungfishWorkflow/Alignment/AlignmentMeanDepth.swift`
 - `AlignmentReadExtractionExecutionRecord` struct, `Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionModels.swift`
 - `AlignmentReadExtractionExecutionStage` enum, `Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionModels.swift`
 - `AlignmentReadExtractionFailure` struct, `Sources/LungfishWorkflow/Extraction/AlignmentReadExtractionModels.swift`
