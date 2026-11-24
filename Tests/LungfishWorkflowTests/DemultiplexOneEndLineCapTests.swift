@@ -106,9 +106,10 @@ final class DemultiplexOneEndLineCapTests: XCTestCase {
         let searched = barcodes == 1 ? "the barcode of \"\(kit)\"" : "the \(barcodes) barcodes of \"\(kit)\""
         let each = barcodes == 1 ? "one for each \(side) distance" : "one for each barcode and \(side) distance"
         let typed = distance.formatted(.number.locale(Locale(identifier: "en_US")))
+        let sits = barcodes == 1 ? "If the barcode sits" : "If the barcodes sit"
         return "Searching \(searched) up to \(typed) bases from the \(side) of the read takes \(lines) Cutadapt search lines, \(each). "
             + "That is more than the 6,000 a run can take, since Cutadapt spends time on every line before it reads the first read, so nothing was run. "
-            + "If the barcodes sit inside a known adapter sequence, trim that sequence from the reads first and run again with the \(name) at 0, "
+            + "\(sits) inside a known adapter sequence, trim that sequence from the reads first and run again with the \(name) at 0, "
             + "or lower the \(name) until the lines fit (on the command line, \(flag))."
     }
 
