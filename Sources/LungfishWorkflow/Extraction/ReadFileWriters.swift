@@ -128,6 +128,7 @@ enum ReadFileWriters {
 
     /// The next chunk of `handle`, `nil` at the end of the file, or a thrown
     /// ``ReadFileWriterError/unreadableSource(path:reason:)``.
+    /// The chunk is autoreleased, so a loop that reads many must run each pass in `autoreleasepool` for the chunk to die with its pass.
     static func readChunk(of handle: FileHandle, from source: URL, upTo count: Int = chunkSize) throws -> Data? {
         do {
             return try handle.read(upToCount: count)
@@ -221,14 +222,18 @@ fileprivate final class LineReader {
                 buffer.removeSubrange(buffer.startIndex..<buffer.index(after: newlineIndex))
                 return line
             }
-            let chunk = try ReadFileWriters.readChunk(of: handle, from: source, upTo: chunkSize) ?? Data()
-            if chunk.isEmpty {
+            // A plain file's read hands back an autoreleased chunk, so each read has a pool and its chunk dies with it.
+            let atEnd = try autoreleasepool { () throws -> Bool in
+                let chunk = try ReadFileWriters.readChunk(of: handle, from: source, upTo: chunkSize) ?? Data()
+                buffer.append(chunk)
+                return chunk.isEmpty
+            }
+            if atEnd {
                 if buffer.isEmpty { return nil }
                 let line = buffer
                 buffer = Data()
                 return line
             }
-            buffer.append(chunk)
         }
     }
 }
