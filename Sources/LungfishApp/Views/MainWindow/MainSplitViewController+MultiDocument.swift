@@ -483,6 +483,8 @@ extension MainSplitViewController {
         if let content = snapshot.activeContent {
             restoreActiveContentState(content)
         }
+        // The window's tab belongs to the snapshot's active content, so none stays for the next item shown (VS-INSP).
+        inspectorController?.viewModel.windowStateTab = nil
     }
 
     func restoreActiveContentState(_ state: RestorableContentState) {
