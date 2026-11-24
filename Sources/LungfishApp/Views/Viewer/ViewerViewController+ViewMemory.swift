@@ -219,6 +219,9 @@ final class ReferenceViewerMemorySession {
     /// A person changed the view, or reset it, before the restore ran. The restore must neither lose nor undo that.
     var changedBeforeApply = false
     var resetBeforeApply = false
+    /// A person picked a row of the viewport's list before the restore ran, even the row the list selects by itself, so
+    /// the restore must not undo the pick (VS-MAP-RACE).
+    var pickedBeforeApply = false
     /// The viewport's list and mode as last read while it showed this bundle (VS-MAP).
     var viewport: ReferenceViewportMemory?
     /// The restore withheld the selected row's alignment action context, so the row shows the cue until the
@@ -343,11 +346,13 @@ extension ViewerViewController {
         // The list's own row refresh replaces its rows and selects its first row again, or none while it shows none
         // or shows All Alignments (`refreshSelection`, `clearMappingSelectionAfterAllRebuild`), so that selection is
         // the list's own and not a person's pick (VS A2). Any other selection, and the mode, the sort, the filters and
-        // the place, still compare with the open's.
-        if let own = viewMemoryViewport?.viewMemoryOwnSelection, settledView.viewport?.table.selectedIdentities == own {
+        // the place, still compare with the open's. A person's pick of a row, that first row too, is a change, so the
+        // exception does not apply to it and the restore is refused (VS-MAP-RACE).
+        if !session.pickedBeforeApply, let own = viewMemoryViewport?.viewMemoryOwnSelection,
+           settledView.viewport?.table.selectedIdentities == own {
             opening.viewport?.table.selectedIdentities = own
         }
-        guard settledView.sameChoices(as: opening) else {
+        guard !session.pickedBeforeApply, settledView.sameChoices(as: opening) else {
             // A person changed the view first. It stays, and the change the debounce could not keep is kept now.
             if session.changedBeforeApply { keepViewMemory() }
             return
@@ -480,6 +485,15 @@ extension ViewerViewController {
     func keepViewMemoryNow() {
         saveCurrentViewState()
         keepViewMemory()
+    }
+
+    /// A person's pick of a row of the viewport's list: a click, a keyboard move or a selection change the list did not
+    /// make itself. Before the restore runs it is a change under VS A2, even on the row the list selects by itself, so
+    /// the restore keeps it and keeps it at once (LESSONS 1, VS-MAP-RACE). After the restore it changes nothing.
+    func noteViewMemoryPick() {
+        guard let session = viewMemory, !session.applied else { return }
+        session.pickedBeforeApply = true
+        session.changedBeforeApply = true
     }
 
     /// Ends the visit: keeps what stands, then removes the line (VS U2). A change to the viewport's list sets no

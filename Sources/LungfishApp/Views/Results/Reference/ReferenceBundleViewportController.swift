@@ -66,6 +66,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     /// Suppress it while asynchronous mapping rows are being replaced so the
     /// previously-focused row cannot reapply a stale track/RG predicate.
     private var isReplacingMappingRows = false
+    var selectsOwnRow = false // the list selects a row by itself, so its selection change is no person's pick (VS-MAP-RACE)
     /// The mapping list row the embedded viewer shows now, by the list's own row identity. A sort or a filter
     /// emits the selected row again, and a row already shown keeps its zoom and its reads (RM-LIST-VIEWPORT).
     private var displayedContigRowIdentity: String?
@@ -341,6 +342,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             // A sort or a filter of the list emits the selected row again. The contig already shown keeps its zoom.
             guard self.contigTableView.rowIdentity(for: row) != self.displayedContigRowIdentity else { return }
             self.displaySelectedContig(row)
+            self.notePersonsPick()
         }
         contigTableView.onSelectionCleared = { [weak self] in
             guard let self, !self.isReplacingMappingRows else { return }
@@ -361,6 +363,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         }
         sequenceTableView.onRowSelected = { [weak self] row in
             self?.displaySelectedSequence(row)
+            self?.notePersonsPick()
         }
         sequenceTableView.onSelectionCleared = { [weak self] in
             self?.showDetailPlaceholder("Select a sequence to inspect.")
@@ -844,7 +847,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     func applyEmbeddedReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {
         // The context is an immutable scientific snapshot. Never leave it
         // installed while any display/scientific filter is being replaced.
-        if applyReadDisplaySettingsToViewer(userInfo) { return } // clears it, but the block's echo of a restore waits
+        if applyReadDisplaySettingsToViewer(userInfo) { return } // clears it, unless no filter it holds changed
 
         guard currentInput?.kind == .mappingResult else {
             if let row = currentSelectedSequence(),
@@ -1195,11 +1198,8 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
     private func selectContig(at row: Int, appliesAlignmentIdentity: Bool = true) {
         guard row >= 0, row < contigTableView.displayedRows.count else { return }
         let selectedContig = contigTableView.displayedRows[row]
-        contigTableView.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        displaySelectedContig(
-            selectedContig,
-            appliesAlignmentIdentity: appliesAlignmentIdentity
-        )
+        selectOwnRow(row, in: contigTableView.tableView)
+        displaySelectedContig(selectedContig, appliesAlignmentIdentity: appliesAlignmentIdentity)
     }
 
     private func selectSequence(named name: String) -> Bool {
@@ -1210,7 +1210,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
 
     private func selectSequence(at row: Int) {
         guard row >= 0, row < sequenceTableView.displayedRows.count else { return }
-        sequenceTableView.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        selectOwnRow(row, in: sequenceTableView.tableView)
         displaySelectedSequence(sequenceTableView.displayedRows[row])
     }
 
@@ -1532,7 +1532,7 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
         return resolvedTrackURL(path, bundleURL: bundleURL)
     }
 
-    private func currentAlignmentFilters() -> AlignmentConsensusFilters? {
+    func currentAlignmentFilters() -> AlignmentConsensusFilters? {
         guard let settings = embeddedViewerController.viewerView else { return nil }
         return .init(
             minimumDepth: settings.consensusMinDepthSetting,
@@ -1585,7 +1585,6 @@ public class ReferenceBundleViewportController: NSViewController, SampleMetadata
             }
         }
     }
-
 
     func clearAlignmentActionContext() {
         alignmentActionContextGeneration += 1
@@ -1746,9 +1745,8 @@ extension ReferenceBundleViewportController {
         await alignmentActionContextTask?.value
     }
 
-
-    func testSelectContig(named name: String) {
-        _ = selectContig(named: name)
+    func testSelectContig(named name: String) { // a test's selection stands for a person's click (VS-MAP-RACE)
+        if selectContig(named: name) { notePersonsPick() }
     }
 
     func testSelectContig(sampleID: String?, alignmentTrackID: String?, named name: String) {
@@ -1758,10 +1756,11 @@ extension ReferenceBundleViewportController {
                 && $0.contigName == name
         }) else { return }
         selectContig(at: row)
+        notePersonsPick()
     }
 
     func testSelectSequence(named name: String) {
-        _ = selectSequence(named: name)
+        if selectSequence(named: name) { notePersonsPick() }
     }
 
     func testSelectSequence(sampleID: String, named name: String) {
@@ -1769,6 +1768,7 @@ extension ReferenceBundleViewportController {
             $0.sampleID == sampleID && $0.summary.name == name
         }) else { return }
         selectSequence(at: row)
+        notePersonsPick()
     }
 
     func testSelectSequence(sampleID: String?, alignmentTrackID: String?, named name: String) {
@@ -1778,6 +1778,7 @@ extension ReferenceBundleViewportController {
                 && $0.summary.name == name
         }) else { return }
         selectSequence(at: row)
+        notePersonsPick()
     }
 
     func testEnterFocusedDetailMode() {

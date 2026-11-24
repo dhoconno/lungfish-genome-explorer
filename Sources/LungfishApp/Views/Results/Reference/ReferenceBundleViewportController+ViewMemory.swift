@@ -92,7 +92,25 @@ extension ReferenceBundleViewportController: ReferenceViewportMemoryOwner {
     }
 
     @objc func viewMemoryRowClicked(_ sender: NSTableView) {
+        if sender.clickedRow >= 0 { notePersonsPick() }
         pickRestoredRow(at: sender.clickedRow)
+    }
+
+    /// Selects a row as the list's own open, refresh or reselect does (`refreshSelection`, `refreshSequenceSelection`,
+    /// a `preferredSelectionName` open), so the selection change it sends notes no person's pick (VS-MAP-RACE).
+    func selectOwnRow(_ row: Int, in table: NSTableView) {
+        selectsOwnRow = true
+        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        selectsOwnRow = false
+    }
+
+    /// A person's pick of a row: a selection change the list did not make itself (a click or a keyboard move), the
+    /// click on the restored row, or a test's selection, which stands for a click. Before the late restore lands it is
+    /// a change under VS A2 even on the list's own first row (VS-MAP-RACE). It runs after the row's display, which may
+    /// start the visit.
+    func notePersonsPick() {
+        guard !selectsOwnRow else { return }
+        embeddedViewerController.noteViewMemoryPick()
     }
 
     /// A click on the selected row while it has no alignment action context, as a restored row has none, is the
@@ -180,27 +198,26 @@ extension ReferenceBundleViewportController {
     /// The viewer takes read display settings from the block or a restore, with the row's action context cleared, since
     /// the context is a snapshot of the filters. A person's change ends the filter line once the filters differ from
     /// those it spoke of, and the visit takes the list as it stands, so a leave keeps it.
-    /// Returns true while a restored row waits for its click and these settings change none of the shown filters and
-    /// name no track: the block's `.onChange` handlers send a restore's own filters back one SwiftUI pass after it,
-    /// outside its no-hash window, and that must start no evidence hash (VS S4, SWIFT-EVIDENCE-HASH). That check comes
-    /// before the clear, since a clear outside the restore ends the cue (BIO SF-1). A waiting row has no context yet.
+    /// Returns true when these settings name no track and change no filter the context holds (the shown filters and
+    /// `currentAlignmentFilters()`, the read groups with them). Such an apply, inside or outside the restore, clears no
+    /// context, cancels no context task and installs none (VS-MAP-RACE item 2), so a restore that keeps the row and
+    /// the filters keeps the context the open or the click built. It covers the echo too: the block's `.onChange`
+    /// handlers send a restore's own filters back one SwiftUI pass after it, outside its no-hash window, and that must
+    /// start no evidence hash and keep the cue (VS S4, SWIFT-EVIDENCE-HASH, BIO SF-1).
     @discardableResult
     func applyReadDisplaySettingsToViewer(_ userInfo: [AnyHashable: Any]) -> Bool {
-        let waiting = !embeddedViewerController.isRestoringViewportMemory
-            && embeddedViewerController.viewMemory?.contextWithheld == true && selectedRowAwaitsItsContext
-            && !userInfo.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable)
-        let before = shownReadFilters
-        if !waiting { clearAlignmentActionContext() }
+        let namesTrack = userInfo.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable)
+        let before = (shownReadFilters, currentAlignmentFilters())
         embeddedViewerController.applyReadDisplaySettings(userInfo)
-        let echo = waiting && shownReadFilters == before
-        if waiting && !echo { clearAlignmentActionContext() }
-        guard !embeddedViewerController.isRestoringViewportMemory else { return false }
+        let unchanged = !namesTrack && (shownReadFilters, currentAlignmentFilters()) == before
+        if !unchanged { clearAlignmentActionContext() }
+        guard !embeddedViewerController.isRestoringViewportMemory else { return unchanged }
         if let line = filterLineView, shownReadFilters != embeddedViewerController.viewMemory?.restoredReads {
             line.removeFromSuperview()
             embeddedViewerController.view.topAnchor.constraint(equalTo: detailContentContainer.topAnchor).isActive = true
         }
         _ = embeddedViewerController.captureViewerMemory()
-        return echo
+        return unchanged
     }
 
     private var filterLineView: ViewMemoryFilterLineView? {
