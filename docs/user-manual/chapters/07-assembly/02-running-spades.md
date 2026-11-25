@@ -22,7 +22,7 @@ shots:
   - id: assembly-viewport
     caption: "The assembly viewport after the HG002 mitochondrial run, with the summary strip above the contig table and the Inspector's Bundle tab showing the Assembly Context block with 1 contig, 16697 total assembled bp, and an N50 of 16697 bp."
   - id: assembly-bundle-in-analyses
-    caption: "The HG002-chrM assembly result selected as one row under Analyses in the sidebar, with its contig table open and the whole-assembly metrics in the Inspector's Assembly Context block."
+    caption: "The assembly result of the HG002.chrM reads selected as one row under Analyses in the sidebar, with its contig table open and the whole-assembly metrics in the Inspector's Assembly Context block."
   - id: contig-detail-pane
     caption: "The detail pane for the longest contig, showing its header, length, GC percent, rank, share of the assembly, and sequence."
 illustrations: []
