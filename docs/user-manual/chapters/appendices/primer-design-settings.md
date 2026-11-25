@@ -37,7 +37,7 @@ A GC-rich target, such as the macaque [MHC](../../GLOSSARY.md#mhc) gene *Mamu-A1
 
 | Engine | Controls | Direction for a GC-rich target |
 |---|---|---|
-| Primer3 | **Maximum GC (%)**, **Primer melting temperature (°C)**, **Primer length (nt)** | Raise the GC maximum from a qPCR preset's 60 toward 65 or 70, as [When a preset finds nothing](../10-primer-design/04-designing-qpcr-and-dpcr-assays.md#when-a-preset-finds-nothing) does. Shorten primers before raising the melting-temperature maximum a degree or two. |
+| Primer3 | **Maximum GC (%)**, **Primer melting temperature (°C)**, **Primer length (nt)** | Raise the GC maximum from a qPCR preset's 60 toward 65 or 70, as [When a preset finds nothing](../10-primer-design/04-designing-qpcr-and-dpcr-assays.md#when-a-preset-finds-nothing) does. Allow shorter primers, which lowers the melting temperature, or raise the melting-temperature maximum a degree or two. |
 | PrimalScheme | **Use high-GC design settings** | Turn it on, as [Tuning a scheme that covers too little](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md#tuning-a-scheme-that-covers-too-little) advises. It sets the allowed primer length to 17 to 30 bases instead of 19 to 36, and the allowed GC share to 40 to 65 percent instead of 30 to 55. |
 | Olivar | **Maximum GC fraction**, **Extreme GC**, **Maximum primer-target binding ΔG (--dG-max)** | Raise the GC maximum above 0.75 in steps of 0.05. Lower **Extreme GC** toward 0 when much of the target is GC-rich. Leave the ΔG alone, since primers stop growing once binding reaches it. |
 | varVAMP | **GC maximum (%)**, **GC optimum (%)**, **Tm maximum**, **Length optimum**, **Hairpin threshold** | Raise the GC maximum and optimum together, because varVAMP drops a primer whose penalty passes 10. Shorten primers before raising the Tm maximum. Keep the hairpin and dimer limits. |
@@ -139,7 +139,7 @@ The command line also has `--selection-algorithm`, which the dialog leaves at `l
 
 **Maximum panel amplicons (optional)** and **Maximum per MSA (optional)** cap how many amplicons the whole panel and each alignment may hold. Both are blank by default, which leaves PrimalScheme's panel selection unrestricted. Set them to keep the order to a size you can afford. On the command line these are `--max-amplicons` and `--max-amplicons-per-msa`.
 
-**Allow bounded dimer salvage.** Runs the strict panel first and then a bounded salvage round that retries with relaxed interaction limits, set by the six fields below, which its caption calls search budgets, not safety thresholds. It is off by default. Turn it on when the strict panel leaves gaps, with uniform weighting and both caps blank, which the dialog requires. On the command line this is `--legacy-salvage bounded`.
+**Allow bounded dimer salvage.** Runs the strict panel first and then a bounded salvage round that retries with relaxed interaction limits, set by the six fields below, which its caption calls search budgets, not experimentally established safety thresholds. It is off by default. Turn it on when the strict panel leaves gaps, with uniform weighting and both caps blank, which the dialog requires. On the command line this is `--legacy-salvage bounded`.
 
 | Field | Default | What it limits | Flag |
 |---|---|---|---|
@@ -156,7 +156,7 @@ The command line also has `--selection-algorithm`, which the dialog leaves at `l
 
 ## Olivar
 
-Olivar designs tiled two-pool schemes by scoring every base for risk and placing primers where the risk is lowest. Apart from **Output grouping** and the amplicon sizes, which sit in "Scheme settings", and **Analysis name**, every control lives under "Advanced settings", most of them in a group named "Olivar native settings", where a bracketed name such as `--min-var` is Olivar's own option. [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md) covers its size fields, **Search effort** and **Random seed**.
+Olivar designs tiled two-pool schemes by scoring every base for risk and placing primers where the risk is lowest. Apart from **Output grouping** and the amplicon sizes, which sit in "Scheme settings", and **Analysis name**, every control lives under "Advanced settings", most of them in a group named "Olivar native settings", where a name in parentheses, such as `--min-var`, is Olivar's own option. [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md) covers its size fields, **Search effort** and **Random seed**.
 
 **CPU workers.** Sets how many processor cores Olivar uses. The default is 4, or fewer on a Mac with fewer cores. Raise it on a long alignment. On the command line this is `--workers`.
 
