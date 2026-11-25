@@ -19,7 +19,7 @@ lead_approved: false
 
 ## What it is
 
-Lungfish Genome Explorer (LGE) works with two kinds of file. The first kind is the standard bioinformatics formats that every genomics tool understands, such as FASTA for sequences and BAM for alignments, each defined in its own section below. The second kind is LGE's own bundle formats, which are ordinary folders. macOS shows the reference, multiple sequence alignment, tree, primer analysis, and MHC reference kinds as a single icon, and double-clicking one opens it in LGE rather than a folder window. The other kinds look like normal folders in the Finder, and in every kind the files inside are ordinary files. A text editor shows most files, such as FASTA and JSON, while binary ones such as BAM and `.xlsx` need a program built for them, which [Sharing and inspecting bundles](#sharing-and-inspecting-bundles) names.
+Lungfish Genome Explorer (LGE) works with two kinds of file. The first kind is the standard bioinformatics formats that every genomics tool understands, such as FASTA for sequences and BAM for alignments, each defined in its own section below. The second kind is LGE's own bundle formats, which are ordinary folders. macOS shows the reference, multiple sequence alignment, tree, primer analysis, and MHC reference kinds as a single icon, and double-clicking one opens it in LGE rather than a folder window. The other kinds LGE writes look like normal folders in the Finder, and in every kind the files inside are ordinary files. A text editor shows most files, such as FASTA and JSON, while binary ones such as BAM and `.xlsx` need a program built for them, which [Sharing and inspecting bundles](#sharing-and-inspecting-bundles) names.
 
 This appendix covers the structure of every file and bundle format LGE reads or writes, and nothing else. Read one section at a time. Each says what one format holds, what LGE does with it, and how to look inside it.
 
@@ -171,7 +171,7 @@ Work the first BED row above through the conversion. It reads 27 and 51. To get 
 
 bedGraph is a four-column relative of BED whose fourth column is a numeric value per interval, used for coverage and signal tracks. LGE both reads and writes it.
 
-LGE keeps each file in its own convention on disk and shows you one-based inclusive coordinates everywhere in the window. The names LGE writes itself follow the window, as the table shows. Only BED and bedGraph files, the `--start` and `--end` options in the table, and the values a provenance record labels `0-based half-open` count from 0, and every other coordinate you read counts from 1. [Counting from one and from zero](../02-sequences/03-extracting-and-comparing.md#counting-from-one-and-from-zero) teaches the rule with examples.
+LGE keeps each file in its own convention on disk and shows you one-based inclusive coordinates everywhere in the window. The names LGE writes itself follow the window, as the table shows. BED and bedGraph files, the `--start` and `--end` options in the table, the values a provenance record labels `0-based half-open`, and the normalized coordinates a [primer analysis bundle](../../GLOSSARY.md#primer-analysis-bundle) stores count from 0, while every coordinate the window shows counts from 1. [Counting from one and from zero](../02-sequences/03-extracting-and-comparing.md#counting-from-one-and-from-zero) teaches the rule with examples.
 
 | Where the coordinate appears | Convention | Example |
 |---|---|---|
@@ -193,7 +193,7 @@ LGE reads all three. In the window, importing sorts and indexes a copy inside th
 
 A `.bai` index lets a viewer jump to a region without scanning the file. CSI is the alternative index for a reference sequence longer than the roughly 512-megabase limit a `.bai` can point into. That limit is a property of the index format rather than something to judge your data by, and it matters only for a single chromosome longer than about half a gigabase, which no human chromosome is. LGE writes `.bai` for the BAMs it produces and reads a `.csi` that arrives beside an imported BAM.
 
-The [Inspector](../../GLOSSARY.md#inspector)'s alignment summary shows the same figures the two commands below print, and [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) reads them. To get them at a prompt instead, run these two on the `HG002 minimap2` track in the Human Mapping and Variants (with results) demo project. The track lives in the reference bundle inside the mapping result, and its BAM is named `aln_` followed by eight characters LGE generated, which the `aln_*.bam` pattern matches without your typing them, the star standing for those eight characters. The folder name `minimap2-2026-09-25T00-00-00` belongs to this demo project, so use the name your own run shows under `Analyses`.
+The [Inspector](../../GLOSSARY.md#inspector)'s alignment summary shows the same figures the two commands below print, and [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) reads them. To get them at a prompt instead, run these two on the `HG002 minimap2` track in the Human Mapping and Variants (with results) demo project. The track lives in the reference bundle inside the mapping result, and its BAM is named `aln_` followed by eight characters LGE generated, which the `aln_*.bam` pattern matches without your typing them, the star standing for those eight characters. The folder name `minimap2-2026-09-25T00-00-00` and the `mapped/` folder belong to this demo project, so use the name your own run shows under `Analyses`, and leave out `mapped/` when your run keeps its BAM directly under `alignments/`, as [The reference bundle](#the-reference-bundle) explains.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants (with results).lungfish"
@@ -272,11 +272,11 @@ This tree is rooted on the macaques, the [outgroup](../../GLOSSARY.md#outgroup) 
 
 ## What an LGE bundle is
 
-A bundle is a folder with a fixed extension that LGE treats as one object in the sidebar, and macOS Finder draws some kinds, such as a reference bundle, as a single icon, yet at a Terminal prompt every kind is an ordinary folder whose files you can open with any tool. To browse one, right-click it in LGE's sidebar and choose **Show Package Contents**, which opens the folder in a Finder window. The sidebar offers it for every kind it shows as one row, including the kinds the Finder draws as an ordinary folder. **Get Bundle Info** in the sidebar's menu shows the bundle's location and what its `manifest.json` names, such as the bundle's name and how many tracks it holds. Neither step is needed at a prompt, since every command in this appendix reaches inside a bundle directly.
+A bundle is a folder with a fixed extension that LGE treats as one object, and macOS Finder draws some kinds, such as a reference bundle, as a single icon, yet at a Terminal prompt every kind is an ordinary folder whose files you can open with any tool. To browse one, right-click it in LGE's sidebar and choose **Show Package Contents**, which opens the folder in a Finder window. The sidebar offers it for every kind it shows as one row, including the kinds the Finder draws as an ordinary folder. **Get Bundle Info** in the sidebar's menu shows the bundle's location and what its `manifest.json` names, such as the bundle's name and how many tracks it holds. Neither step is needed at a prompt, since every command in this appendix reaches inside a bundle directly.
 
 LGE remembers how you left each item's view, such as the region a reference was showing and its display settings. It keeps that memory on your Mac, in `~/Library/Application Support/Lungfish/ViewMemory/`, and never inside a bundle or a project, so a bundle you copy to a colleague carries your data but not your place in it.
 
-Every bundle except a plain read dataset carries a manifest at its root, and a manifest is a JSON file, meaning a plain-text format that stores data as named values. Each name is called a key, and its value is a number, a string of text, a list, or an object, a nested set of named values that some manifests call a map. The manifest's shape is not shared across bundle kinds, so the practical rule is simple. Open the manifest and read it, rather than expecting a key you found in one bundle to appear in another.
+Every bundle LGE writes, except a plain read dataset, carries a manifest at its root, and a manifest is a JSON file, meaning a plain-text format that stores data as named values. Each name is called a key, and its value is a number, a string of text, a list, or an object, a nested set of named values that some manifests call a map. The manifest's shape is not shared across bundle kinds, so the practical rule is simple. Open the manifest and read it, rather than expecting a key you found in one bundle to appear in another.
 
 The differences are mostly in how the key names are spelled. The reference bundle's manifest is `manifest.json` with snake_case keys such as `format_version`, meaning words joined by underscores. The alignment and tree bundles use `manifest.json` with camelCase keys such as `schemaVersion` and `bundleKind`, meaning words run together with each new word capitalized. The primer scheme's manifest uses `schema_version` and has no file map at all. The MHC amplicon reference does not use the name `manifest.json`, calling its manifest `mhc-reference.json` instead.
 
@@ -772,14 +772,14 @@ The recipient unzips it and drags the resulting folder into the LGE project wind
 
 A virtual read bundle stores a recipe and a preview rather than its reads, so export it as FASTQ first, as [The read dataset bundle](#the-read-dataset-bundle) shows, and send the FASTQ.
 
-Someone without LGE needs one file and a program that opens it. This table names both.
+Someone without LGE needs the data file, with its index where the table names one, and a program that opens it. This table names both.
 
 | Data | File to hand on | A free program that opens it |
 |---|---|---|
 | A reference sequence | `genome/sequence.fa.gz` and its two indexes | samtools, as in the last block below |
 | Annotations | A GFF3 from **File > Export > Annotations (GFF3)…** | IGV |
 | Mapped reads | The BAM and `.bai` that the manifest's `alignments` entry names | IGV |
-| Variants | The `.vcf.gz` and `.tbi` that the manifest's `variants` entry names | IGV |
+| Variants | The `.vcf.gz` and `.tbi` that the manifest's `variants` entry names, or for an imported track the VCF you imported | IGV |
 | A sample's reads | The `.fastq.gz` of the read bundle | A text editor, after unzipping |
 | A multiple sequence alignment | `alignment/primary.aligned.fasta` | Jalview |
 | A tree | `tree/primary.nwk` | FigTree |
