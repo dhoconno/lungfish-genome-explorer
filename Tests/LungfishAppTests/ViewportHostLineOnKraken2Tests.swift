@@ -260,4 +260,48 @@ final class ViewportHostLineOnKraken2Tests: XCTestCase {
                        "Kraken2 is back on its own pin")
         XCTAssertEqual(inWindow(summaryBar).maxY, visible.maxY, accuracy: 0.5)
     }
+
+    /// The clear with the line and the strip up: the host removes the line, the surface and, through
+    /// `activeViewportDidChange(nil)`, the strip, and no constraint is left on either gone view.
+    func testAClearWithTheLineAndTheStripUpLeavesNeitherAndNoStrayConstraint() throws {
+        let (viewer, _, _) = try showKraken2()
+        let (line, strip) = try showLineThenStrip(viewer)
+
+        viewer.surfaceHost.clear()
+        layOut(viewer)
+
+        XCTAssertNil(viewer.surfaceHost.resetLine)
+        XCTAssertNil(line.superview, "the line is gone from the view tree")
+        XCTAssertNil(strip.superview, "the strip goes with the surface")
+        XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view))
+        let stray = viewer.view.constraints.filter { constraint in
+            constraint.isActive && [constraint.firstItem, constraint.secondItem].contains { $0 === line || $0 === strip }
+        }
+        XCTAssertTrue(stray.isEmpty, "no active constraint names the line or the strip: \(stray)")
+    }
+
+    /// The next show with the line and the strip up: the old line, strip and surface go, and the new surface starts
+    /// under the one strip the viewer gives each surface it installs, with no line above it.
+    func testTheNextShowWithTheLineAndTheStripUpStacksTheNewSurfaceUnderOneStrip() throws {
+        let (viewer, firstSurface, _) = try showKraken2()
+        let visible = window.contentLayoutRect
+        let (line, strip) = try showLineThenStrip(viewer)
+
+        _ = try viewer.showSurface(.analysis(.kraken2), input: TaxonomyViewController(), as: Kraken2Surface.self)
+        layOut(viewer)
+
+        XCTAssertNil(viewer.surfaceHost.resetLine)
+        XCTAssertNil(line.superview, "the old line is gone")
+        XCTAssertNil(strip.superview, "the old strip is gone")
+        XCTAssertNil(firstSurface.superview, "the old surface is gone")
+        let strips = viewer.view.subviews.compactMap { $0 as? AffectedResultsStripView }
+        XCTAssertEqual(strips.count, 1, "one strip above the new surface")
+        let newStrip = try XCTUnwrap(strips.first)
+        let newSurface = try XCTUnwrap(viewer.installedSurface?.viewController.view)
+        XCTAssertEqual(inWindow(newStrip).maxY, visible.maxY, accuracy: 0.5, "the strip starts at the safe-area top")
+        XCTAssertEqual(inWindow(newSurface).maxY, inWindow(newStrip).minY, accuracy: 0.5,
+                       "the new surface starts at the strip's bottom")
+        XCTAssertEqual(activeTops(of: newStrip, in: viewer.view).count, 1, "the strip has one top")
+        XCTAssertEqual(activeTops(of: newSurface, in: viewer.view).count, 1, "the new surface has one top")
+    }
 }
