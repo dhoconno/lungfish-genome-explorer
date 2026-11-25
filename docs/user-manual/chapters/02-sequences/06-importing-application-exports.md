@@ -250,4 +250,4 @@ lungfish-cli import geneious "$HOME/Desktop/lge-docs/hbb-sequence-library" \
 
 ## Next
 
-Continue to [Downloading from NCBI](02-downloading-from-ncbi.md), which fetches a record from NCBI straight into the project when you have no export to bring in. To give the copied VCF a place in its bundle, see [Importing Existing VCFs](../05-variants/06-importing-existing-vcfs.md), and for reads that came with an export, see [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
+This is the last chapter in Sequences. Continue to [Importing Sequencing Reads](../03-reads/01-importing-fastq.md), the first chapter of Reads (FASTQ), which also takes the reads that came with an export. When you have no export to bring in, [Downloading from NCBI](02-downloading-from-ncbi.md) fetches a record from NCBI straight into the project, and to give the copied VCF a place in its bundle, see [Importing Existing VCFs](../05-variants/06-importing-existing-vcfs.md).
