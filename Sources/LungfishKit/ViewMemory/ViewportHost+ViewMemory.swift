@@ -117,6 +117,11 @@ extension ViewportHost {
     /// with its own safe-area constraint, which the line has none of. At that edge the toolbar covered every line
     /// (2026.11.17 walk, row F1 C1b, VS-HOST-LINE). The surface's top follows the line's bottom, where it has no band
     /// left to clear, so its first row starts right below the line.
+    ///
+    /// The line is first in what stands above the surface. A view the container's owner hung the surface from, such as
+    /// the viewer's affected-results strip, moves down to start at the line's bottom and keeps the surface under it.
+    /// So a line drawn after the strip, as a late apply draws it, stacks as the install's line does: the line, the
+    /// strip, the surface (VS-HOST-LINE continuation 1).
     func showResetLine(_ words: String) {
         guard let containerView, let installed = activeViewport?.viewController.view, let pin = installedTop else {
             return
@@ -124,23 +129,64 @@ extension ViewportHost {
         removeResetLine()
         let line = ViewMemoryResetLineView(words: words)
         containerView.addSubview(line)
+        let first = Self.firstView(above: installed, in: containerView)
         pin.constraint.isActive = false
+        first.top?.isActive = false
         NSLayoutConstraint.activate([
             line.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
             line.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             line.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            installed.topAnchor.constraint(equalTo: line.bottomAnchor),
+            first.view.topAnchor.constraint(equalTo: line.bottomAnchor),
         ])
         resetLine = line
         line.announce()
     }
 
-    /// Removes the reset line and pins the installed surface's top where it was.
+    /// Removes the reset line, and what started at its bottom takes its place. The installed surface goes back on its
+    /// own pin. A view placed above the surface goes back to the safe-area top, where the line was, and the surface
+    /// stays under it, so nothing moves above the container's edge.
     func removeResetLine() {
         guard let line = resetLine else { return }
         resetLine = nil
+        let below = containerView.flatMap { Self.view(hangingFrom: line, in: $0) }
         line.removeFromSuperview()
-        installedTop?.constraint.isActive = true
+        if let containerView, let below, below !== activeViewport?.viewController.view,
+           below.superview === containerView {
+            below.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor).isActive = true
+        } else {
+            installedTop?.constraint.isActive = true
+        }
+    }
+
+    /// The top constraint the host gave the installed surface, at the container's edge or at its safe-area top. The
+    /// line or a view placed above the surface turns it off while it shows, and the last of them to go turns it back
+    /// on, so a view the viewer places keeps it to put back after the line went.
+    public var installedSurfaceTopPin: NSLayoutConstraint? { installedTop?.constraint }
+
+    /// The first of what stands above `surface` in `container`, with its active top constraint: the surface itself,
+    /// or the view its top hangs from, and so on up to the one whose top holds to the container.
+    private static func firstView(
+        above surface: NSView, in container: NSView
+    ) -> (view: NSView, top: NSLayoutConstraint?) {
+        var view = surface
+        for _ in container.subviews {
+            guard let top = topConstraint(of: view, in: container) else { return (view, nil) }
+            guard top.secondAttribute == .bottom, let above = top.secondItem as? NSView, above.superview === container
+            else { return (view, top) }
+            view = above
+        }
+        return (view, topConstraint(of: view, in: container))
+    }
+
+    private static func topConstraint(of view: NSView, in container: NSView) -> NSLayoutConstraint? {
+        container.constraints.first { $0.isActive && $0.firstItem === view && $0.firstAttribute == .top }
+    }
+
+    /// The view whose top starts at `line`'s bottom.
+    private static func view(hangingFrom line: NSView, in container: NSView) -> NSView? {
+        container.constraints.first {
+            $0.isActive && $0.firstAttribute == .top && $0.secondItem === line && $0.secondAttribute == .bottom
+        }?.firstItem as? NSView
     }
 
     /// Signs the host up for its window's close and for the quit.
