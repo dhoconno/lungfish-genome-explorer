@@ -135,6 +135,27 @@ final class AnnotationDatabaseMultiPartMergeTests: XCTestCase {
                        "the same three intervals come back")
     }
 
+    /// The parts of one feature in any file order are one row with sorted blocks, on both strands.
+    func testPartsInAnyFileOrderGiveOneRowWithSortedBlocksOnBothStrands() async throws {
+        for (strand, name) in [("+", "plus"), ("-", "minus")] {
+            let parts = [
+                "chrT\ttest\tmRNA\t101\t192\t.\t\(strand)\t.\tID=rna-HBB;Name=HBB",
+                "chrT\ttest\tmRNA\t301\t523\t.\t\(strand)\t.\tID=rna-HBB;Name=HBB",
+                "chrT\ttest\tmRNA\t801\t1000\t.\t\(strand)\t.\tID=rna-HBB;Name=HBB",
+            ]
+            for (label, order) in [("descending", [2, 1, 0]), ("shuffled", [2, 0, 1])] {
+                let imported = try await importLines(order.map { parts[$0] }, file: "order-\(name)-\(label).gff3")
+                XCTAssertEqual(imported.rows.count, 1, "\(name) \(label): one row")
+                let row = try XCTUnwrap(imported.rows.first, "\(name) \(label)")
+                XCTAssertEqual([row.start, row.end], [100, 1000], "\(name) \(label)")
+                XCTAssertEqual(row.strand, strand, "\(name) \(label)")
+                XCTAssertEqual(row.blockCount, 3, "\(name) \(label)")
+                XCTAssertEqual(row.blockSizes, "92,223,200", "\(name) \(label)")
+                XCTAssertEqual(row.blockStarts, "0,200,700", "\(name) \(label)")
+            }
+        }
+    }
+
     // MARK: - Guards
 
     /// Lines with one ID that differ in type are not parts of one feature. A CDS with the ID of an mRNA is a CDS of
