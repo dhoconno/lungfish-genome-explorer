@@ -149,6 +149,7 @@ lungfish-cli import vcf "$VCF" --output-dir "$BUNDLE" \
 ```
 
 The summary ends "VCF import complete" and names the track it attached, and its `Variants` line reads 961. Once the bundle also holds the two caller tracks, the Variants tab counts 2,863 variants in all.
+
 The second command shows `--replace` with a track id, which swaps the new database and record in for that track's. `lungfish-cli bundle list "$BUNDLE" --tracks` prints the ids of the tracks a bundle holds.
 
 ## Next

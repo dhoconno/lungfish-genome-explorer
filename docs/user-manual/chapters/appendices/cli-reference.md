@@ -5489,6 +5489,7 @@ The scan covers `databases/`, `conda/pkgs/`, and `conda/envs/` under each folder
 These commands do what **Help > Demo Projects…** does in the window, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) describes. They read the same list of projects and install into the same default folder, `~/Documents/LGE Demo Projects`. Each project has a short id, such as `pathogen-detection`, which `demo list` prints.
 
 The list holds ten projects, whose ids are `genes-and-sequences`, `human-reads`, `human-mapping-and-variants`, `human-mapping-and-variants-results`, `long-reads-and-assembly`, `sarscov2-amplicons`, `pathogen-detection`, `mhc-genotyping`, `twelve-s-metabarcoding`, and `primer-design`.
+
 On these three commands `--format` takes `text` or `json`.
 
 This downloads the Genes and Sequences project, checks it, and prints the path of the installed `.lungfish` folder.
