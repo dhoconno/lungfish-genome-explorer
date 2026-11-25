@@ -9,7 +9,7 @@ tags: [alignments, primer-trim, amplicon, ivar, primer-scheme, artic, qiaseq]
 tools: [ivar, samtools]
 parameters_refs: [bam.primer-trim]
 entry_points:
-  - "Inspector > Analysis > Primer Trim > Primer-trim BAM..."
+  - "Inspector > Analysis > Primer Trim > Primer-trim BAM…"
   - "CLI: lungfish-cli bam primer-trim"
 shots:
   - id: primer-trim-scheme-menu
@@ -73,12 +73,12 @@ This example trims the minimap2 alignment with the built-in QIAseq Direct scheme
 
 1. Click the `minimap2-` mapping result under **Analyses** in the sidebar. Open the [Inspector](../../GLOSSARY.md#inspector) with **View > Show Inspector** (Cmd-Opt-I) if it is hidden.
 2. Open the Inspector's **Analysis** tab and click its **Primer Trim** tab, one of the six [Analysis tabs](02-reading-an-alignment.md#the-inspector-summary-and-the-analysis-tabs).
-3. Click **Primer-trim BAM...**. The Primer Trim dialog opens with four sections, Primer Scheme, Target, Advanced Options, and Readiness.
+3. Click **Primer-trim BAM…**. The Primer Trim dialog opens with four sections, Primer scheme, Target, Advanced Options, and Readiness.
 4. Open the **Primer Scheme** menu and choose **QIAseq Direct SARS-CoV-2 with Booster A**. Eight schemes sit under the heading Built-in, and schemes you imported into the project sit under In This Project. LGE ships eight SARS-CoV-2 schemes, listed in [Shipped schemes](../appendices/primer-schemes.md#shipped-schemes). For your own run, take the scheme name from the amplicon kit you prepared the library with, never from a guess at the menu.
 
     <!-- SHOT: primer-trim-scheme-menu -->
 
-The **Choose Scheme...** button beside the menu opens a scheme stored outside the project, such as a `.lungfishprimers` folder a collaborator sent you. To build a scheme LGE does not ship, see [Primer Scheme Bundles](../appendices/primer-schemes.md).
+The **Choose Scheme…** button under the menu opens a scheme stored outside the project, such as a `.lungfishprimers` folder a collaborator sent you. To build a scheme LGE does not ship, see [Primer Scheme Bundles](../appendices/primer-schemes.md).
 
 ### Set the target and run
 
@@ -96,7 +96,7 @@ Under the Target section the dialog notes that reads without matching primers ar
 
 ### Trimming with a designed scheme
 
-A scheme you designed in LGE's Primer Design part and saved with **Save as Primer Scheme…**, as [Save a tiled scheme as a primer scheme](../10-primer-design/05-reviewing-and-ordering-primers.md#save-a-tiled-scheme-as-a-primer-scheme) shows, trims the same way, with one step first. Its primer positions count along the sequence the design engine worked on, which the scheme carries as `attachments/design-reference.fasta`, not along any public accession. Import that FASTA as a reference bundle, map your reads to it, and trim that alignment with the scheme, which the Primer Scheme menu lists under In This Project. Reads mapped to any other sequence trim almost nothing, and the trim rate in the run's log, which [Reading the results](#reading-the-results) explains, is where that shows. [Matching the scheme to your alignment](../appendices/primer-schemes.md#matching-the-scheme-to-your-alignment) in Primer Scheme Bundles gives the reason in detail.
+A scheme you designed in LGE's Primer Design part and saved with **Save as Primer Scheme…**, as [Save a tiled scheme as a primer scheme](../10-primer-design/05-reviewing-and-ordering-primers.md#save-a-tiled-scheme-as-a-primer-scheme) shows, trims the same way, with one step first. Its primer positions count along the sequence the design engine worked on, which the scheme carries as `attachments/design-reference.fasta`, not along any public accession. Import that FASTA as a reference bundle, map your reads to it, and trim that alignment with the scheme, which the Primer Scheme menu lists under In This Project. Reads mapped to a sequence of any other name stop the trim with an error that names the reference names the scheme declares. [Matching the scheme to your alignment](../appendices/primer-schemes.md#matching-the-scheme-to-your-alignment) in Primer Scheme Bundles gives the reason in detail.
 
 ## Settings
 
