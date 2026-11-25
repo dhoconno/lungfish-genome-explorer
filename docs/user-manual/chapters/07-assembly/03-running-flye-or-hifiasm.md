@@ -3,27 +3,27 @@ title: Long-Read Assembly (Flye, hifiasm)
 chapter_id: 07-assembly/03-running-flye-or-hifiasm
 audience: bench-scientist
 prereqs: [07-assembly/01-when-to-assemble, 07-assembly/02-running-spades]
-estimated_reading_min: 14
+estimated_reading_min: 18
 task: Assemble Oxford Nanopore reads with Flye or PacBio HiFi reads with hifiasm, and read the resulting contig table.
 tags: [assembly, flye, hifiasm, nanopore, pacbio, long-read]
 tools: [flye, hifiasm]
 parameters_refs: [assemble.flye, assemble.hifiasm]
 entry_points:
-  - "Tools > Assembly > Flye..."
-  - "Tools > Assembly > Hifiasm..."
+  - "Tools > Assembly > Flye…"
+  - "Tools > Assembly > Hifiasm…"
   - "CLI: lungfish-cli assemble"
 shots:
   - id: assembly-sheet-flye
-    caption: "The assembly sheet opened from Tools > Assembly > Flye..., with the ONT bundle selected in the sidebar beforehand, showing the Inputs section reporting ONT reads under Detected, the Assembler picker listing all five assemblers with Flye chosen, the locked Read Type row, and the Profile picker on Nano Raw with the caption beneath it reporting that Nano Raw was preselected from a read quality of Q8 in the bundle's statistics."
+    caption: "The assembly sheet opened from Tools > Assembly > Flye…, with the ONT bundle selected in the sidebar beforehand, showing the Inputs section reporting ONT reads under Detected, the Assembler picker listing all five assemblers with Flye chosen, the locked Read Type row, and the Profile picker on Nano Raw with the caption beneath it reporting that Nano Raw was preselected from a read quality of Q8 in the bundle's statistics."
   - id: assembly-sheet-hifiasm
-    caption: "The same sheet opened from Tools > Assembly > Hifiasm... with the HiFi bundle selected, where the Assembler picker has Hifiasm chosen and the Profile picker sits on Diploid."
+    caption: "The same sheet opened from Tools > Assembly > Hifiasm… with the HiFi bundle selected, where the Assembler picker has Hifiasm chosen and the Profile picker sits on Diploid."
   - id: assembly-sheet-curated-arguments
-    caption: "The Advanced Settings section with the Curated extra arguments disclosure expanded for Flye, showing the Metagenome mode toggle above the four read-only option descriptions and the Extra arguments text field."
+    caption: "The Advanced settings section with the Curated extra arguments disclosure open for Flye, showing the Metagenome mode toggle above the Extra arguments field and its caption naming Flye."
   - id: flye-contig-table
     caption: "The result of a window run with the preselected Nano Raw profile, with one contig of 32,690 bp in the table and the Inspector showing the HG002.chrM.ont.fastq.gz source, Flye 2.9.6, the Profile nano-raw, and the Profile Basis line recording the Q8 read-quality preselection."
 illustrations: []
 glossary_refs: [accession, assembly-bundle, assembly-graph, basecaller, bundle, circular-consensus-sequencing, contig, coverage, de-novo-assembly, fastq, gc-content, gfa, haplotype, l50, n50, nanopore-sequencing, operations-panel, ploidy, plugin-pack, read, read-length, reference-bundle, unitig, hg002]
-features_refs: []
+features_refs: [assemble, viewport.assembly]
 fixtures_refs: [hg002-long-reads]
 brand_reviewed: false
 lead_approved: false
@@ -35,15 +35,15 @@ Flye and hifiasm are the two long-read assemblers in Lungfish Genome Explorer (L
 
 Length is the whole point. Every assembler builds an [assembly graph](../../GLOSSARY.md#assembly-graph) and follows each stretch until it reaches a fork, a place where two ways forward are equally well supported. A repeat, a sequence that occurs more than once in the genome, creates such a fork because a short read cannot say which copy it came from. A read long enough to span the whole repeat resolves the fork by itself. That is why long reads usually give a handful of long contigs where short reads give hundreds of short ones.
 
-The two tools suit different reads. Flye is built for [Oxford Nanopore](../../GLOSSARY.md#nanopore-sequencing) reads, which are long but individually noisy. It builds rough draft sequences that tolerate mismatches, builds a repeat graph from the drafts, and then polishes, revisiting the draft with the reads to correct bases. Hifiasm is built for PacBio HiFi reads, made by [circular consensus sequencing](../../GLOSSARY.md#circular-consensus-sequencing), which reads each molecule many times so that almost every base is correct. Because the reads are so accurate, hifiasm can keep the two parental copies of each chromosome apart. Those copies are what [ploidy](../../GLOSSARY.md#ploidy) counts, and humans carry two. Recent hifiasm versions, including the 0.25.0 LGE installs, also accept Nanopore reads, and LGE adds the option that tells it so.
+The two tools suit different reads. Flye was built for long reads that are individually noisy, such as [Oxford Nanopore](../../GLOSSARY.md#nanopore-sequencing) reads and older PacBio CLR reads, the noisier long reads PacBio made before HiFi, and it has a mode for PacBio HiFi reads as well. It builds rough draft sequences that tolerate mismatches, builds a repeat graph from the drafts, and then polishes, revisiting the draft with the reads to correct bases. Hifiasm is built for PacBio HiFi reads, made by [circular consensus sequencing](../../GLOSSARY.md#circular-consensus-sequencing), which reads each molecule many times so that almost every base is correct. Because the reads are so accurate, hifiasm can keep the two parental copies of each chromosome apart. Those copies are what [ploidy](../../GLOSSARY.md#ploidy) counts, and humans carry two. Recent hifiasm versions, including the 0.25.0 LGE installs, also accept Nanopore reads, and LGE adds the option that tells it so.
 
-The reads decide which assembler suits them. Nanopore reads suit Flye or hifiasm, HiFi reads suit hifiasm or Flye in its PacBio HiFi mode, and Illumina reads suit neither. The sheet lists every assembler, and one that does not suit the reads shows a warning and runs with its own read-type settings.
+The reads decide which assembler suits them. Nanopore reads suit Flye or hifiasm, HiFi reads suit hifiasm or Flye in its PacBio HiFi mode, and Illumina reads suit neither. LGE starts Flye in the mode that matches the reads, PacBio HiFi or PacBio CLR for PacBio reads and a nanopore mode chosen by read quality for Nanopore reads, as [Settings](#settings) explains. The sheet lists every assembler, and one that does not suit the reads shows a warning and runs with its own read-type settings.
 
 ## Why you would do this
 
 Assemble long reads when you want a genome's structure rather than its individual bases. A short-read assembly can tell you which genes are present, but usually not their order, how many copies of a repeated element there are, or where a plasmid ends and the chromosome begins. A plasmid is a small circular DNA molecule that many bacteria carry beside their chromosome.
 
-This chapter assembles the HG002 long reads. [HG002](../../GLOSSARY.md#hg002) is a benchmark human sample sequenced many times by many methods, so there is a published answer to check against. The fixture keeps only reads from the mitochondrion, whose genome is NCBI [accession](../../GLOSSARY.md#accession) `NC_012920.1`, 16,569 bases and circular. It holds 950 Nanopore reads totalling 4,348,051 bases and 363 HiFi reads totalling 4,991,345 bases. Dividing each total by 16,569 gives about 262-fold and 301-fold [coverage](../../GLOSSARY.md#coverage), far more than either assembler needs.
+This chapter assembles the HG002 long reads. [HG002](../../GLOSSARY.md#hg002) is a benchmark human sample sequenced many times by many methods, so there is a published answer to check against. The fixture keeps only reads from the mitochondrion, whose genome is NCBI [accession](../../GLOSSARY.md#accession) `NC_012920.1`, 16,569 bases and circular. It holds 950 Nanopore reads totaling 4,348,051 bases and 363 HiFi reads totaling 4,991,345 bases. Dividing each total by 16,569 gives about 262-fold and 301-fold [coverage](../../GLOSSARY.md#coverage), far more than either assembler needs.
 
 The small circular target is also a good teaching case for a real failure. Both assemblers report this circle at twice its true length, which [Circular genomes, trimmed, overlapped, or walked twice](01-when-to-assemble.md#circular-genomes-trimmed-overlapped-or-walked-twice) explains, and [From a doubled contig to a reference](#from-a-doubled-contig-to-a-reference) shows how to recover one copy.
 
@@ -65,9 +65,9 @@ Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed gr
 
 1. Click the `HG002.chrM.ont` bundle in the sidebar to select it. The sheet assembles whatever is selected when you open it.
 
-2. Choose **Tools > Assembly > Flye...**. The assembly sheet opens with Flye chosen. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
+2. Choose **Tools > Assembly > Flye…**. The assembly sheet opens with Flye chosen. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
-3. Read the **Inputs** section. The **Detected** row should read ONT reads, meaning Oxford Nanopore Technologies, and the Read Layout row reads Single-input long-read assembly, since long reads are never paired. LGE detects the class from the first [FASTQ](../../GLOSSARY.md#fastq) header, falling back to the instrument recorded at import. The **Assembler** picker offers Flye and Hifiasm only, and the **Read Type** row is locked with "Locked from FASTQ header detection." beneath it.
+3. Read the **Inputs** section. The **Detected** row should read ONT reads, meaning Oxford Nanopore Technologies, and the Read Layout row reads Single-input long-read assembly, since long reads are never paired. LGE detects the class from the first [FASTQ](../../GLOSSARY.md#fastq) header, falling back to the instrument recorded at import. The **Assembler** picker lists all five assemblers with Flye chosen, and the **Read Type** row is locked with "Locked from FASTQ header detection." beneath it.
 
 4. The **Profile** picker opens on **Nano Raw**, and a caption beneath it says why, reporting that Nano Raw was preselected from a read quality of Q8 in the bundle's statistics. LGE reads the bundle's mean read quality when the sheet opens and preselects Nano Raw below Q10 and Nano HQ at Q10 or above. Nano HQ suits reads from a recent high-accuracy [basecaller](../../GLOSSARY.md#basecaller), the program that turns the sequencer's electrical signal into bases. The fixture's reads are older and noisier, at Q8, and Flye itself measures about 19% disagreement between them, so Nano Raw is the profile built for them. You can still pick another profile from the picker. Leave everything as it is.
 
@@ -79,7 +79,7 @@ Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed gr
 
 1. Click the `HG002.chrM.hifi` bundle in the sidebar. Opening a result changes the selection, so click the reads again before opening the menu.
 
-2. Choose **Tools > Assembly > Hifiasm...**. The **Detected** row reads PacBio HiFi/CCS, and the **Assembler** picker has Hifiasm chosen.
+2. Choose **Tools > Assembly > Hifiasm…**. The **Detected** row reads PacBio HiFi/CCS, and the **Assembler** picker has Hifiasm chosen.
 
 3. Leave **Profile** on **Diploid**, its default. A mitochondrion has one copy, so **Haploid/Viral** sounds like the better fit, but on these reads it gives the messier answer, as [Diploid or Haploid/Viral on a small circle](#diploid-or-haploidviral-on-a-small-circle) shows.
 
@@ -87,7 +87,7 @@ Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed gr
 
 4. Click **Run**.
 
-Hifiasm writes its answer as a [GFA](../../GLOSSARY.md#gfa) file, a text format for assembly graphs, rather than as plain FASTA sequence. LGE converts the primary contigs, hifiasm's main answer, into a `contigs.fasta` for the viewport without you asking.
+Hifiasm writes its answer as a [GFA](../../GLOSSARY.md#gfa) file, a text format for assembly graphs, rather than as plain FASTA sequence. LGE converts the primary contigs, hifiasm's main answer, into a `contigs.fasta` for the viewport without you asking. Hifiasm can exit cleanly without assembling anything, so a run that writes no primary contig graph ends as a failed row whose message says hifiasm "exited successfully but wrote no primary contig graph". A graph with no contigs in it is an empty result instead, read as [An empty result](02-running-spades.md#an-empty-result) explains.
 
 ### Open the results
 
@@ -107,15 +107,13 @@ Both assemblers share one sheet, so an entry names its assembler only where the 
 
 **Threads.** Sets how many processor cores the assembler uses at once. The default is the smaller of your Mac's core count and 8, and the control will not go above your Mac's core count. Lower it to keep the Mac responsive during a long run. On the command line this is `--threads`.
 
-**Metagenome mode.** Turns on Flye's metagenome setting, for a mixed community of organisms at very different abundances rather than one organism at even depth. It is off by default, belongs to Flye alone, and sits under **Advanced Settings > Curated extra arguments**. Turn it on for a community sample such as stool or seawater, and leave it off for a single isolate. This setting has no command-line flag, so pass `--extra-args "--meta"` instead.
+**Metagenome mode.** Turns on Flye's metagenome setting, for a mixed community of organisms at very different abundances rather than one organism at even depth. It is off by default, belongs to Flye alone, and sits under **Advanced settings > Curated extra arguments**. Turn it on for a community sample such as stool or seawater, and leave it off for a single isolate. This setting has no command-line flag, so pass `--extra-args "--meta"` instead.
 
-**Primary contigs only.** Passes hifiasm's `--primary` option, which, despite the control's name, makes hifiasm write a primary and an alternate assembly instead of one set per parental copy. It is off by default, belongs to hifiasm alone, and sits in the same disclosure. It is offered for readers who want hifiasm's primary and alternate files on disk. Leave it off here, since LGE reads the primary contigs from hifiasm's default output files. This setting has no command-line flag, so pass `--extra-args "--primary"` instead.
+**Primary contigs only.** Passes hifiasm's `--primary` option, which, despite the control's name, makes hifiasm write a primary and an alternate assembly instead of one set per parental copy. It belongs to hifiasm alone, sits in the same disclosure, and is off by default, because the primary contigs LGE shows come out either way, as `<project name>.p_ctg.gfa` when it is on. Turn it on only when you want hifiasm's alternate contigs on disk in place of its two parental sets, and leave it off here. This setting has no command-line flag, so pass `--extra-args "--primary"` instead.
 
 **Extra arguments.** Passes text straight to the assembler without LGE checking it. The default is empty, which is right for almost every run. Use it only for an assembler option the dialog does not show, such as a Flye genome-size hint written `--genome-size 16k`, after reading that assembler's own documentation. On the command line this is `--extra-args`. Where your text and the Haploid/Viral profile set the same option, your value wins.
 
 **Project Name.** Names the assembly the run produces. It defaults to the input file's name with `_assembly` added, for example `HG002.chrM.ont_assembly`. Rename it when you assemble the same reads more than once. For hifiasm it also becomes the prefix of every file hifiasm writes. On the command line this is `--project-name`.
-
-Above the Extra arguments field, Advanced Settings prints four read-only notes for the selected assembler, each naming a family of options you could type in that field. They are reference, not controls.
 
 <!-- SHOT: assembly-sheet-curated-arguments -->
 
@@ -165,7 +163,7 @@ A doubled contig holds the genome twice, so reads mapped to it split between two
 
 1. Turn the contig into a reference bundle as [Extracting Contigs](04-extracting-contigs.md) shows. Select its one row, `ptg000001c`, and click **Create Bundle**. The bundle lands under `Reference Sequences/`.
 2. Open the new bundle, type `1-16570` into the location field at the left end of the ruler, and press Return.
-3. Mark that range as a feature with **Sequence > Add Annotation...**, then right-click the feature, choose **Extract Sequence...**, and save it as a new bundle, as [Extract one annotated feature](../02-sequences/03-extracting-and-comparing.md#extract-one-annotated-feature) shows. The feature route cuts exactly the range you marked, where **Extract Visible Region...** cuts whatever the viewport frames.
+3. Mark that range as a feature with **Sequence > Add Annotation…**, then right-click the feature, choose **Extract Sequence…**, and save it as a new bundle, as [Extract one annotated feature](../02-sequences/03-extracting-and-comparing.md#extract-one-annotated-feature) shows. The feature route cuts exactly the range you marked, where **Extract Visible Region…** cuts whatever the viewport frames.
 
 The new bundle lands under `Extractions/` and holds one sequence of 16,570 bases, which aligns to the whole of `NC_012920.1`. It starts at a different place from the published reference and reads on the opposite strand, because the assembler chose its own cut point and direction. Map reads to it as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) shows, and expect positions that do not match the published numbering. For that numbering, map to `NC_012920.1` itself. [On the command line](#on-the-command-line) gives the same route as two commands.
 
@@ -181,7 +179,7 @@ Apply the four checks in [What good looks like](01-when-to-assemble.md#what-good
 - **Several contigs adding up to more than 16,569.** The circle broke into overlapping pieces. Check that **Profile** matches the reads, which for this fixture means the preselected Nano Raw, and run Flye again.
 - **Well under 16,569.** Part of the genome had too little coverage to assemble, and more reads are the fix.
 
-To run again, select the reads and open **Tools > Assembly > Flye...** again. Each run keeps its own folder, so you can compare results side by side. For hifiasm the lasting fix for a doubled mitochondrion is to assemble it together with the nuclear reads it came from. This fixture holds no nuclear reads, so for hifiasm the length check is the whole test.
+To run again, select the reads and open **Tools > Assembly > Flye…** again. Each run keeps its own folder, so you can compare results side by side. For hifiasm the lasting fix for a doubled mitochondrion is to assemble it together with the nuclear reads it came from. This fixture holds no nuclear reads, so for hifiasm the length check is the whole test.
 
 Remember that a contig is a hypothesis. The doubled results in this chapter looked healthy by every summary number. When the answer matters, map the reads back and check that depth runs level along the contig, without a sharp drop or a halving.
 
@@ -211,7 +209,7 @@ lungfish-cli extract sequence \
   ptg000001c:1-16570 -o chrM-single-copy.fa
 ```
 
-With `--profile` left off, as in the Flye command, the command applies the window's rule, choosing `nano-raw` for these reads and printing the choice with its basis in the Profile and Profile basis rows before Flye starts. The provenance file beside the output records both. `--output` writes exactly where you point it and makes no timestamped folder, so a second run into the same folder overwrites the first. Given the imported bundle, the command assembles the reads in the order the window does. The last command writes a plain FASTA file whose header reads `>ptg000001c:1-16570 [ptg000001c:1-16570, 1-based] [16570 bp]`, which you can import as a reference as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) shows. Both assemblers take one input, so combine several files from one sample first, for example with `cat a.fastq.gz b.fastq.gz > combined.fastq.gz`, then import the combined file.
+With `--profile` left off, as in the Flye command, the command applies the window's rule, choosing `nano-raw` for these reads and printing the choice with its basis in the Profile and Profile basis rows before Flye starts. The provenance file beside the output records both, and a window run passes the same choice with `--profile` and `--profile-basis`, as **Copy CLI Command** on its row shows. `--output` writes exactly where you point it and makes no timestamped folder, so a second run into the same folder overwrites the first. Given the imported bundle, the command assembles the reads in the order the window does. The last command writes a plain FASTA file whose header reads `>ptg000001c:1-16570 [ptg000001c:1-16570, 1-based] [16570 bp]`, which you can import as a reference as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) shows. Both assemblers take one input, so combine several files from one sample first, for example with `cat a.fastq.gz b.fastq.gz > combined.fastq.gz`, then import the combined file.
 
 ## Next
 

@@ -9,17 +9,17 @@ tags: [variants, medaka, clair3, nanopore, ont, long-read, mitochondrial]
 tools: [medaka, clair3, minimap2, samtools, bcftools]
 parameters_refs: [variants.call-medaka, variants.call-clair3]
 entry_points:
-  - "Tools > Variant Calling > Call Variants..."
-  - "Inspector > Analysis > Variant Calling > Call Variants..."
+  - "Tools > Variant Calling > Call Variants…"
+  - "Inspector > Analysis > Variant Calling > Call Variants…"
   - "CLI: lungfish-cli variants call --caller medaka"
   - "CLI: lungfish-cli variants call --caller clair3"
 shots:
   - id: tools-mapping-submenu
     caption: "The Tools menu with its Mapping submenu open, listing the minimap2, BWA-MEM2, Bowtie2, and BBMap items."
   - id: call-variants-dialog-medaka
-    caption: "The Call Variants dialog with Medaka selected in the tool sidebar, showing the two-column layout and the Medaka Settings section holding its single empty Medaka Model field and the caption beneath it."
+    caption: "The Call Variants dialog with Medaka selected in the tool sidebar, showing the two-column layout and the Medaka settings section holding its single empty Medaka Model field and the caption beneath it."
   - id: medaka-model-field
-    caption: "The Clair3 section of the Call Variants dialog with the Sequencing Platform menu on Automatic (from read groups), r941_prom_sup_g5014 typed into the Clair3 Model field, and the Readiness line naming that model back."
+    caption: "The Clair3 section of the Call Variants dialog with the Sequencing Platform menu on Automatic (from read groups), r941_prom_sup_g5014 typed into the Clair3 Model field, and the readiness line in the footer naming that model back."
 illustrations: []
 glossary_refs: [checksum, allele-frequency, amplicon, basecaller, bgzip, clair3, depth, filter, genotype, haplogroup, heterozygous, homopolymer, indel, ivar, lofreq, medaka, mitochondrial-genome, phred-score, plugin-pack, primer-scheme, provenance, read, shotgun, supplementary-alignment, tabix, variant-caller]
 features_refs: [variants.call]
@@ -81,7 +81,7 @@ Install the `variant-calling` [plugin pack](../../GLOSSARY.md#plugin-pack), a th
 
 ### Map the reads with the Oxford Nanopore preset
 
-1. Select the `HG002.chrM.ont` read bundle and choose **Tools > Mapping > minimap2...**.
+1. Select the `HG002.chrM.ont` read bundle and choose **Tools > Mapping > minimap2…**.
 2. Choose the `NC_012920.1` bundle as the reference and **Oxford Nanopore** as the preset, which tunes minimap2 for long reads with several percent error. Never choose **Short-read** for nanopore data.
 3. Type `HG002 ONT minimap2` in the **Track name** field, and click **Run**. [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) covers the rest of the dialog.
 
@@ -95,9 +95,9 @@ The fixture reads are [shotgun](../../GLOSSARY.md#shotgun), from DNA broken at r
 
 ### Open the Call Variants dialog and pick an ONT caller
 
-Click the new `minimap2-` mapping result under **Analyses**, then in the Inspector's **Analysis** tab click **Variant Calling** and **Call Variants...**, as [Calling Variants](01-calling-variants-from-amplicons.md#open-the-call-variants-dialog) shows. The dialog opens on the first eligible alignment track, so check the Alignment Track menu. The tool sidebar lists six callers, and only Medaka and Clair3 suit nanopore reads.
+Click the new `minimap2-` mapping result under **Analyses**, then in the Inspector's **Analysis** tab click its **Variant Calling** tab and **Call Variants…**, as [Calling Variants](01-calling-variants-from-amplicons.md#open-the-call-variants-dialog) shows. The dialog opens on the first eligible alignment track, so check the Alignment Track menu. The tool sidebar lists six callers, and only Medaka and Clair3 suit nanopore reads.
 
-Click **Medaka**. The right pane shows **Overview**, **Thresholds**, **Medaka Settings** holding one empty field labelled `Medaka Model` with the placeholder `r1041_e82_400bps_sup_variant_v5.0.0`, then **Extra arguments** and **Readiness**. A caption under the field reads "A medaka variant model named for the pore, instrument and basecaller, such as r941_prom_sup_variant_g507."
+Click **Medaka**. The right pane shows **Overview**, **Thresholds**, **Medaka settings** holding one empty field labeled `Medaka Model` with the placeholder `r1041_e82_400bps_sup_variant_v5.0.0`, then **Extra arguments**, and the footer below the pane carries the readiness line. A caption under the field reads "A medaka variant model named for the pore, instrument and basecaller, such as r941_prom_sup_variant_g507."
 
 <!-- SHOT: call-variants-dialog-medaka -->
 
@@ -110,7 +110,7 @@ The Thresholds fields filter every caller's output, as [Read the dialog before y
 Two facts about the sequencing run decide the model, the instrument and the pore chemistry, and both are printed in the run report that MinKNOW, the software that runs the instrument, writes at the end of a run. Ask your sequencing facility for it if you did not run the instrument. The fixture reads came off a PromethION, one of Oxford Nanopore's instruments, using R9.4.1 pores and the most accurate basecalling mode, called sup.
 
 1. With **Clair3** selected, type `r941_prom_sup_g5014` in the `Clair3 Model` field, the Clair3 model trained on that chemistry. The field takes a model's name or the full path of a model folder.
-2. Read the Readiness line, which names the model back, "Ready to run Clair3 with model r941_prom_sup_g5014" followed by where the platform came from.
+2. Read the readiness line in the footer, which names the model back, "Ready to run Clair3 with model r941_prom_sup_g5014" followed by where the platform came from.
 3. Replace the output name with `HG002 ONT Clair3` and click **Run**.
 
 <!-- SHOT: medaka-model-field -->
@@ -119,7 +119,7 @@ Left empty, the field hands Clair3 the general model it ships for the platform. 
 
 ### Call with Medaka for a second opinion
 
-Open the dialog again and click **Medaka**. Clear the model field and type `r941_prom_sup_variant_g507`, the Medaka variant model for the same chemistry. Medaka publishes consensus models, which polish an assembled sequence, and variant models, and only variant models, whose names carry `variant`, are built for calling against a reference. The placeholder is a consensus model for a newer chemistry, an example of the format rather than a value to copy. Check that the Readiness line reads "Ready to run Medaka with model r941_prom_sup_variant_g507." With the field empty it reads "Provide the ONT/basecaller model required by Medaka." and Run stays disabled. Replace the output name with `HG002 ONT Medaka` and click **Run**.
+Open the dialog again and click **Medaka**. Clear the model field and type `r941_prom_sup_variant_g507`, the Medaka variant model for the same chemistry. Medaka publishes consensus models, which polish an assembled sequence, and variant models, and only variant models, whose names carry `variant`, are built for calling against a reference. The placeholder is a consensus model for a newer chemistry, an example of the format rather than a value to copy. Check that the readiness line reads "Ready to run Medaka with model r941_prom_sup_variant_g507." With the field empty it reads "Provide the ONT/basecaller model required by Medaka." and Run stays disabled. Replace the output name with `HG002 ONT Medaka` and click **Run**.
 
 The two callers read their input differently. For Medaka, LGE rebuilds a FASTQ from the alignment keeping only each read's primary record. Clair3 is handed the BAM itself and skips secondary and supplementary records on its own. So both see the same 950 reads. Either way the finished VCF is sorted, compressed with [bgzip](../../GLOSSARY.md#bgzip), indexed with [tabix](../../GLOSSARY.md#tabix), and added to the reference bundle inside the mapping result as a variant track. Each call took under two minutes on a recent Mac.
 

@@ -16,9 +16,9 @@ entry_points:
   - "Tools > Assembly > Hifiasm..."
 shots:
   - id: assembly-submenu
-    caption: "The Tools menu open on its Assembly submenu, showing the five assemblers as separate items, SPAdes..., MEGAHIT..., SKESA..., Flye..., and Hifiasm..."
+    caption: "The Tools menu open on its Assembly submenu, showing the five assemblers as separate items, SPAdes…, MEGAHIT…, SKESA…, Flye…, and Hifiasm…"
   - id: assembly-sheet-assembler-picker
-    caption: "The assembly sheet's Primary Settings, with the segmented Assembler picker above the Read Type row, which reads Illumina short reads with the note Locked from FASTQ header detection beneath it."
+    caption: "The assembly sheet's Primary settings, with the segmented Assembler picker above the Read Type row, which reads Illumina short reads with the note Locked from FASTQ header detection beneath it."
 illustrations:
   - id: assembly-vs-mapping
     brief: "Side-by-side schematic. Left: reads being mapped to a known reference (read-to-genome arrows). Right: reads being assembled into contigs without a reference (overlap-then-extend cartoon producing a few long contigs). Use Lungfish Creamsicle for reads, Deep Ink for the reference and contigs."
@@ -87,7 +87,7 @@ Flye borrows from both families. It joins rough overlaps into draft pieces, buil
 
 **SPAdes** is the usual first choice for Illumina reads from a virus, bacterium, or small eukaryote such as a fungus, not a mammal-sized genome. Its Isolate profile expects one organism at even depth, Meta a community, and Plasmid pulls out plasmids, the small circular DNA molecules many bacteria carry.
 
-**MEGAHIT** stores its graph compactly, so it needs much less memory than SPAdes on large metagenomes. On Apple Silicon its runs often stop with no contigs, a [known defect](../appendices/troubleshooting.md#known-defects-in-this-release), though a run that finishes is correct.
+**MEGAHIT** stores its graph compactly, so it needs much less memory than SPAdes on large metagenomes. On Apple silicon LGE runs it on one thread, and a crash there remains a [known limit](../appendices/troubleshooting.md#defect-megahit), though a run that finishes is correct.
 
 **SKESA** is NCBI's isolate assembler for the genomes SPAdes suits. It stops a contig whenever the next step is uncertain, which gives more contigs and fewer wrong joins.
 
@@ -117,7 +117,7 @@ The human-mito fixture is Illumina reads from one small circular genome, so [Sho
 
 ## Before you start
 
-The five assemblers arrive in one pack. Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. The Plugin Manager lists it as Genome Assembly. If it is missing, the assembly sheet's Readiness line names what is absent.
+The five assemblers arrive in one pack. Install the `assembly` [plugin pack](../../GLOSSARY.md#plugin-pack), a themed group of tools LGE installs on request, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows. The Plugin Manager lists it as Genome Assembly. If it is missing, the line beside **Run** at the foot of the assembly sheet names what is absent.
 
 The versions are pinned, so a run today and a run next year use the same code. This release ships SPAdes 4.3.0, MEGAHIT 1.2.9, SKESA 2.5.1, Flye 2.9.6, and hifiasm 0.25.0. Menus write the last one as Hifiasm, which is the same tool.
 
