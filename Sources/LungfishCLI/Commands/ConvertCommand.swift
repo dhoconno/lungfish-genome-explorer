@@ -151,10 +151,14 @@ struct ConvertCommand: AsyncParsableCommand {
         var provenanceInputs: [FileRecord] = []
         var inputFormats: [String] = []
         var leftOut: [AnnotationDatabase.LeftOutTrack] = []
+        // A FASTA or FASTQ file never holds annotations, so no track is missing from it. The app adds
+        // `--include-annotations` to every bundle export, so `convert` reads the databases for these formats too and
+        // names no track for them: not in the message, on standard error, in the record or in the JSON.
+        let writesAnnotations = ["genbank", "gb", "gff3", "gff"].contains(toFormat.lowercased())
         for (position, inputURL) in inputURLs.enumerated() {
             let read = try await readInput(inputURL)
             provenanceInputs += read.records
-            leftOut += read.leftOut
+            if writesAnnotations { leftOut += read.leftOut }
             if !inputFormats.contains(read.format) { inputFormats.append(read.format) }
             let readAnnotations = read.annotations.map { Self.withInputTrackTag($0, input: position) }
             sourced += read.sequences.map { ($0, readAnnotations) }

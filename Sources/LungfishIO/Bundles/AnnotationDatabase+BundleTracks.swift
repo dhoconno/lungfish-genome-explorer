@@ -99,62 +99,71 @@ extension AnnotationDatabase {
 /// (`AnnotationDrawerIndexHandoff.swift`), so the app and `lungfish-cli` say one thing. It is nested, as the reader's
 /// types are, so the module's list of public types does not move.
 extension AnnotationDatabase {
-public enum LeftOutWords {
-    /// The remedy, the drawer's line for a track whose database could not be read.
-    public static let remedy = "Reopen the bundle, and if this repeats, import those annotations again."
+    public enum LeftOutWords {
+        /// The remedy, the drawer's line for a track whose database could not be read.
+        public static let remedy = "Reopen the bundle, and if this repeats, import those annotations again."
 
-    /// The record's key, an array of the left-out tracks' names in the manifest's order.
-    public static let provenanceKey = "left_out_tracks"
+        /// The record's key, an array of the left-out tracks' names in the manifest's order.
+        public static let provenanceKey = "left_out_tracks"
 
-    /// The track names, joined for a sentence.
-    public static func names(_ tracks: [AnnotationDatabase.LeftOutTrack]) -> String {
-        tracks.map(\.name).joined(separator: ", ")
-    }
+        /// The step to repeat once the remedy is done. A file, a bundle or a table that left a track out is already
+        /// written and stays incomplete until the person makes it again, which the remedy alone does not say. It is
+        /// "Then extract again." for a bundle and "Then export again." for anything else a route writes.
+        public static func again(notIn place: String) -> String {
+            place == "bundle" ? "Then extract again." : "Then export again."
+        }
 
-    /// The sentence a completion message ends with, or nil when no track was left out. `place` names what the route
-    /// wrote, such as "file", "bundle" or "table".
-    public static func summary(_ tracks: [AnnotationDatabase.LeftOutTrack], notIn place: String) -> String? {
-        guard !tracks.isEmpty else { return nil }
-        let lead = tracks.count == 1
-            ? "1 annotation track is not in this \(place), because its annotation database is missing or cannot be read"
-            : "\(tracks.count) annotation tracks are not in this \(place), because their annotation databases are missing or cannot be read"
-        return "\(lead): \(names(tracks)). \(remedy)"
-    }
+        /// The track names, joined for a sentence.
+        public static func names(_ tracks: [AnnotationDatabase.LeftOutTrack]) -> String {
+            tracks.map(\.name).joined(separator: ", ")
+        }
 
-    /// `message`, then the summary when a track was left out.
-    public static func message(_ message: String, leftOut tracks: [AnnotationDatabase.LeftOutTrack], notIn place: String) -> String {
-        guard let summary = summary(tracks, notIn: place) else { return message }
-        let base = message.hasSuffix(".") ? message : message + "."
-        return "\(base) \(summary)"
-    }
+        /// The sentence a completion message ends with, or nil when no track was left out. `place` names what the route
+        /// wrote, such as "file", "bundle" or "table", and sets the step it ends on (``again(notIn:)``).
+        public static func summary(_ tracks: [AnnotationDatabase.LeftOutTrack], notIn place: String) -> String? {
+            guard !tracks.isEmpty else { return nil }
+            let lead = tracks.count == 1
+                ? "1 annotation track is not in this \(place), because its annotation database is missing or cannot be read"
+                : "\(tracks.count) annotation tracks are not in this \(place), because their annotation databases are missing or cannot be read"
+            return "\(lead): \(names(tracks)). \(remedy) \(again(notIn: place))"
+        }
 
-    /// One standard error line per left-out track.
-    public static func standardErrorLines(_ tracks: [AnnotationDatabase.LeftOutTrack], notIn place: String) -> [String] {
-        tracks.map { "warning: " + $0.line(notIn: place) }
-    }
+        /// `message`, then the summary when a track was left out.
+        public static func message(_ message: String, leftOut tracks: [AnnotationDatabase.LeftOutTrack], notIn place: String) -> String {
+            guard let summary = summary(tracks, notIn: place) else { return message }
+            let base = message.hasSuffix(".") ? message : message + "."
+            return "\(base) \(summary)"
+        }
 
-    /// Writes one standard error line per left-out track.
-    public static func writeStandardErrorLines(_ tracks: [AnnotationDatabase.LeftOutTrack], notIn place: String) {
-        for line in standardErrorLines(tracks, notIn: place) {
-            FileHandle.standardError.write(Data((line + "\n").utf8))
+        /// One standard error line per left-out track.
+        public static func standardErrorLines(_ tracks: [AnnotationDatabase.LeftOutTrack], notIn place: String) -> [String] {
+            tracks.map { "warning: " + $0.line(notIn: place) }
+        }
+
+        /// Writes one standard error line per left-out track.
+        public static func writeStandardErrorLines(_ tracks: [AnnotationDatabase.LeftOutTrack], notIn place: String) {
+            for line in standardErrorLines(tracks, notIn: place) {
+                FileHandle.standardError.write(Data((line + "\n").utf8))
+            }
+        }
+
+        /// The refusal when the manifest lists annotation tracks and no database of them can be read (BIO item 6). It
+        /// keeps the remedy alone, since nothing was written.
+        public static func noneCouldBeRead(sourceName: String, _ tracks: [AnnotationDatabase.LeftOutTrack]) -> String {
+            let count = tracks.count == 1 ? "1 annotation track" : "\(tracks.count) annotation tracks"
+            let its = tracks.count == 1 ? "its annotation database is" : "their annotation databases are"
+            return "\(sourceName) lists \(count), but \(its) missing or cannot be read: \(names(tracks)). "
+                + "Nothing was written. \(remedy)"
+        }
+
+        /// The not-found words of Go to Gene when some tracks were not searched. They keep the remedy alone, since
+        /// nothing was written.
+        public static func notSearched(_ tracks: [AnnotationDatabase.LeftOutTrack]) -> String? {
+            guard !tracks.isEmpty else { return nil }
+            let lead = tracks.count == 1
+                ? "1 annotation track was not searched, because its annotation database is missing or cannot be read"
+                : "\(tracks.count) annotation tracks were not searched, because their annotation databases are missing or cannot be read"
+            return "\(lead): \(names(tracks)). \(remedy)"
         }
     }
-
-    /// The refusal when the manifest lists annotation tracks and no database of them can be read (BIO item 6).
-    public static func noneCouldBeRead(sourceName: String, _ tracks: [AnnotationDatabase.LeftOutTrack]) -> String {
-        let count = tracks.count == 1 ? "1 annotation track" : "\(tracks.count) annotation tracks"
-        let its = tracks.count == 1 ? "its annotation database is" : "their annotation databases are"
-        return "\(sourceName) lists \(count), but \(its) missing or cannot be read: \(names(tracks)). "
-            + "Nothing was written. \(remedy)"
-    }
-
-    /// The not-found words of Go to Gene when some tracks were not searched.
-    public static func notSearched(_ tracks: [AnnotationDatabase.LeftOutTrack]) -> String? {
-        guard !tracks.isEmpty else { return nil }
-        let lead = tracks.count == 1
-            ? "1 annotation track was not searched, because its annotation database is missing or cannot be read"
-            : "\(tracks.count) annotation tracks were not searched, because their annotation databases are missing or cannot be read"
-        return "\(lead): \(names(tracks)). \(remedy)"
-    }
-}
 }

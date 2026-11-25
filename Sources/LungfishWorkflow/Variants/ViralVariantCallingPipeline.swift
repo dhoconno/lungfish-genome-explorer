@@ -500,11 +500,12 @@ public struct ViralVariantCallingPipeline: Sendable {
         return AnnotationDatabase.openTracks(Array(listed)).leftOut.first
     }
 
-    /// The run's words when codon merging was off for a left-out track.
+    /// The run's words when codon merging was off for a left-out track: the cause, then the effect, then the remedy and
+    /// the step to repeat, since the calls of this run stay without codon or amino-acid changes until they are made again.
     static func codonMergingOffNote(_ track: AnnotationDatabase.LeftOutTrack) -> String {
-        "Codon merging was off for this run, so its calls carry no codon or amino-acid change, because the "
-            + "annotation database of \(track.name), the bundle's first annotation track, is missing or cannot be read. "
-            + AnnotationDatabase.LeftOutWords.remedy
+        "Codon merging was off for this run, because the annotation database of \(track.name), the bundle's first "
+            + "annotation track, is missing or cannot be read. So its calls carry no codon or amino-acid change. "
+            + AnnotationDatabase.LeftOutWords.remedy + " Then call variants again."
     }
 
     /// A post-call `bcftools view -i` filter applied to the raw caller VCF,
