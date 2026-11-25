@@ -87,7 +87,7 @@ A successful extraction is quiet. The `Create Reference Bundle` row finishes, th
 
 <!-- SHOT: derived-bundle-in-sidebar -->
 
-Open the new bundle and check that it holds the sequences you meant to pick, at the lengths the contig table showed. Extracting the long MEGAHIT contig gives one sequence of 16,711 bases at 44.3% GC, the contig on its own rather than the 44.6% of all three contigs together. The SPAdes contig gives one sequence of 16,697 bases at 44.4% GC. Extracting it with the 362-base fragment gives two sequences totaling 17,073 bases. Extraction copies sequence without editing it, so a length that does not match means you selected a different row.
+Open the new bundle and check that it holds the sequences you meant to pick, at the lengths the contig table showed. Extracting the long MEGAHIT contig gives one sequence of 16,711 bases at 44.3% GC, the contig on its own rather than the 44.6% of all three contigs together. The SPAdes contig gives one sequence of 16,697 bases at 44.4% GC. Extracting the MEGAHIT contig with the 362-base fragment gives two sequences totaling 17,073 bases. Extraction copies sequence without editing it, so a length that does not match means you selected a different row.
 
 With the bundle open, the [Inspector](../../GLOSSARY.md#inspector) shows a **Derived Subset** block with **Assembler**, **Source Assembly**, **Selected Contigs**, **Contigs**, **Total Length**, and **GC Content** rows. The source information adds the note "Derived from" followed by the source name. The window hands the extraction only the contigs file, so a bundle made with **Create Bundle** reads `Unknown` for its assembler, while the command below reads the run folder and records `MEGAHIT 1.2.9`.
 
