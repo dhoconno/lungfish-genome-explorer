@@ -30,7 +30,7 @@ shots:
 illustrations:
   - id: extraction-header-anatomy
     brief: "An annotated breakdown of the FASTA header line '>NG_000007:70545-72152 [NG_000007:70545-72152, 1-based] [1608 bp]'. Three labeled parts, the leading region name, the bracketed coordinate token with its '1-based' label, and the bracketed length token, each with a lead line to a short explanation. Below it a second variant of the same header carrying an extra '[reverse complement]' token, labeled as the token that appears only when the extraction was flipped. Use IBM Plex Mono for the header text, Lungfish Creamsicle for the lead lines and labels, Deep Ink for the explanatory text."
-glossary_refs: [annotation-track, bundle, cds, codon, coordinate, exon, extraction, fasta, genbank, genetic-code, half-open, inspector, intron, open-reading-frame, provenance, reading-frame, reference-bundle, required-setup-pack, reverse-complement, samtools, sequence-viewport, sidebar, strand, zero-based]
+glossary_refs: [annotation-track, bed, bundle, cds, codon, command-line-flag, coordinate, exon, extraction, fasta, fixture, genbank, genetic-code, half-open, inspector, intron, open-reading-frame, provenance, reading-frame, reference-bundle, required-setup-pack, reverse-complement, samtools, sequence-viewport, sidebar, strand, table-drawer, zero-based]
 features_refs: [sequence.extract-region-bundle, sequence.extract-features, sequence.annotate, export.sequences, bundle.merge]
 fixtures_refs: [hbb-gene]
 brand_reviewed: false
@@ -55,7 +55,7 @@ The HBB gene record, `NG_000007`, is a stretch of human chromosome 11 that holds
 
 You might want HBB alone as a bundle so you can map reads, which means place each sequencing read on a reference, against one gene rather than the whole cluster. You might want only its coding sequence, the [CDS](../../GLOSSARY.md#cds), which is the part of a gene translated into protein, because it reads straight through as codons, the sickle cell codon `GAG` at 70613-70615 among them, as [Finding the sickle cell codon on paper](../01-foundations/01-what-is-a-genome.md#finding-the-sickle-cell-codon-on-paper) works out. You might send the whole record to a colleague as a GenBank file, or merge it with the five primate mitochondrial genomes so one reference holds both.
 
-Find ORFs answers a different question. On a sequence nobody has annotated, it shows where protein-coding stretches could be. On this record, whose genes are curated, meaning people checked and recorded each one's start, exons, and end, it shows how far a simple scan falls short of that gene model.
+Find ORFs answers a different question. On a sequence nobody has annotated, it shows where protein-coding stretches could be. On this record, whose genes are curated, meaning people checked and recorded each gene's start and end and, for most, its exons, it shows how far a simple scan falls short of that gene model.
 
 ## Before you start
 
@@ -87,7 +87,7 @@ The new bundle appears in the project's `Extractions/` folder in the sidebar. If
 
 ### Extract one annotated feature
 
-This route skips the framing, and it opens a different, simpler sheet. Choose **Sequence > Go to Gene…** (Cmd-Opt-G), type `HBB`, and click **Go**. Then click blocks in the annotation lane, the band of feature blocks drawn with the bases, until the Inspector's Type row reads gene, and right-click that block. On a trackpad with no second button, hold Control and click. Choose **Extract Sequence…**, and a sheet also titled Extract Sequence opens. Its header reads 1 selected, which counts the FASTA records it will write rather than bases. Choose **Save as Bundle** under Destination, leave the Name field holding `HBB`, and click **Create Bundle** at the bottom right.
+This route skips the framing, and it opens a different, simpler sheet. Choose **Sequence > Go to Gene…** (Cmd-Opt-G), type `HBB`, and click **Go**. Then click blocks in the annotation lane, the band of feature blocks drawn with the bases, until the Inspector's Type row reads Gene, and right-click that block. On a trackpad with no second button, hold Control and click. Choose **Extract Sequence…**, and a sheet also titled Extract Sequence opens. Its header reads 1 selected, which counts the FASTA records it will write rather than bases. Choose **Save as Bundle** under Destination, leave the Name field holding `HBB`, and click **Create Bundle** at the bottom right.
 
 <!-- SHOT: hbb-annotation-context-menu -->
 
@@ -105,7 +105,7 @@ The same menu's **Copy** submenu skips the sheet and puts text straight on the c
 
 A [reading frame](../../GLOSSARY.md#reading-frame) is the offset from which triplets are counted. Six exist. Frames +1, +2, and +3 start 0, 1, and 2 bases into the scanned range and read forward, and frames -1, -2, and -3 do the same on the [reverse complement](../../GLOSSARY.md#reverse-complement), the other strand read in its own direction. Human genes almost always start with `ATG`, the codon for methionine, and Settings names the rarer starts the codon tables also accept.
 
-1. Decide what to scan. With no selection, Find ORFs scans the whole sequence. A single stray click in the bases leaves a one-base selection behind, so press Escape to clear it, and look in the Inspector, which shows a Selected Region view while one exists. To scan only the HBB gene, frame `70545-72152` as before and drag across the bases from the left edge of the viewport to the right edge. A drag ends where the pointer does, so the range in step 2 can differ from 70545-72152 by a few bases.
+1. Decide what to scan. With no selection, Find ORFs scans the whole sequence. A single stray click in the bases leaves a one-base selection behind, so press Escape to clear it, and look in the Inspector, which shows a Selected Region view while one exists. To scan only the HBB gene, frame `70545-72152` as before and drag across the bases from the left edge of the viewport to the right edge. A drag ends where the pointer does, so the range in step 2 can differ from 70545-72152 by a few bases at the left end and 10 to 25 at the right.
 
 2. Choose **Sequence > Find ORFs…**. The dialog names the sequence and the range it will scan, counted from 1, so the whole record reads `NG_000007:1-81706`, and its foot holds the **Cancel** and **Run** buttons that [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
 
