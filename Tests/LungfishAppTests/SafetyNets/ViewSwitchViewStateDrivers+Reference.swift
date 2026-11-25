@@ -153,14 +153,15 @@ final class ViewSwitchViewStateReferenceTests: XCTestCase {
                 display: display, locus: ViewMemoryLocus(sequenceName: "chr1", sequenceLength: 5_000, start: 7_000, end: 9_000)),
             startingView: ReferenceViewerMemory(display: display, locus: nil), for: key, dataKey: nil, folder: item.folder)
 
-        let viewer = try await open(.reference, bundle: bundleURL, store: store).testEmbeddedViewerController
+        let viewport = try await open(.reference, bundle: bundleURL, store: store)
+        let viewer = viewport.testEmbeddedViewerController
         let frame = try XCTUnwrap(viewer.referenceFrame)
         XCTAssertEqual(frame.chromosome, "chr1")
         XCTAssertEqual(frame.start, 4_999, "the kept start clamps to the last base")
         XCTAssertEqual(frame.end, 5_000, "the kept end clamps to the length")
         let extractStart = max(0, Int(frame.start))
         XCTAssertLessThan(extractStart, frame.sequenceLength, "Extract the visible region starts inside the sequence")
-        XCTAssertNil(resetLine(in: viewer), "a clamp alone draws no line")
+        XCTAssertNil(resetLine(in: viewport), "a clamp alone draws no line")
     }
 
     // MARK: - Support
@@ -219,15 +220,21 @@ final class ViewSwitchViewStateReferenceTests: XCTestCase {
         for kind in Kind.allCases {
             let store = makeStore()
             try await openAndChange(kind, store: store)
-            let viewer = try await open(kind, bundle: try bundle("Kept", changed), store: store).testEmbeddedViewerController
+            let viewport = try await open(kind, bundle: try bundle("Kept", changed), store: store)
+            let viewer = viewport.testEmbeddedViewerController
             let frame = try XCTUnwrap(viewer.referenceFrame)
             XCTAssertEqual(frame.start, 0, "\(kind) opened at the start of its first sequence")
             XCTAssertEqual(frame.end, Double(frame.sequenceLength), "\(kind) opened its first sequence whole")
             XCTAssertEqual(viewer.viewerView.annotationHeight, 30, "\(kind) kept its row height, which needs no data key")
-            XCTAssertEqual(resetLine(in: viewer), yourPlaceWasNotKept, "\(kind) says the place was not kept")
+            XCTAssertEqual(resetLine(in: viewport), yourPlaceWasNotKept, "\(kind) says the place was not kept")
             try FileManager.default.removeItem(at: root.appendingPathComponent("Kept.lungfishref"))
         }
     }
 
-    private func resetLine(in viewer: ViewerViewController) -> String? { viewer.testResetLineWords }
+    /// The line's words, read while the viewport is held, as the surface holds it in the app. A mapping result's line
+    /// hangs in the viewport's detail area (VS-LINE-HIDDEN), so a viewport the test lets go takes the line out of the
+    /// viewer's tree, and the viewer, with no parent, finds none. A reference's line hangs in the viewer's own view.
+    private func resetLine(in viewport: ReferenceBundleViewportController) -> String? {
+        withExtendedLifetime(viewport) { viewport.testEmbeddedViewerController.testResetLineWords }
+    }
 }

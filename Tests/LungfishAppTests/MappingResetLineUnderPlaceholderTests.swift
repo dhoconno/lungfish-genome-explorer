@@ -552,6 +552,8 @@ extension ViewerViewController {
     /// The words of the reset line this embedded viewer's visit shows, wherever the line hangs: in the viewer's own
     /// view, or in the detail area of the mapping viewport that hosts it (VS-LINE-HIDDEN). Nil while no line is in the
     /// viewport's view tree. The view-state suites read the line through this, so they hold for either placement.
+    /// A caller holds the viewport while it reads, as the surface does in the app: once nothing holds the viewport,
+    /// the viewer has no parent and finds no hosted line, though the line still exists (VS-LINE-HIDDEN, continuation 1).
     var testResetLineWords: String? {
         func lines(in view: NSView) -> [ViewMemoryResetLineView] {
             view.subviews.flatMap { sub in (sub as? ViewMemoryResetLineView).map { [$0] } ?? lines(in: sub) }
