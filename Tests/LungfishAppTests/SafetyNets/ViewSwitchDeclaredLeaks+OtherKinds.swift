@@ -25,12 +25,6 @@ extension ViewSwitchDeclaredLeaks {
             "+ inspectorBlocks: seeTheViewer, panelLayout, operationDetails=TaxTriage, sampleFilter=1",
             "- inspectorBlocks: panelLayout, operationDetails=TaxTriage, sampleFilter=1",
         ]),
-        leak("Tree", to: ["FASTA document"], "INSPECTOR-STALE", [
-            "+ inspectorTab: genomics selection of [document, selection, view, derive, provenance]",
-            "+ inspectorBlocks: selection, variant",
-            "- inspectorTab: genomics document of [document, selection, view, derive, provenance]",
-            "- inspectorBlocks: document",
-        ]),
         leak("FASTA document", to: ["Kraken2", "EsViritu", "NAO-MGS", "NVD", "CZ ID", "12S", "Reference", "Assembly", "Genotype", "MSA", "Tree"], "NET-DOCUMENT-STAYS", [
             "+ document: ../k17-fasta/Inputs/MT192765.1.fasta",
         ]),
