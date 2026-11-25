@@ -105,4 +105,24 @@ final class SequenceExtractionSameSiteTests: XCTestCase {
             XCTAssertEqual(extracted.featureCount, 2, "\(order.label): the track counts both rows")
         }
     }
+
+    /// A row that comes back under two query chromosomes (a chromosome and its alias) is one feature and is copied once,
+    /// and its twin at the same site is copied too. Rows with no source row id are told apart by every column
+    /// (BIO-EXTRACT-DROPS-17 item 5).
+    func testARowReturnedUnderTwoQueryChromosomesIsCopiedOnce() {
+        func record(_ rowID: Int64?, _ attributes: String) -> AnnotationDatabaseRecord {
+            AnnotationDatabaseRecord(
+                rowID: rowID, name: "HBB", type: "misc_feature", chromosome: "chr1", start: 10, end: 13, strand: "+",
+                attributes: attributes)
+        }
+        let acetylation = record(1, Self.acetylation)
+        let glycation = record(2, Self.glycation)
+        let kept = SequenceExtractionBundleBuilder.distinctSourceRecords([acetylation, glycation, acetylation])
+        XCTAssertEqual(kept.map(\.rowID), [1, 2], "the row that came back twice is copied once, and so is its twin")
+
+        let unnumbered = record(nil, Self.acetylation)
+        let keptWithoutRowIDs = SequenceExtractionBundleBuilder.distinctSourceRecords(
+            [unnumbered, record(nil, Self.glycation), unnumbered])
+        XCTAssertEqual(keptWithoutRowIDs.compactMap(\.attributes), [Self.acetylation, Self.glycation])
+    }
 }

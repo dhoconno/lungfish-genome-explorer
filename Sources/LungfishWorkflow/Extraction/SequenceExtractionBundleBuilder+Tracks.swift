@@ -161,22 +161,17 @@ extension SequenceExtractionBundleBuilder {
                     sourceBundleChromosomes: request.sourceBundleChromosomes,
                     annotationChromosomes: sourceDB.allChromosomes()
                 )
-                var sourceRecords: [AnnotationDatabaseRecord] = []
-                var seenAnnotationKeys = Set<String>()
+                var queried: [AnnotationDatabaseRecord] = []
                 for queryChromosome in queryChromosomes {
                     // Use a large cap for extraction paths so full-region content is preserved.
-                    let records = sourceDB.queryByRegion(
+                    queried += sourceDB.queryByRegion(
                         chromosome: queryChromosome,
                         start: result.effectiveStart,
                         end: result.effectiveEnd,
                         limit: 1_000_000
                     )
-                    for record in records {
-                        let key = "\(record.name)|\(record.type)|\(record.chromosome)|\(record.start)|\(record.end)|\(record.strand)"
-                        guard seenAnnotationKeys.insert(key).inserted else { continue }
-                        sourceRecords.append(record)
-                    }
                 }
+                let sourceRecords = Self.distinctSourceRecords(queried)
 
                 let transformed = sourceRecords.compactMap { record -> AnnotationDatabaseRecord? in
                     // Skip "region" annotations that span the entire extraction. They mark
@@ -354,6 +349,28 @@ extension SequenceExtractionBundleBuilder {
         }
 
         return ordered.filter { $0 != sourceChromosome }
+    }
+
+    /// The source rows of one track that the region holds, each once and in the order the queries gave them. A row that
+    /// more than one query chromosome returns (a chromosome and its alias) is one feature and is copied once. Rows that
+    /// only look alike are different features and are all copied: two modification sites on one codon share their name,
+    /// type, site and strand and differ in their attributes (BIO-EXTRACT-DROPS-17). The source's own row id names a
+    /// row. A record with none is told apart by every column it has.
+    static func distinctSourceRecords(_ records: [AnnotationDatabaseRecord]) -> [AnnotationDatabaseRecord] {
+        var seen = Set<String>()
+        return records.filter { record in
+            let identity: String
+            if let rowID = record.rowID {
+                identity = "row\u{1F}\(rowID)"
+            } else {
+                identity = [
+                    record.name, record.type, record.chromosome, String(record.start), String(record.end), record.strand,
+                    record.attributes ?? "", record.blockCount.map { String($0) } ?? "", record.blockSizes ?? "",
+                    record.blockStarts ?? "", record.geneName ?? "",
+                ].joined(separator: "\u{1F}")
+            }
+            return seen.insert(identity).inserted
+        }
     }
 
     /// Resolves annotation-track chromosome candidates for extraction queries.
