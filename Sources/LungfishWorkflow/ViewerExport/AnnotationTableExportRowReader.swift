@@ -20,6 +20,9 @@ package enum AnnotationTableExportRowReader {
     package struct Rows: Sendable {
         package let snapshot: AnnotationTableExportSnapshot
         package let inputURLs: [URL]
+        /// The annotation tracks the manifest lists whose databases could not be read, by name, for the annotations
+        /// tab: the table lacks their rows, and the leaf says so (ANNOT-EXPORT-MISSING-TRACK).
+        package var leftOutTracks: [AnnotationDatabase.LeftOutTrack] = []
     }
 
     /// A selection the bundle cannot answer, which the leaf refuses before it writes anything. The message names
@@ -90,7 +93,10 @@ package enum AnnotationTableExportRowReader {
         }
         var names = Set<String>()
         let inputs = ([manifestURL] + read.urls).map(\.standardizedFileURL).filter { names.insert($0.path).inserted }
-        return Rows(snapshot: read.snapshot, inputURLs: inputs)
+        let leftOut = tab == .annotations
+            ? AnnotationDatabase.openBundleTracks(bundleURL: bundleURL, manifest: manifest).leftOut
+            : []
+        return Rows(snapshot: read.snapshot, inputURLs: inputs, leftOutTracks: leftOut)
     }
 
     // MARK: - Tabs

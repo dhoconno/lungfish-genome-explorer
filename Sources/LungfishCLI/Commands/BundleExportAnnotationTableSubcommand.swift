@@ -102,6 +102,10 @@ struct BundleExportAnnotationTableSubcommand: AsyncParsableCommand {
             explicitOptions["force"] = .boolean(true)
         }
         try Task.checkCancellation()
+        var resolved = rows.snapshot.recordResolved(writerReport: writerReport)
+        if !rows.leftOutTracks.isEmpty {
+            resolved[AnnotationDatabase.LeftOutWords.provenanceKey] = .array(rows.leftOutTracks.map { .string($0.name) })
+        }
         try ScientificFileExportProvenance.writeAtomically(.cliLeaf(
             workflowName: AnnotationTableExport.workflowName,
             sourceURLs: inputURLs,
@@ -110,16 +114,20 @@ struct BundleExportAnnotationTableSubcommand: AsyncParsableCommand {
             argv: invocation.canonicalArgv(),
             explicitOptions: explicitOptions,
             defaults: AnnotationTableExportSnapshot.recordDefaults,
-            resolved: rows.snapshot.recordResolved(writerReport: writerReport),
+            resolved: resolved,
             runClock: runClock
         )) { stagedURL in
             try FileManager.default.copyItem(at: scratch, to: stagedURL)
             try ViewerExportLeaf.checkpointAfterStaging()
         }
+        AnnotationDatabase.LeftOutWords.writeStandardErrorLines(rows.leftOutTracks, notIn: "table")
         let count = rows.snapshot.table.rows.count
         return ViewerExportLeafOutcome(
             outputURL: outputURL,
-            message: "Exported \(count) \(count == 1 ? "row" : "rows") to \(outputURL.lastPathComponent)"
+            message: AnnotationDatabase.LeftOutWords.message(
+                "Exported \(count) \(count == 1 ? "row" : "rows") to \(outputURL.lastPathComponent)",
+                leftOut: rows.leftOutTracks, notIn: "table"
+            )
         )
     }
 }
