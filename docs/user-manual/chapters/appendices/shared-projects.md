@@ -31,7 +31,7 @@ LGE prevents that with a [project lock](../../GLOSSARY.md#project-lock), a small
 
 The lock is [advisory](../../GLOSSARY.md#advisory-lock), which means it works only because every LGE [process](../../GLOSSARY.md#process), one running copy of the program, agrees to check it. macOS is never asked to refuse anyone, so a Finder copy, an rsync job (a copy program run in [Terminal](../../GLOSSARY.md#terminal), the macOS app where you type commands), or a Dropbox or Google Drive sync client ignores the lock. It keeps one LGE window from colliding with another, and nothing more. When LGE finds a lock it cannot claim, it offers to open the project read only.
 
-The second half covers [bundle migration](../../GLOSSARY.md#bundle-migration), the rewriting of an older bundle into the current layout. LGE does not rewrite bundles. A [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, as [What bundle means](../01-foundations/06-the-lungfish-project.md#what-bundle-means) explains, and many bundles, such as a reference bundle, carry a [manifest](../../GLOSSARY.md#manifest), a small file named `manifest.json` that names what the bundle holds. Each manifest carries a [schema version](../../GLOSSARY.md#schema-version), a number saying which layout it was written to, and `lungfish-cli project migrate` reports which bundles are at the current one.
+The second half covers [bundle migration](../../GLOSSARY.md#bundle-migration), the rewriting of an older bundle into the current layout. LGE has no tool that does this rewriting. A [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, as [What bundle means](../01-foundations/06-the-lungfish-project.md#what-bundle-means) explains, and many bundles, such as a reference bundle, carry a [manifest](../../GLOSSARY.md#manifest), a small file named `manifest.json` that names what the bundle holds. Each manifest carries a [schema version](../../GLOSSARY.md#schema-version), a number saying which layout it was written to, and `lungfish-cli project migrate` reports which bundles are at the current one.
 
 ## If a project just opened read only
 
@@ -73,7 +73,7 @@ Open a project another session holds and LGE stops before showing it, with an al
 | State | Meaning | What you see |
 |---|---|---|
 | active | The recorded process is running on this Mac. | "Another session is using this project." |
-| [stale](../../GLOSSARY.md#stale-lock) | The recorded process has exited, or macOS has since given its [process id](../../GLOSSARY.md#process-id), the number it gave that running copy of the app, to a different program. A lock that Finder copied with a project is also stale on the same Mac when it names a different folder that exists. | No alert. LGE replaces the lock and opens the project normally. |
+| [stale](../../GLOSSARY.md#stale-lock) | The recorded process has exited, or macOS has since given its [process id](../../GLOSSARY.md#process-id), the number it gave that running copy of the app, to a different program. A lock that Finder copied with a project is also stale on the same Mac when it names a different folder that exists. | No alert. If your own macOS account left the lock, LGE replaces it and opens the project normally. |
 | unknown | LGE cannot tell. Every lock written on another Mac is unknown, so on shared lab storage most locks you meet read this way. | The alert says LGE "could not confirm whether a previous session is still using this project". |
 | corrupted | The lock file exists but is not a readable lock record, for example because it is not valid [JSON](../../GLOSSARY.md#json), the plain-text format the record uses. | The alert says the project's lock information is damaged, so LGE cannot tell whether another session is using it. |
 
@@ -103,7 +103,7 @@ Recovery keeps the record it replaces in a subfolder of `.lungfish/lock-recovery
 
 Once a project is open read only, the window title shows `(Read Only)` after the project name. The window shows no banner (a strip of warning text), so the title is the only sign inside it, and the opening alert is where the lock's owner is named. The window also gives no signal when the other session lets go and stays read only until you close it and open the project again.
 
-Try to run something that writes and a sheet titled **Project Is Open Read Only** appears, naming the workflow and telling you to close the other writer or reopen the project once the lock is released. Imports, mapping, classification, and every other operation that adds files are refused, and so are renaming, moving, copying, and deleting items and editing sample metadata. Opening a bundle, moving around its [viewport](../../GLOSSARY.md#viewport), and reading the Inspector stay available. No export is refused, and an item dragged from a read-only project into another project's window is probably copied, since only the receiving window is checked.
+Try to run something that writes and a sheet titled **Project Is Open Read Only** appears, naming the workflow and telling you to close the other writer or reopen the project once the lock is released. Imports, mapping, classification, and most other operations that add files are refused, and so are renaming, moving, copying, and deleting items, editing sample metadata, and some exports that save into the project, such as a primer order. Opening a bundle, moving around its [viewport](../../GLOSSARY.md#viewport), and reading the Inspector stay available. An item dragged from a read-only project into another project's window is probably copied, since only the receiving window is checked.
 
 A project copied in Finder while LGE has the original open carries that session's lock record. On the same Mac, LGE sees that the record names the original's folder and not the copy's, treats it as stale and replaces it, so the copy opens normally even while the original is open. On another Mac the record reads unknown, so the alert names the session from the original, and **Recover and Open** is safe there because that session writes into the original folder and not into the copy.
 
@@ -127,7 +127,7 @@ That is the name Finder gives the duplicate that Cmd-D makes beside the demo pro
 
 ## Locking a project from the command line
 
-`project lock` fits one job, maintenance you run from this Mac on a project that people open from other Macs. Their windows show the lock alert, while a window on this Mac treats the lock as stale and opens the project normally. The four lock states are the ones in [Reading the window's read-only state](#reading-the-windows-read-only-state).
+`project lock` leaves a note that people who open the project from other Macs meet as the lock alert, for example while you run maintenance from this Mac. A window on this Mac treats the lock as stale and opens the project normally. The four lock states are the ones in [Reading the window's read-only state](#reading-the-windows-read-only-state).
 
 Take a lock with `project lock` and the project's path. It works from any folder, because the path names the project.
 
