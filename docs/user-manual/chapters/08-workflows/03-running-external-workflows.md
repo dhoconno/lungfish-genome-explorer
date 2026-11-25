@@ -55,7 +55,7 @@ A workflow package has to be linked first, and the Procedure below starts there.
 
 ## What a workflow package holds
 
-The two examples name their pipeline file `main.nf` for Nextflow and `Snakefile` for Snakemake. [The workflow bundles](../appendices/file-formats.md#the-workflow-bundles) describes the folder, and the table lists every manifest field except `schemaVersion`, which must be `1`, and the descriptive `maturity` and `template`.
+The two examples name their pipeline file `main.nf` for Nextflow and `Snakefile` for Snakemake. [The workflow bundles](../appendices/file-formats.md#the-workflow-bundles) describes the folder, and the table lists every field a runnable package uses except `schemaVersion`, which must be `1`, and the descriptive `maturity` and `template`.
 
 | Field | What it says |
 |---|---|
@@ -125,7 +125,7 @@ The right side shows **Overview**, **Inputs**, **Primary settings**, and **Outpu
 
 **Overview** holds **Open Previous Run…**, which opens a chooser for a `.lungfishrun` folder and loads its recorded settings for review, as Run Again does below, so a run can be repeated from its folder even after LGE has been quit.
 
-**Inputs** holds a **Reference** picker and a **FASTQ Bundles** line that names the bundle you selected in the sidebar, the same two for every linked package. A linked package accepts exactly one read bundle, and with more selected the Readiness line reads "Imported workflow packages currently accept one FASTQ bundle. Select one bundle, or choose a built-in workflow for folder batches." The app's imported workflow packages are linked packages, and its built-in workflows are the specialized ones.
+**Inputs** holds a **Reference** picker and a **FASTQ Bundles** line that names the bundle you selected in the sidebar, the same two for every linked package. A linked package accepts exactly one read bundle, and with more selected the Readiness line reads "Imported workflow packages currently accept one FASTQ bundle. Select one bundle, or choose a built-in workflow for folder batches." The app's imported workflow packages are linked packages, and its built-in workflows are the ones that ship with LGE.
 
 **Primary settings** holds **Output Name** and **Cores**. Four lines of read-only text follow them, giving the engine and the package version, the declared inputs, the declared outputs, and the runtime.
 
