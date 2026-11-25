@@ -19,18 +19,18 @@ lead_approved: false
 
 ## What it is
 
-Lungfish Genome Explorer (LGE) ships a command-line program beside its window. The program is called `lungfish-cli`, and it runs LGE's operations with no window open. This appendix lists the syntax and every flag of every command the program has, taken from the program's own help text for this release. It explains no biology. Each group of commands links the chapter that explains what the operation is for.
+Lungfish Genome Explorer (LGE) ships a command-line program beside its window. The program is called `lungfish-cli`, and it runs LGE's operations with no window open. This appendix lists the syntax and every flag of every command the program has, taken from the program's own help text for this release. It defines the terms a flag needs and leaves the biology to the chapters it links. Each group of commands links the chapter that explains what the operation is for. A command you already ran in the window is one step away. Right-click its row in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) and choose **Copy CLI Command**, or write a whole recorded run as a script with [`provenance export`](#provenance-export) and `--format shell`.
 
 Four terms recur throughout. A [subcommand](../../GLOSSARY.md#subcommand) is the word after the program name that picks which operation runs, as `convert` does in `lungfish-cli convert`. A [positional argument](../../GLOSSARY.md#positional-argument) is a value typed in a fixed place with no name in front of it, usually an input file. A [command-line flag](../../GLOSSARY.md#command-line-flag) is a named option written with two leading hyphens, such as `--to-format fasta`. A [switch](../../GLOSSARY.md#switch) is a flag with no value after it, so it is either present or absent.
 
-Here is one command with all four labeled.
+Here is one command with all four labeled. It converts `NG_000007.3.gb`, the GenBank record of the human beta-globin gene (HBB) from the HBB practice files that [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains how to download, into a FASTA file.
 
 ```text
-lungfish-cli   convert   NG_000007.3.gb   --to-format fasta   --force
-    program   subcommand   positional        flag with value    switch
+lungfish-cli   convert   NG_000007.3.gb   --to NG_000007.3.fa   --force
+    program   subcommand   positional       flag with value      switch
 ```
 
-Every command writes the same [provenance sidecar](../../GLOSSARY.md#provenance-sidecar) files the window writes, the small [JSON](../../GLOSSARY.md#json) records saying which tool ran, with which version, over which inputs. A run you scripted is documented as fully as a run you clicked.
+Every command that makes or changes a file writes the same [provenance sidecar](../../GLOSSARY.md#provenance-sidecar) files the window writes, the small [JSON](../../GLOSSARY.md#json) records saying which tool ran, with which version, over which inputs. Commands that only print, such as `version`, `analyze`, and `storage info`, write none. A run you scripted is documented as fully as a run you clicked.
 
 ## Before you type anything
 
@@ -71,7 +71,7 @@ The command line follows the app it ships inside, so the Stable app's copy sees 
 
 The examples in this appendix follow the path convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). A block that works inside a demo project first sets `PROJECT` to that project's folder, and every path inside the project then starts from `$PROJECT`. A block that works on plain fixture files, outside any project, says which fixture folder to run it from.
 
-`lungfish-cli <command> --help` prints the subcommands of a command, and `lungfish-cli <command> <subcommand> --help` prints one subcommand's flags. If this page and the program ever disagree, believe the program. The example lines inside some help screens spell the program `lungfish`, and you type `lungfish-cli` in their place.
+`lungfish-cli <command> --help` prints the subcommands of a command, and `lungfish-cli <command> <subcommand> --help` prints one subcommand's flags. If this page and the program ever disagree, believe the program.
 
 ## How the syntax lines are written
 
@@ -85,7 +85,7 @@ Each command below shows the usage line its own help prints, a sketch of what yo
 | `[<options>]` | The command has more optional flags than fit on the line. Its table lists them all. |
 | A trailing `\` in an example | Continues one command onto the next line. |
 
-A flag written with one hyphen and one letter, such as `-o`, is the short form of the two-hyphen flag listed beside it, such as `--output`, and the two do the same thing. Every usage line also accepts the global flags in [Global flags](#global-flags), which are left off the lines below to keep them short. A table row that says "Takes" lists every value the flag accepts. A row with no default either needs no value or is optional with nothing applied when you leave it out.
+A flag written with one hyphen and one letter, such as `-o`, is the short form of the two-hyphen flag listed beside it, such as `--output`, and the two do the same thing. Every usage line also accepts the global flags in [Global flags](#global-flags) when its own help lists them, and a command whose help lists none ignores them. The lines below leave the global flags off to keep them short. A table row that says "Takes" lists every value the flag accepts. A row with no default either needs no value or is optional with nothing applied when you leave it out.
 
 ## Exit status
 
@@ -102,19 +102,40 @@ Every command hands back an [exit status](../../GLOSSARY.md#exit-status), the nu
 | 10 | Work is pending (`tools update --plan` only). |
 | 11 | A label contradicts its reads (`fastq platform --check` only). |
 | 64 | Workflow error. A command line the program cannot parse, such as one missing a required flag, also returns 64. |
-| 75 | A BLAST search is still waiting at NCBI (`blast submit --park` and `blast resume --once` only). |
 | 65 | Container error. `debug container` returns it when the Docker background service cannot be reached. |
 | 66 | Network error. |
+| 75 | A BLAST search is still waiting at NCBI (`blast submit --park`, `blast resume --once`, and `blast resume` when the search's result folder is missing but the in-flight list still holds it). |
 | 124 | Timed out. |
 | 125 | Cancelled. |
 | 126 | A required tool is missing. The command prints an error line that begins `Required tool is missing` and names the tool. A failed offline pack install also returns 126. |
-| 127 | Not found. |
+| 127 | A program could not be found by name. Your shell returns it when it cannot find `lungfish-cli` on your `PATH`. A missing input file is 3 and a missing tool is 126. |
 
 The status table is the one reference for these numbers. [Troubleshooting](troubleshooting.md) and [Running in CI](06-running-in-ci.md#exit-codes-on-a-runner) discuss only the values their readers meet and link here.
 
+## Running commands from a script
+
+A script is a plain text file of commands that the shell runs one after another, so a long analysis runs the same way every time. This small one converts the HBB record to FASTA and then checks the result. Run it from the folder holding the HBB practice files.
+
+```bash
+#!/bin/bash
+set -e
+export PATH="/Applications/Lungfish.app/Contents/MacOS:$PATH"
+lungfish-cli convert NG_000007.3.gb --to NG_000007.3.fa --force
+if lungfish-cli analyze validate NG_000007.3.fa > validate.log; then
+  echo "NG_000007.3.fa is well formed."
+else
+  echo "Validation failed with exit status $?, see validate.log."
+  exit 1
+fi
+```
+
+To save it, type `nano convert-hbb.sh`, paste the lines, press Control-O and Return to save, and press Control-X to leave. Run it with `bash convert-hbb.sh`. Name the Preview folder from the table above in the `export` line if you run the Preview app. `set -e` makes the script stop at the first command whose exit status is not 0, so a failed `convert` never reaches the check. The `if` runs a command and takes its first branch when the status is 0, and inside the `else`, `$?` holds the status that failed, which you can look up in the table above. After the script ends, `echo $?` shows the script's own status.
+
+A command prints its results on standard output and its messages on [standard error](../../GLOSSARY.md#standard-error), two separate channels. `> validate.log` saves the first to a file, and `2> errors.log` would save the second. Commands that run long, among them `import fasta`, `import fastq`, `map`, and `variants call`, print one JSON object per line on standard output when you add `--format json`, which a script can save with `> run.jsonl`. Each line is an event, and the last one, whose `event` is `complete`, lists the files the run made under `outputs`.
+
 ## Global flags
 
-These flags work on every command. Type them before or after the subcommand.
+Every command accepts these flags, before or after the subcommand, but a command acts on one only when its own help lists it. A command whose help lists none, such as `fastq deinterleave` and `version`, ignores them. `--format` takes `text`, `json` or `tsv` on most commands, and a few leaves, among them some of the `bam`, `bundle`, `demo`, `markdup`, `primers analysis` and `storage` leaves, list it with only `text` and `json`.
 
 | Flag | What it does |
 |---|---|
@@ -503,7 +524,13 @@ lungfish-cli import fastq [<options>] [<input> ...]
 
 `--project` is required unless `--write-plan` is given. `--recipe` takes `none`, `illumina-paired-cleanup`, `vsp2` (short for `vsp2-target-enrichment`), `wastewater-metagenomics`, `illumina-amplicon-merge`, `wgs`, `hifi`, or the id of a recipe you saved. `illumina-paired-cleanup` removes duplicate reads and keeps ribosomal RNA reads, `vsp2-target-enrichment` is a preset of it with the same two settings, and `wastewater-metagenomics` is a preset of it that removes both. `--remove-duplicates` and `--remove-ribosomal-rna`, or their `--no-` forms, replace the recipe's setting, and a removal is final for a stored import, since only a reimport from the raw files brings the removed reads back.
 
-[Quality binning](../../GLOSSARY.md#quality-binning) rounds each base's quality score to a few values so the file compresses smaller. An import bins with `fiveStep` on every platform unless `--quality-binning` or the recipe names another value. `fiveStep` stores scores in steps of five, so every Q10, Q20 and Q30 count stays as sequenced. A score can move by up to 2 inside its step, and the last step stores every score from Q35 up as Q37. `illumina4` stores called Q0 to Q10 as 8 and Q18 and Q19 as 22, and is kept to replay older imports. The original scores cannot be recovered once the original files are removed, so pass `--quality-binning none` to keep every score as the sequencer gave it. With clumping on, a called Q0 or Q1 is then stored as Q2. `--clumping-tool auto` skips clumping when the input is too large for the memory budget and never picks Trim Galore by itself. `--pairing` takes `auto`, `single`, `paired`, or `interleaved`. `auto` and `paired` match R1 and R2 files by name, inside one folder first. An R1 with no mate in its folder pairs with a mate of another folder only when no other file of the import has the R1's name or the mate's name, so `R1/x_R1.fastq.gz` and `R2/x_R2.fastq.gz` make one sample `x`. When another file shares a name, the files stay separate samples and the command prints a warning that names them, for example "/runs/B/reads_R1.fastq was not paired with /runs/C/reads_R2.fastq, because mates pair across folders only when their names are unique among the listed files." The warning is a `notice` event under `--format json`, and a dry run prints it too. They also join a file named after the run alone to its `_1` and `_2` pair as the sample's unpaired reads, which is the third file ENA serves for spots whose mate is missing, so `SRR123.fastq.gz` imports with `SRR123_1.fastq.gz` and `SRR123_2.fastq.gz` as one bundle. The third file joins the pair of its own folder, the R1's folder for a pair whose mates sit in two folders, and a pair of another folder only when no other file of the import has the run's name or either mate's name, with the same kind of warning otherwise. The command reads the first read of `_1` and of `_2` and the first 1,000 reads of the third file before it joins them. It joins the third file only when the first reads of `_1` and `_2` are named as mates, by one shared read name, by `/1` and `/2` endings, or by Illumina `1:N` and `2:N` comments. The first read of the third file must also come from a fragment other than the one those first reads share, and no two neighboring reads among the first 1,000 of the third file may be mates, because a file of reads whose mate is missing holds one read of each spot. Otherwise it leaves the third file out with a warning that names it and says why, and the file stays a sample of its own with the run's name, which the import skips. For `SRR123` the warning then ends "The pair imports without it, and SRR123.fastq.gz is a separate sample named SRR123, which the import skips." When `_1` or `_2` does not start with a whole record, the pair fails as well, the warning ends "SRR123.fastq.gz is a separate sample named SRR123, which the import skips whether or not the pair imports.", and nothing imports under the run's name. Mates named `SRR123.1.1` and `SRR123.1.2`, as `fastq-dump --readids` writes them, and an interleaved copy of the pair, whichever pair it starts with, are left out this way. The import checks the rest of the third file as it copies it, and two neighboring mates further in fail the sample with a message that names the file and the two reads, so no read is stored twice. A recipe refuses a joined sample, because a recipe reads only pairs or only single reads, and `--clumping-tool trim-galore` refuses it for the same reason with a message that names the third file. Choose `--clumping-tool bbtools` or `--no-optimize-storage` to keep every read. `single` imports every file as its own single-end sample even when a mate is detected, and `interleaved` imports every file on its own and records it as holding alternating mates. Neither prints the pairing warning. `--recursive` scans every folder below the one you name and pairs all the files it finds by the same rule as files named one by one and the Import Center. Each sample's bundle goes to `Imports/<folder>/<name>.lungfishfastq`, where the folder is that of its mates below the scanned folder. A pair whose mates sit in two folders goes to the deepest folder that holds both, so `delivery/R1/x_R1.fastq.gz` and `delivery/R2/x_R2.fastq.gz` scanned from `delivery` give `Imports/x.lungfishfastq`, and a run's third file from another folder does not move its pair. `--dry-run` prints each sample as `[paired]` or `[single-end]` with its file names, an `Unpaired:` line for a joined third file and the warning for one it left out, then the platform it would record for each sample with the evidence, and stops. `--platform` takes `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, or `unknown`, and aliases such as `nanopore` parse too. The default `auto` infers each sample's platform from its own read headers, or from a BAM's header, and prints the evidence with a confidence of high, medium, low, or none. Reads it cannot identify are recorded as `unknown`, never as Illumina, and a value you give is recorded as given. A PacBio BAM is refused with a message to convert it with `samtools fastq` first, and every other unmapped BAM converts. The global `--threads` defaults to the Mac's active core count. `--force` imports a sample again when its bundle already exists, but it never replaces a bundle that an earlier sample of the same import wrote, such as the bundle of a pair whose third file the check left out, and no sample writes a bundle that an earlier sample of the import failed to write. Such a sample is skipped with its reason in the summary. `--name` names the one sample that detection makes, before the third-file check, so a run whose third file is left out imports its pair under the given name and skips the third file.
+Each sample's bundle is `Imports/<name>.lungfishfastq` in the project, where `<name>` is the file name without its file endings and its mate ending, so `HG002.chr20.10.0-10.5Mb_R1.fastq.gz` and its `_R2` mate make the sample `HG002.chr20.10.0-10.5Mb`. `--name` sets the name when the import finds one sample. A recipe is a saved list of read-cleaning steps that the import runs before it stores the reads, and `none`, the default, gives a plain import. A second run skips every sample whose finished bundle already exists, lists it under `Skipped` in the summary, and still exits 0, and `--force` imports it again. The rows from `--write-plan` to `--plan-database`, and `--adopt`, serve a run on a Linux machine, so an import on this Mac never needs them.
+
+[Quality binning](../../GLOSSARY.md#quality-binning) rounds each base's quality score to a few values so the file compresses smaller. A quality score such as Q20 is the base's [Phred score](../../GLOSSARY.md#phred-score), the sequencer's estimate of the chance that the base is wrong, 1 in 100 for Q20 and 1 in 1,000 for Q30. An import bins with `fiveStep` on every platform unless `--quality-binning` or the recipe names another value. `fiveStep` stores scores in steps of five, so every Q10, Q20 and Q30 count stays as sequenced. A score can move by up to 2 inside its step, and the last step stores every score from Q35 up as Q37. A variant caller weighs each base by its score, so a score that moves by 2 can tip a borderline call, and `--quality-binning none` keeps every score at the cost of a larger file. `illumina4` stores called Q0 to Q10 as 8 and Q18 and Q19 as 22, and is kept to replay older imports. The original scores cannot be recovered once the original files are removed, so pass `--quality-binning none` to keep every score as the sequencer gave it. With clumping on, a called Q0 or Q1 is then stored as Q2.
+
+[Read clumping](../../GLOSSARY.md#read-clumping) reorders the reads so that similar reads sit together, which lets the stored file compress smaller. With no `--clumping-tool`, or with `auto`, an import clumps reads from a short-read platform with BBTools clumpify, whatever the input's size, and clumps nothing for Oxford Nanopore, PacBio, or unknown-platform reads, because clumping works well only on accurate reads. `auto` never picks Trim Galore by itself.
+
+`--pairing` takes `auto`, `single`, `paired`, or `interleaved`. `auto` and `paired` match R1 and R2 files by name, inside one folder first, and treat two file names as mates when they end `_R1_001` and `_R2_001`, `_R1` and `_R2`, or `_1` and `_2`. An R1 with no mate in its folder pairs with a mate of another folder only when no other file of the import has the R1's name or the mate's name, so `R1/x_R1.fastq.gz` and `R2/x_R2.fastq.gz` make one sample `x`. When another file shares a name, the files stay separate samples and the command prints a warning that names them, for example "/runs/B/reads_R1.fastq was not paired with /runs/C/reads_R2.fastq, because mates pair across folders only when their names are unique among the listed files." The warning is a `notice` event under `--format json`, and a dry run prints it too. They also join a file named after the run alone to its `_1` and `_2` pair as the sample's unpaired reads, which is the third file ENA serves for spots whose mate is missing, so `SRR123.fastq.gz` imports with `SRR123_1.fastq.gz` and `SRR123_2.fastq.gz` as one bundle. The third file joins the pair of its own folder, the R1's folder for a pair whose mates sit in two folders, and a pair of another folder only when no other file of the import has the run's name or either mate's name, with the same kind of warning otherwise. The command reads the first read of `_1` and of `_2` and the first 1,000 reads of the third file before it joins them. It joins the third file only when the first reads of `_1` and `_2` are named as mates, by one shared read name, by `/1` and `/2` endings, or by Illumina `1:N` and `2:N` comments. The first read of the third file must also come from a fragment other than the one those first reads share, and no two neighboring reads among the first 1,000 of the third file may be mates, because a file of reads whose mate is missing holds one read of each spot. Otherwise it leaves the third file out with a warning that names it and says why, and the file stays a sample of its own with the run's name, which the import skips. For `SRR123` the warning then ends "The pair imports without it, and SRR123.fastq.gz is a separate sample named SRR123, which the import skips." When `_1` or `_2` does not start with a whole record, the pair fails as well, the warning ends "SRR123.fastq.gz is a separate sample named SRR123, which the import skips whether or not the pair imports.", and nothing imports under the run's name. Mates named `SRR123.1.1` and `SRR123.1.2`, as `fastq-dump --readids` writes them, and an interleaved copy of the pair, whichever pair it starts with, are left out this way. The import checks the rest of the third file as it copies it, and two neighboring mates further in fail the sample with a message that names the file and the two reads, so no read is stored twice. A recipe refuses a joined sample, because a recipe reads only pairs or only single reads, and `--clumping-tool trim-galore` refuses it for the same reason with a message that names the third file. Choose `--clumping-tool bbtools` or `--no-optimize-storage` to keep every read. `single` imports every file as its own single-end sample even when a mate is detected, and `interleaved` imports every file on its own and records it as holding alternating mates. Neither prints the pairing warning. `--recursive` scans every folder below the one you name and pairs all the files it finds by the same rule as files named one by one and the Import Center. Each sample's bundle goes to `Imports/<folder>/<name>.lungfishfastq`, where the folder is that of its mates below the scanned folder. A pair whose mates sit in two folders goes to the deepest folder that holds both, so `delivery/R1/x_R1.fastq.gz` and `delivery/R2/x_R2.fastq.gz` scanned from `delivery` give `Imports/x.lungfishfastq`, and a run's third file from another folder does not move its pair. `--dry-run` prints each sample as `[paired]` or `[single-end]` with its file names, an `Unpaired:` line for a joined third file and the warning for one it left out, then the platform it would record for each sample with the evidence, and stops. `--platform` takes `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, or `unknown`, and aliases such as `nanopore` parse too. The default `auto` infers each sample's platform from its own read headers, or from a BAM's header, and prints the evidence with a confidence of high, medium, low, or none. Reads it cannot identify are recorded as `unknown`, never as Illumina, and a value you give is recorded as given. A PacBio BAM is refused with a message to convert it with `samtools fastq` first, and every other unmapped BAM converts. The global `--threads` defaults to the Mac's active core count. `--force` imports a sample again when its bundle already exists, but it never replaces a bundle that an earlier sample of the same import wrote, such as the bundle of a pair whose third file the check left out, and no sample writes a bundle that an earlier sample of the import failed to write. Such a sample is skipped with its reason in the summary. `--name` names the one sample that detection makes, before the third-file check, so a run whose third file is left out imports its pair under the given name and skips the third file.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1275,7 +1302,7 @@ lungfish-cli universal-search [<options>] <project-path>
 
 The window runs these operations from the FASTQ/FASTA Operations window, which [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), [Decontamination](../03-reads/05-decontamination.md), [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md), and [Read Processing](../03-reads/08-read-processing.md) work through. [FASTQ](../../GLOSSARY.md#fastq) stores each read as four lines, a name, the bases, a separator, and one quality character per base. The flags below also use [Phred scores](../../GLOSSARY.md#phred-score), [k-mers](../../GLOSSARY.md#k-mer), [interleaved](../../GLOSSARY.md#interleaved-fastq) files that hold both [mates](../../GLOSSARY.md#paired-end) of each pair, [Shannon entropy](../../GLOSSARY.md#shannon-entropy), and [optical duplicates](../../GLOSSARY.md#optical-duplicate), each defined in the Glossary. Most of these commands read one FASTQ and write another. They share `-o` or `--output` for the output path and `--force` to overwrite an existing output, so those two are not repeated in every table below. Most write plain FASTQ and refuse `--compress` before they write any file or record. `fastq merge`, `fastq materialize` and `fastq scrub-human` take `--compress` to gzip their output, and their entries say so.
 
-A `.lungfishfastq` bundle given as the input is read as its reads, the same reads the window's operations see. A bundle of one file is read in place, a bundle of several files is read as every file joined in the bundle's own order, and a [virtual bundle](../../GLOSSARY.md#virtual-bundle) is first written out from its recipe. One file of a multi-file bundle, such as one chunk of a nanopore import, is one part of a sample, so the command reads the whole bundle instead and prints a note that says so. Any other file inside a bundle is read in place as the file you named.
+A `.lungfishfastq` bundle given as the input is read as its reads, the same reads the window's operations see. A bundle of one file is read in place, a bundle of several files is read as every file joined in the bundle's own order, and a [virtual bundle](../../GLOSSARY.md#virtual-bundle) is first written out from its recipe. One file of a multi-file bundle, such as one chunk of a nanopore import, is one part of a sample, so the command reads the whole bundle instead and prints a note that says so. Any other file inside a bundle is read in place as the file you named, except the preview file of a virtual bundle, which previews the sample rather than holding it, so the command reads that bundle and prints a note saying so.
 
 Fifteen of them also take `--pairing`. They are the four fastp trimmers, `trim`, `quality-trim`, `adapter-trim`, and `fixed-trim`, and `subsample`, `length-filter`, `contaminant-filter`, `entropy-filter`, `scrub-human`, `deacon-ribo`, `ribodetector`, `sequence-filter`, `deduplicate`, `search-text`, and `search-motif`. With `interleaved`, adjacent records are mates and are kept or dropped together, and with `single` every record stands alone. The default, `auto`, reads the pairing recorded by the `.lungfishfastq` bundle the input sits in, then inspects read names, recognizing mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. The window passes the bundle's own pairing, so a command run on the file inside a paired bundle keeps its mates together as the window does.
 
@@ -2023,17 +2050,22 @@ The global `--threads` is a compatibility option for legacy chunked demux paths 
 
 The window covers this ground with **Tools > Mapping**, which [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) works through. A [BAM](../../GLOSSARY.md#bam) file holds one row per aligned read, with an index beside it that lets a viewer jump to any position. [SAM](../../GLOSSARY.md#sam) is the plain-text form of the same records. The flags below also use [MAPQ](../../GLOSSARY.md#mapq) and [soft clips](../../GLOSSARY.md#soft-clip), each defined in the Glossary. An [alignment track](../../GLOSSARY.md#alignment-track) is one named BAM attached to a reference bundle. Commands that act on a track take its id, such as `aln_A0B7A1D5`, and only `variants call` also accepts a display name. `map` prints the id of the track it attaches, and `lungfish-cli bundle info <bundle> --format json` prints the bundle's manifest, whose `alignments` list gives each track's `id` beside its `name`.
 
-Run this from the folder holding the hg002-chr20 practice data, in a project you made with **File > New Project** and then closed. It imports the chromosome 20 slice as a reference bundle, then maps the read pair to it with minimap2. With `--project`, the result lands where the window puts it, in a new `Analyses/minimap2-<timestamp>/` folder holding the BAM and a copy of the reference bundle with the BAM attached as the track `HG002 minimap2`. That copy is the reference bundle inside the mapping result, which [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes, and the bundle under `Reference Sequences/` is left unchanged.
+Run this from the folder holding the [hg002-chr20 practice data](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual), in a project you made with **File > New Project** and then closed. It imports the chromosome 20 slice as a reference bundle and the read pair as one sample, then maps that sample to the reference with minimap2. `import fasta` names the project with `--output-dir` and `import fastq` names it with `--project`. `map --output-dir` names the result folder in advance, which a script needs so that a later command can find it, and without it the folder is `Analyses/minimap2-<timestamp>/` inside `--project`. The result folder holds the BAM and a copy of the reference bundle with the BAM attached as the track `HG002 minimap2`. That copy is the reference bundle inside the mapping result, which [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes, and the bundle under `Reference Sequences/` is left unchanged.
 
 ```bash
 PROJECT="$HOME/Documents/My Project.lungfish"
 lungfish-cli import fasta GRCh38.chr20.10.0-10.5Mb.fasta --output-dir "$PROJECT"
-lungfish-cli map HG002.chr20.10.0-10.5Mb_R1.fastq.gz HG002.chr20.10.0-10.5Mb_R2.fastq.gz \
+lungfish-cli import fastq HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
+  HG002.chr20.10.0-10.5Mb_R2.fastq.gz --project "$PROJECT"
+lungfish-cli map "$PROJECT/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq" \
   --reference "$PROJECT/Reference Sequences/GRCh38.chr20.10.0-10.5Mb.lungfishref" \
-  --paired --sample-name HG002 --project "$PROJECT" --track-name "HG002 minimap2"
+  --sample-name HG002 --project "$PROJECT" \
+  --output-dir "$PROJECT/Analyses/hg002-minimap2" --track-name "HG002 minimap2"
 ```
 
-The command ends with a Results table. It gives the read counts, the `Analysis folder` it wrote, the `Sorted BAM` and its index, the reference copy it calls the `Viewer bundle`, and the `Track name` and `Track ID` of the attached track. The track id is what `variants call --alignment-track` takes. With the program-wide `--format json`, the same report comes as one JSON document whose `alignmentTrack` object holds the track's `id`, `name`, and `sourcePath`.
+The import stored the pair as one read bundle, so `map` takes that bundle as its one input and needs no `--paired`, because it reads the pairing the bundle records. Two loose FASTQ files do need `--paired`, since without it the command maps them as separate single reads, and `--paired` with one bundle is refused because it asks for exactly two files.
+
+The command ends with a Results table. It gives the read counts, the `Analysis folder` it wrote, the `Sorted BAM` and its index, the reference copy it calls the `Viewer bundle`, and the `Track name` and `Track ID` of the attached track. `variants call --alignment-track` takes either the track id or its display name. A script learns where the result went in one of two ways. It names `--output-dir` itself, which puts the reference bundle copy at `<output-dir>/<reference bundle name>.lungfishref`, or it adds the program-wide `--format json`, which prints one JSON object per line in place of the table and ends with an `event` named `complete` whose `outputs` list holds the analysis folder. That last line does not name the bundle or the track.
 
 ### `map`
 
@@ -2297,14 +2329,15 @@ Like `markdup`, it writes `<name>.markdup.bam` beside the input and leaves the i
 
 The window covers this ground with the Call Variants dialog, which [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) and [Nanopore Variant Calling](../05-variants/04-nanopore-variant-calling.md) work through. A [VCF](../../GLOSSARY.md#vcf) is a tab-separated file with one row per position where the sample differs from the reference. Calling always works on an alignment track inside a reference bundle, which for a mapping result is the reference bundle inside the mapping result, and never on a loose BAM. `variants phase` prints the command it would run and stops. Add `--execute` to run it through the managed tools and write provenance at the final location, or `--dry-run` to print and save the plan explicitly. Neither switch is repeated in its table.
 
-This continues the mapping example in [Mapping and alignment tracks](#mapping-and-alignment-tracks). Replace `minimap2-<timestamp>` with the folder that run created, and `aln_A0B7A1D5` with the `Track ID` that `map` printed for `HG002 minimap2`. `bundle info --format json` prints it too. The thresholds are the ones the dialog sends.
+This continues the mapping example in [Mapping and alignment tracks](#mapping-and-alignment-tracks), whose `--output-dir` fixed the result folder, so nothing needs replacing by hand. `--alignment-track` names the track by the display name `HG002 minimap2` that the mapping example gave it, which works when only one track carries that name. `--ploidy 2` tells bcftools that the sample is diploid, as a human sample is. The thresholds are the ones the dialog sends.
 
 ```bash
 PROJECT="$HOME/Documents/My Project.lungfish"
+BUNDLE="$PROJECT/Analyses/hg002-minimap2/GRCh38.chr20.10.0-10.5Mb.lungfishref"
 lungfish-cli variants call \
-  --bundle "$PROJECT/Analyses/minimap2-<timestamp>/GRCh38.chr20.10.0-10.5Mb.lungfishref" \
-  --alignment-track aln_A0B7A1D5 --caller bcftools --name "HG002 bcftools" \
-  --min-af 0.05 --min-depth 10
+  --bundle "$BUNDLE" \
+  --alignment-track "HG002 minimap2" --caller bcftools --ploidy 2 \
+  --name "HG002 bcftools" --min-af 0.05 --min-depth 10
 ```
 
 ### `variants call`
@@ -2314,6 +2347,10 @@ Runs a variant caller on one alignment track and attaches the calls as a variant
 ```text
 lungfish-cli variants call [<options>] --bundle <bundle> --alignment-track <alignment-track> --caller <caller>
 ```
+
+The calls land inside the bundle as `variants/<track id>.vcf.gz`, with a `.tbi` index, a `.db` database, and a `.lungfish-provenance.json` record beside it. The track id is `vc-` followed by a random code and is new on every run, and `--caller gatk` writes the same files under `variants/gatk/`. A repeat run adds a second track instead of replacing the first, and `variants extract-sample` and `variants query` keep reading only the first track that has a database. Without `--name` the track is called the alignment track's name, a bullet, and the caller's name, such as `HG002 minimap2 • bcftools`, and `gatk` adds a number such as `(2)` when that name is taken. With `--format json` the last line lists the database, the VCF and the index, in that order, under `outputs`.
+
+`--min-af` is an allele frequency, the share of the reads covering a position that carry the variant, from 0 to 1. `--min-depth` is a depth, the number of reads covering the position. The pair `0.05` and `10` drops a call carried by fewer than 5 percent of the reads or covered by fewer than 10, so for a diploid human sample, whose true variants sit near 0.5 or 1.0, it removes only faint calls. Leave `--ploidy` out and LGE reads the organism and assembly names the bundle records, then its genome length, where 10 million bases or more reads as `2`, and falls back to `1`, so pass `--ploidy 2` for a human sample rather than rely on that guess. `bcftools` fits a diploid sample such as a person or a macaque, `lofreq` finds low-frequency variants in deep Illumina data from a virus population, `ivar` suits primer-trimmed amplicon reads, `medaka` and `clair3` are for Nanopore reads, and `gatk` runs HaplotypeCaller for human germline work.
 
 `--alignment-track` takes the track's id, or its display name when exactly one track carries that name. A name shared by several tracks, or a track the bundle does not hold, stops the command with exit status 3 and a message listing the tracks the bundle does hold. The command has no default thresholds. Leave out `--min-af` and `--min-depth` and iVar uses 0.05 and 10, while the other callers run with no threshold filter. Given either flag, LGE removes rows below it after LoFreq, bcftools, Medaka, or Clair3 finish, with a `bcftools view -i` step, and iVar applies it natively. The window always sends 0.05 and 10, so pass `--min-af 0.05 --min-depth 10` to reproduce a window run. `--ploidy` applies to bcftools alone and takes `1` or `2`. Leave it out and LGE derives the value from the bundle's organism metadata as the dialog does, falling back to `1`. A `--ploidy` inside `--extra-args` for bcftools is refused. The `--ivar-*` flags reach iVar only, and iVar's strand-bias filter is off by default because amplicon reads at one site all start from the same primer. iVar needs primer-trimmed reads. On a track that LGE primer-trimmed itself, the command reads the primer-trim record beside the BAM and confirms the trim on its own, as the Call Variants dialog does, so `--ivar-primer-trimmed` is needed only for a BAM trimmed outside LGE. `--platform` applies to Medaka and Clair3 only and is refused with any other caller.
 
@@ -2373,12 +2410,20 @@ Writes one sample's calls from a bundle's variant database to a VCF.
 lungfish-cli variants extract-sample <bundle-path> --sample <sample> --output <output>
 ```
 
-It reads only the first variant track in the bundle that has a database, and has no flag to choose another.
+It reads only the first variant track in the bundle that has a database, and has no flag to choose another. A sample is one column of per-sample genotypes in the calls. To list the names a bundle holds, write its sample template, whose first column, `sample_name`, has one row for each sample. Line 1 is the header, so line 2 holds the first sample. Here `$BUNDLE` is the bundle from the `variants call` example, and the block lists the names and extracts the first sample.
+
+```bash
+lungfish-cli variants export sample-template "$BUNDLE" --output-format tsv --output samples.tsv --force
+SAMPLE=$(sed -n 2p samples.tsv | cut -f1)
+lungfish-cli variants extract-sample "$BUNDLE" --sample "$SAMPLE" --output "$SAMPLE.calls.vcf"
+```
+
+A name the bundle does not hold stops the command with the message `Sample '<name>' was not found in <bundle>.` and exit status 64, and it writes no file.
 
 | Argument or flag | What it does |
 |---|---|
 | `<bundle-path>` | Path to a `.lungfishref` bundle with a variant database. |
-| `--sample <sample>` | Sample name to extract. |
+| `--sample <sample>` | Sample name to extract, as the `sample_name` column of the sample template lists it. |
 | `-o, --output <output>` | Output VCF path. |
 
 ### `variants query`
@@ -2389,14 +2434,16 @@ Writes the variants matching a smart filter to a VCF. Explained in [Reading the 
 lungfish-cli variants query <bundle-path> --filter <filter> --output <output> [--limit <limit>]
 ```
 
-It reads only the first variant track in the bundle that has a database, and has no flag to choose another. The filter is a smart filter such as `Sample[NA12878].GT=1/1`.
+It reads only the first variant track in the bundle that has a database, and has no flag to choose another. A smart filter is one or more clauses joined by semicolons, and a call is written only when every clause is true for it, as in `Sample[NA12878].GT=1/1;Sample[NA12878].DP>=10`. A clause reads `Sample[<name>].<field><operator><value>`. The field is `GT` for the genotype, such as `1/1`, `AF` for the allele frequency, which LGE works out from the sample's allele depths, or `DP` for the depth, and the operator is `=`, `!=`, `<`, `<=`, `>`, or `>=`. A `*` in place of the name accepts any sample, `count(Sample[*].GT=1/1)>=2` counts the samples that match, and `Sample[A].DP>Sample[B].DP` compares two samples.
+
+An empty filter is refused, and a name the bundle does not hold matches nothing, so the output has no calls and the command still exits 0. To keep every call that has a depth recorded for some sample, use `Sample[*].DP>=0` and raise `--limit`. `--limit` keeps the first rows in order of chromosome name and position and drops the rest without a message, and `0` keeps none, so set it above the track's variant count, which `bundle info` prints.
 
 | Argument or flag | What it does |
 |---|---|
 | `<bundle-path>` | Path to a `.lungfishref` bundle with a variant database. |
-| `--filter <filter>` | Smart filter, for example Sample[NA12878].GT=1/1. |
+| `--filter <filter>` | Smart filter, for example `Sample[NA12878].GT=1/1`. The grammar is described above. |
 | `-o, --output <output>` | Output VCF path. |
-| `--limit <limit>` | Maximum variants to export. The default is `5000`. |
+| `--limit <limit>` | Maximum variants to export. The default is `5000`. Calls past the limit are left out without a message. |
 
 ### `variants delete`
 
@@ -5665,7 +5712,7 @@ lungfish-cli debug workflow-log <path> [--errors-only] [--timeline] [--process <
 
 ## What the command line cannot do
 
-Two operations have no command-line route. Setting the managed storage location is one, which exists only as **Storage Settings...** in the Plugin Manager. Deriving a reference bundle from contigs selected in the assembly viewport is the other, though `extract contigs --bundle` reaches the same result by another path. Attaching an annotation file to a reference bundle has its own command, [`sequence attach-track`](#sequence-attach-track), and so does downloading a Pathoplexus record, [`fetch pathoplexus`](#fetch-pathoplexus).
+Three operations have no command-line route. Creating a project is the first. Only the window creates a project's [store](../../GLOSSARY.md#project-store), the hidden `.project.db` catalog of what the project holds, and LGE opens a folder made by a command alone read only, so a script starts from a project you made by hand with **File > New Project** and then closed. Setting the managed storage location is the second, which exists only as **Storage Settings...** in the Plugin Manager. Deriving a reference bundle from contigs selected in the assembly viewport is the third, though `extract contigs --bundle` builds a bundle from contigs you name. Attaching an annotation file to a reference bundle has its own command, [`sequence attach-track`](#sequence-attach-track), and so does downloading a Pathoplexus record, [`fetch pathoplexus`](#fetch-pathoplexus).
 
 ## Known defects
 
