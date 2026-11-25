@@ -917,9 +917,32 @@ final class VariantsCommandTests: XCTestCase {
         return (vcfURL, vcfGZURL, tbiURL, dbURL)
     }
 
+    /// ANNOT-EXPORT-2 (BIO-EXPORT-MISSING-TRACK-17 row 5). The words the run reports about itself, such as iVar's codon
+    /// merging being off because an annotation database could not be read, reach standard error and the completion.
+    func testCallShowsTheRunsNotesOnStandardErrorAndInTheCompletion() async throws {
+        let note = "Codon merging was off for this run, so its calls carry no codon or amino-acid change, because the "
+            + "annotation database of Genes, the bundle's first annotation track, is missing or cannot be read. "
+            + "Reopen the bundle, and if this repeats, import those annotations again."
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call", "--bundle", callBundleURL.path, "--alignment-track", "aln-1", "--caller", "lofreq", "--format", "json",
+        ])
+        var lines: [String] = []
+        let runtime = try makeRuntime(notes: [note])
+
+        let run = try await StandardErrorCapture.run {
+            try await command.executeForTesting(runtime: runtime) { lines.append($0) }
+        }
+
+        XCTAssertTrue(run.standardError.contains("warning: " + note), "the note reaches standard error. \(run.standardError)")
+        let completion = try XCTUnwrap(lines.last)
+        XCTAssertTrue(completion.contains("notes="), "the completion carries the note. \(completion)")
+        XCTAssertTrue(completion.contains("Codon merging was off for this run"), completion)
+    }
+
     private func makeRuntime(
         onRunPipeline: (@Sendable (VariantsCommand.CallContext) -> Void)? = nil,
-        onPreflight: (@Sendable (BundleVariantCallingRequest) -> Void)? = nil
+        onPreflight: (@Sendable (BundleVariantCallingRequest) -> Void)? = nil,
+        notes: [String] = []
     ) throws -> VariantsCommand.Runtime {
         let bundleURL = tempDir.appendingPathComponent("Bundle.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -976,7 +999,8 @@ final class VariantsCommandTests: XCTestCase {
             referenceFASTAURL: tempDir.appendingPathComponent("reference.fa"),
             referenceFASTASHA256: "reference-sha",
             callerVersion: "1.0.0",
-            callerParametersJSON: #"{"caller":"lofreq"}"#
+            callerParametersJSON: #"{"caller":"lofreq"}"#,
+            notes: notes
         )
         let trackInfo = VariantTrackInfo(
             id: "vc-1",
