@@ -10,7 +10,7 @@ tools: [samtools, bcftools, ivar, lofreq, fastp, bbduk, cutadapt, minimap2, bwa-
 entry_points: []
 shots: []
 illustrations: []
-glossary_refs: [adapter, allele-frequency, alternate-read, amplicon, argument, assembly-graph, baq, bbduk, bed, bracken, bundle, codon, command-line-flag, conda, contig, cutadapt, dependency-set, determinism, environment-variable, fastp, gvcf, haplotype, hg002, indel, interleaved-fastq, ivar, k-mer, kraken2, linkage, lofreq, mapping-quality, mate, oci-layout, phase, phred-score, pileup, pivot-workbook, plugin-pack, primer-dimer, primer-trim, provenance, provenance-sidecar, read-group, ref-alt, reference-bundle, secondary-alignment, sliding-window-trimming, strand-bias, thread, vcf, wrapper]
+glossary_refs: [absolute-path, accession, adapter, allele-frequency, alternate-read, amplicon, argument, assembly-graph, bam, baq, bbduk, bed, bracken, bundle, call, checksum, clair3, codon, command-line-flag, conda, contig, cutadapt, dependency-set, determinism, environment-variable, exit-status, fastp, fixture, format, gvcf, haplotype, hg002, home-folder, indel, info, inspector, interleaved-fastq, ivar, k-mer, kraken2, linkage, lofreq, managed-environment, mapping-quality, mate, medaka, oci-layout, phred-score, pileup, pivot-workbook, plugin-manager, plugin-pack, primer-dimer, primer-trim, provenance, provenance-sidecar, read-group, ref-alt, reference-bundle, secondary-alignment, sliding-window-trimming, strand-bias, tarball, terminal, thread, vcf, wrapper]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -77,7 +77,7 @@ samtools mpileup -aa -A -d 600000 -B -Q 20 -q 0 -f reference.fasta alignment.bam
 | `-d 600000` | Raise the per-position read cap from the default of 8,000 | Amplicon panels reach tens of thousands of reads at one position |
 | `-B` | Turn off [BAQ](../../GLOSSARY.md#baq), a per-base penalty near likely misalignments | BAQ assumes randomly broken DNA and wrongly penalizes bases near primer ends |
 | `-Q 20` | Ignore bases whose [Phred score](../../GLOSSARY.md#phred-score) is under 20, an error chance above 1 in 100 | The same minimum LGE gives iVar |
-| `-q 0` | Set no [mapping quality](../../GLOSSARY.md#mapping-quality) minimum | Keeps every read, however uncertain its placement |
+| `-q 0` | Set no [mapping quality](../../GLOSSARY.md#mapping-quality) minimum | Counts reads of any mapping quality |
 
 The flag most often missing from a hand-built pipeline is `-d 600000`. Without it a position read 20,000 times reports as 8,000, and every [allele frequency](../../GLOSSARY.md#allele-frequency) computed from that pileup is wrong.
 
@@ -121,7 +121,7 @@ None of this reads phase, which of a sample's two chromosome copies a change sit
 lofreq call -f reference.fasta -o variants.raw.vcf alignment.bam
 ```
 
-Your `--extra-args` text goes between `call` and `-f`, before LGE's own flags, so LGE's value wins on a flag you both set. There is no `call-parallel` and no `--no-default-filter` anywhere in LGE, so LoFreq's own default filtering stays on.
+Your `--extra-args` text goes between `call` and `-f`, before LGE's own flags, so LGE's value wins on a flag you both set. LGE adds no `call-parallel` and no `--no-default-filter`.
 
 LoFreq calls no [indels](../../GLOSSARY.md#indel), insertions and deletions, unless `--call-indels` appears in your extra arguments. When LGE finds that flag among your arguments, alone or beside others, it runs two preparation steps first.
 
@@ -338,7 +338,7 @@ Skip this section unless you look after a Mac that several people share. Nothing
 
 On a shared Mac, an administrator can put the packs and databases on a larger shared drive so every user draws on one installation. LGE reads the `LUNGFISH_CONDA_ROOT` [environment variable](../../GLOSSARY.md#environment-variable), a named setting the system passes to every program it starts. Set it, and every LGE process, window and command line alike, installs to and reads from that location. To move the whole shared storage folder, databases included, set `LUNGFISH_STORAGE_ROOT` instead. When both are set, `LUNGFISH_CONDA_ROOT` still decides where the tools go.
 
-Where you set the variable depends on how LGE starts. `lungfish-cli` in Terminal reads it from the environment of the shell that starts it, so a line in a shell startup file, the text file a shell reads when it starts, sets it for every account that reads that file. An app opened from the Dock or Finder is not started by a shell and does not read that file, so each account instead chooses the shared folder with **Change Location...** on the **Storage** tab of **Settings…** (Cmd-,), a choice that belongs to that account alone. Install the packs and databases once from the [Plugin Manager](../../GLOSSARY.md#plugin-manager) with the shared folder in use. LGE accepts a folder only after it writes a small test file there, so an account that cannot write to the shared folder does not use it, and every account that shares the folder needs permission to write to it.
+Where you set the variable depends on how LGE starts. `lungfish-cli` in Terminal reads it from the environment of the shell that starts it, so a line in a shell startup file, the text file a shell reads when it starts, sets it for every account that reads that file. An app opened from the Dock or Finder is not started by a shell and does not read that file, so each account instead chooses the shared storage folder, the one `LUNGFISH_STORAGE_ROOT` names, with **Change Location...** on the **Storage** tab of **Settings…** (Cmd-,), a choice that belongs to that account alone. Install the packs and databases once from the [Plugin Manager](../../GLOSSARY.md#plugin-manager) with the shared folder in use. LGE accepts a folder only after it writes a small test file there, so an account that cannot write to the shared folder does not use it, and every account that shares the folder needs permission to write to it.
 
 ### One Mac, two copies of LGE
 
