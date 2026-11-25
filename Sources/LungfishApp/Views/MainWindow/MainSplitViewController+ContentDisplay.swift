@@ -544,10 +544,8 @@ extension MainSplitViewController {
             )
             recordUITestEvent("twelveS.display.failed \(url.lastPathComponent) error=\(error.localizedDescription)")
             inspectorController.clearSelection()
-            // Surface the failure the same way Assembly and Mapping do:
-            // a status-bar message naming the failure, not the generic "No
-            // sequence selected" empty state, which read as if nothing had
-            // been clicked at all.
+            // Surface the failure the same way Assembly and Mapping do: a status-bar message naming the failure, not
+            // the generic "No sequence selected" empty state, which read as if nothing had been clicked at all.
             viewerController.clearViewport(statusMessage: viewerController.surfaceFailureWords("Unable to load 12S result.", error))
         }
     }
@@ -578,8 +576,10 @@ extension MainSplitViewController {
                     let reset = ViewerViewController.phylogeneticTreeBlockReset(self.inspectorController)
                     let controller = try self.viewerController.displayPhylogeneticTreeBundle(at: url, onWillDeactivate: reset)
                     self.inspectorController.updatePhylogeneticTreeDocument(bundle)
+                    // Only while this route is current, so the host's late announce misses the next item (VS-TREE-LATE).
                     controller.onSelectionStateChanged = { [weak self] state in
-                        self?.inspectorController.updatePhylogeneticTreeSelection(state)
+                        guard let self, self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                        self.inspectorController.updatePhylogeneticTreeSelection(state)
                     }
                     controller.notifySelectionStateIfAvailable()
                 } catch {
