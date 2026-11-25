@@ -110,7 +110,7 @@ A fastp trim of read pairs writes work files beside its output, and they need fr
 
 This chapter's example runs the combined fastp pass on the imported bundle, then filters the result by length. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, and one window, titled FASTQ/FASTA Operations, serves all six operations. The readiness line at the foot of the window, beside **Run**, says what the run still needs before it can start. [What good looks like](#what-good-looks-like) says what to expect from your own reads.
 
-For paired Illumina reads from a shotgun library, run the operations in this order, each on the bundle the one before wrote. The length filter goes last because every other operation can shorten reads and so change which reads fall below your minimum.
+For paired Illumina reads, run the operations in this order, each on the bundle the one before wrote. The length filter goes last because every other operation can shorten reads and so change which reads fall below your minimum.
 
 | Order | Operation | What it removes |
 |---|---|---|
@@ -134,7 +134,7 @@ For an amplicon library you will call variants from, skip step 2, map first, and
 
 5. Click **Run**.
 
-Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The result lands in a new folder under `Analyses/`, a folder in the sidebar, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. This run writes a bundle named `HG002.chr20.10.0-10.5Mb-fastpTrim`, the input's name with the operation added.
+Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The result lands as a new bundle straight in `Analyses/`, a group in the sidebar, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. This run writes a bundle named `HG002.chr20.10.0-10.5Mb-fastpTrim`, the input's name with the operation added.
 
 ### The length filter
 
@@ -203,7 +203,7 @@ The names describe where the cut lands, not where the scan starts. Picture the r
 
 Threshold and Window Size must both be above 0. Otherwise the readiness line reads "Enter a positive quality threshold and window size."
 
-Two fastp behaviors sit outside these controls. fastp trims poly-G tails on its own when the read names show a NextSeq or NovaSeq instrument, and LGE leaves that in place, so it needs no action from you. These instruments read the base G as the absence of light, so a read whose signal fades ends in a false run of Gs. LGE also switches off fastp's own minimum-length and read-quality filters, so that a trim changes bases and never drops reads by its own rules. That is why a trimmed bundle can hold one-base reads and why Filter by Read Length is a separate step.
+Two fastp behaviors sit outside these controls. fastp trims poly-G tails on its own when the read names show a NextSeq or NovaSeq instrument, and LGE leaves that in place, so it needs no action from you. These instruments read the base G as the absence of light, so a read whose signal fades ends in a false run of Gs. LGE also switches off fastp's own minimum-length and read-quality filters, so that a trim changes bases and drops a read only when it is cut to nothing, along with its mate. That is why a trimmed bundle can hold one-base reads and why Filter by Read Length is a separate step.
 
 ### Adapter settings (fastp Adapter & Quality Trim, Adapter Removal)
 
