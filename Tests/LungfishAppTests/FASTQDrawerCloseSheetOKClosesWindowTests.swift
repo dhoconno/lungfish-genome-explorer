@@ -129,7 +129,7 @@ final class FASTQDrawerCloseSheetOKClosesWindowTests: XCTestCase {
         // Another sheet queues behind the close sheet and attaches when it ends, so the OK hook's performClose leaves the window open.
         let other = NSAlert()
         other.messageText = "Another sheet"
-        other.beginSheetModal(for: scene.window)
+        other.beginSheetModal(for: scene.window) { _ in }
         sheet.buttons[0].performClick(nil)
         _ = await waitUntil(budget: WaitBudget.standard) { timeline.hookEnded }
         XCTAssertTrue(scene.window.isVisible, "Precondition: the close did not go on")
