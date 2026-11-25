@@ -111,6 +111,42 @@ final class AnnotationDrawerMissingTracksLayoutTests: XCTestCase {
         try assertFootLineHasItsHeight(in: drawer, "three missing tracks, drawer \(taller) pt tall")
     }
 
+    /// The walk's foot line was 431 pt wide, narrower than the 520 pt the label wraps its intrinsic height at
+    /// (`preferredMaxLayoutWidth`, `AnnotationDrawerIndexHandoff.swift:94`). A track name that needs one more line at
+    /// 431 pt than at 520 pt shows whether the label's height follows the width it really has.
+    func testTheFootLineHasItsTextHeightInAPaneAsNarrowAsTheWalks() async throws {
+        let (viewer, drawer) = try await showDrawer(of: try longNamedMissingTrackBundle(), width: 455)
+        defer { viewer.clearBundleDisplay() }
+        let label = try XCTUnwrap(Self.footLabel(of: drawer), "the drawer shows no foot line")
+        XCTAssertLessThan(label.frame.width, 440, "Precondition: the foot line is \(label.frame.width) pt wide, not narrower than 520 pt.")
+        XCTAssertGreaterThan(
+            Self.neededHeight(of: label, atWidth: label.frame.width), Self.neededHeight(of: label, atWidth: 520),
+            "Precondition: the words need no more lines at \(label.frame.width) pt than at 520 pt, so this proves nothing."
+        )
+        try assertFootLineHasItsHeight(in: drawer, "one long-named missing track, pane 455 pt wide")
+    }
+
+    /// A person narrows the pane and widens it again (W2-FOOTLINE-2). The foot line has its text height at every width,
+    /// and it takes the room back when the pane widens: a wrap width that followed only the label's own width would stay
+    /// as narrow as the narrowest pane the label was laid out in.
+    func testTheFootLineHasItsTextHeightWhileThePaneIsNarrowedAndWidenedAgain() async throws {
+        let (viewer, drawer) = try await showDrawer(of: try longNamedMissingTrackBundle(), width: 1_000)
+        defer { viewer.clearBundleDisplay() }
+        let label = try XCTUnwrap(Self.footLabel(of: drawer), "the drawer shows no foot line")
+        var widths: [CGFloat] = []
+        for pane in [1_000, 600, 455, 435, 600, 1_000] as [CGFloat] {
+            viewer.view.setFrameSize(NSSize(width: pane, height: viewer.view.frame.height))
+            viewer.view.layoutSubtreeIfNeeded()
+            try assertFootLineHasItsHeight(in: drawer, "one long-named missing track, pane \(Int(pane)) pt wide")
+            widths.append(label.frame.width)
+        }
+        XCTAssertGreaterThan(
+            widths[5], widths[3] + 40,
+            "the foot line is \(widths[5]) pt wide after the pane widened again to 1 000 pt, as narrow as the \(widths[3]) pt "
+                + "it had in the pane of 435 pt, so it did not take the room back"
+        )
+    }
+
     // MARK: - Collapsed drawer
 
     /// A drawer a person made as short as it goes (the host's height constraint at `AnnotationDrawerSizing.dividerHeight`)
@@ -186,6 +222,13 @@ final class AnnotationDrawerMissingTracksLayoutTests: XCTestCase {
         return cell.cellSize(forBounds: room).height.rounded(.up)
     }
 
+    /// The height `label`'s words need when they wrap at `width`, rounded up.
+    private static func neededHeight(of label: NSTextField, atWidth width: CGFloat) -> CGFloat {
+        guard let cell = label.cell else { return 0 }
+        let room = NSRect(x: 0, y: 0, width: width, height: CGFloat.greatestFiniteMagnitude)
+        return cell.cellSize(forBounds: room).height.rounded(.up)
+    }
+
     /// How far the label reaches above the drawer's top edge, in points. Zero or less when it stays inside.
     private static func reach(of label: NSView, aboveTopOf drawer: NSView) -> CGFloat {
         drawer.isFlipped ? drawer.bounds.minY - label.frame.minY : label.frame.maxY - drawer.bounds.maxY
@@ -195,11 +238,11 @@ final class AnnotationDrawerMissingTracksLayoutTests: XCTestCase {
 
     /// Shows the bundle, opens its drawer at `height`, and hands it an index built the way the routes build one.
     private func showDrawer(
-        of bundle: URL, height: CGFloat = AnnotationDrawerSizing.defaultHeight
+        of bundle: URL, height: CGFloat = AnnotationDrawerSizing.defaultHeight, width: CGFloat = 1_000
     ) async throws -> (ViewerViewController, AnnotationTableDrawerView) {
         let viewer = ViewerViewController()
         _ = viewer.view
-        viewer.view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 700)
+        viewer.view.frame = NSRect(x: 0, y: 0, width: width, height: 700)
         try viewer.displayBundle(at: bundle, mode: .sequence(name: "chr1", restoreViewState: false))
         viewer.view.layoutSubtreeIfNeeded()
         viewer.openAnnotationDrawerIfBundleHasData()
@@ -221,6 +264,19 @@ final class AnnotationDrawerMissingTracksLayoutTests: XCTestCase {
         let bundle = try makeBundle(named: "One Missing Fixture", tracks: [
             AnnotationTrackInfo(id: "genes", name: "Genes", path: "annotations/genes.bb", databasePath: "annotations/genes.db"),
             AnnotationTrackInfo(id: "repeats", name: "Repeat Regions", path: "annotations/repeats.bb", databasePath: "annotations/repeats.db"),
+        ])
+        try writeAnnotationDatabase(rows: 2, into: bundle)
+        return bundle
+    }
+
+    /// One track with an 80-character name whose database is missing beside one that opened.
+    private func longNamedMissingTrackBundle() throws -> URL {
+        let bundle = try makeBundle(named: "Long Name Fixture", tracks: [
+            AnnotationTrackInfo(id: "genes", name: "Genes", path: "annotations/genes.bb", databasePath: "annotations/genes.db"),
+            AnnotationTrackInfo(
+                id: "conservation", name: "Phylogenetic conservation score track (phyloP, 100 vertebrate genomes, hg38, v2)",
+                path: "annotations/conservation.bb", databasePath: "annotations/conservation.db"
+            ),
         ])
         try writeAnnotationDatabase(rows: 2, into: bundle)
         return bundle
