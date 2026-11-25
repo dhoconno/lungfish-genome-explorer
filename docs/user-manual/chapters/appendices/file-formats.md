@@ -171,7 +171,7 @@ Work the first BED row above through the conversion. It reads 27 and 51. To get 
 
 bedGraph is a four-column relative of BED whose fourth column is a numeric value per interval, used for coverage and signal tracks. LGE both reads and writes it.
 
-LGE keeps each file in its own convention on disk and shows you one-based inclusive coordinates everywhere in the window. The names LGE writes itself follow the window, as the table shows. BED and bedGraph files, the `--start` and `--end` options in the table, the values a provenance record labels `0-based half-open`, and the normalized coordinates a [primer analysis bundle](../../GLOSSARY.md#primer-analysis-bundle) stores count from 0, while every coordinate the window shows counts from 1. [Counting from one and from zero](../02-sequences/03-extracting-and-comparing.md#counting-from-one-and-from-zero) teaches the rule with examples.
+LGE keeps each file in its own convention on disk and shows you one-based inclusive coordinates everywhere in the window. The names LGE writes itself follow the window, as the table shows. BED and bedGraph files, the `--start` and `--end` options in the table, the values a provenance record labels `0-based half-open`, and the normalized coordinates that a [primer analysis bundle](../../GLOSSARY.md#primer-analysis-bundle) stores count from 0, while every coordinate the window shows counts from 1. [Counting from one and from zero](../02-sequences/03-extracting-and-comparing.md#counting-from-one-and-from-zero) teaches the rule with examples.
 
 | Where the coordinate appears | Convention | Example |
 |---|---|---|
