@@ -335,13 +335,11 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             case "-": .reverse
             default: .unknown
             }
-            let annotationType = AnnotationType.from(rawString: result.type) ?? .gene
+            let (annotationType, rawType) = AnnotationDatabaseRecord.annotationType(forStoredType: result.type)
             annotation = SequenceAnnotation(
-                type: annotationType,
-                name: result.name,
-                chromosome: navigationChromosome,
-                intervals: [AnnotationInterval(start: result.start, end: result.end)],
-                strand: strand
+                type: annotationType, name: result.name, chromosome: navigationChromosome,
+                intervals: [AnnotationInterval(start: result.start, end: result.end)], strand: strand,
+                qualifiers: rawType.map { [GenBankReader.rawFeatureTypeQualifierKey: AnnotationQualifier($0)] } ?? [:]
             )
         }
         viewerView.selectedAnnotation = annotation

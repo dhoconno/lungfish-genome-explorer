@@ -65,6 +65,16 @@ extension AnnotationDatabaseRecord {
         return phase("codon_start", less: 1)
     }
 
+    /// The type a stored type string gives an annotation, and the string to keep. A string that
+    /// `AnnotationType.from(rawString:)` lists gives its case and nothing to keep. Any other string (misc_RNA, lnc_RNA,
+    /// snRNA, rep_origin, LTR and the like) gives `.misc_feature`, the INSDC generic and the fallback of `GenBankReader`,
+    /// and the string, which the exporters write as it was stored. The fallback was `.gene`, so an export wrote these
+    /// features as genes, with no word (BIO-MISC-RNA-AS-GENE-17R).
+    public static func annotationType(forStoredType stored: String) -> (type: AnnotationType, rawType: String?) {
+        guard let listed = AnnotationType.from(rawString: stored) else { return (.misc_feature, stored) }
+        return (listed, nil)
+    }
+
     /// Converts this database record to a `SequenceAnnotation` for rendering.
     ///
     /// Block data (blockCount/blockSizes/blockStarts) is used to create multi-interval
@@ -74,7 +84,7 @@ extension AnnotationDatabaseRecord {
     /// - Parameter trackID: The id of the manifest track whose database holds the record. When given it is set as the
     ///   `annotation_db_track_id` qualifier, which names the database of a row (the GFF3 export reads it).
     public func toAnnotation(trackID: String? = nil) -> SequenceAnnotation {
-        let annotationType = AnnotationType.from(rawString: type) ?? .gene
+        let (annotationType, rawType) = Self.annotationType(forStoredType: type)
 
         let strandValue: Strand
         switch strand {
@@ -123,6 +133,10 @@ extension AnnotationDatabaseRecord {
                     qualifiers[key] = AnnotationQualifier(value)
                 }
             }
+        }
+        // A type the enum does not list keeps its stored string, unless the stored attributes hold a raw type already.
+        if let rawType, qualifiers[GenBankReader.rawFeatureTypeQualifierKey] == nil {
+            qualifiers[GenBankReader.rawFeatureTypeQualifierKey] = AnnotationQualifier(rawType)
         }
         if let rowID {
             qualifiers[GFF3ExportIdentifiers.rowIDKey] = AnnotationQualifier(String(rowID))

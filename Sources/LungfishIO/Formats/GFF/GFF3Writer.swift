@@ -330,10 +330,14 @@ public final class GFF3Writer {
             attributes["Note"] = stored.values.joined(separator: ",")
         }
 
+        // A type the enum does not list is column 3 as it was stored, and then the raw type qualifier that holds it is no attribute.
+        let storedType = Self.storedTypeColumn(of: annotation)
+
         // Add qualifiers
         for (key, qualifier) in annotation.qualifiers {
             // Skip if already set by standard fields, and Lungfish's own keys, which no file leaves the app with
-            if key == "ID" || key == "Name" || key == "Note" || GFF3ExportIdentifiers.internalKeys.contains(key) {
+            if key == "ID" || key == "Name" || key == "Note" || GFF3ExportIdentifiers.internalKeys.contains(key)
+                || (storedType != nil && key == GenBankReader.rawFeatureTypeQualifierKey) {
                 continue
             }
             var value = qualifier.values.joined(separator: ",")
@@ -344,7 +348,7 @@ public final class GFF3Writer {
         }
 
         // Map annotation type to GFF3 type string
-        let gff3Type = annotationTypeToGFF3Type(annotation.type)
+        let gff3Type = storedType ?? annotationTypeToGFF3Type(annotation.type)
 
         // Determine seqid
         let seqid = annotation.chromosome ?? "unknown"
@@ -409,6 +413,19 @@ public final class GFF3Writer {
         }
 
         return features
+    }
+
+    /// The type string that column 3 keeps for an annotation of a type the enum does not list, or nil. Such an
+    /// annotation is `.misc_feature` with the stored string in `GenBankReader.rawFeatureTypeQualifierKey`, as
+    /// `AnnotationDatabaseRecord.toAnnotation` and `GenBankReader` make it. A type edited after the read no longer reads
+    /// the string, as in `GenBankFeatureLine`. Column 3 never holds a tab or a newline (MISC-RNA-AS-GENE).
+    private static func storedTypeColumn(of annotation: SequenceAnnotation) -> String? {
+        guard annotation.type == .misc_feature,
+              let raw = annotation.qualifiers[GenBankReader.rawFeatureTypeQualifierKey]?.values.first,
+              AnnotationType.from(rawString: raw) == nil,
+              !raw.trimmingCharacters(in: .whitespaces).isEmpty,
+              raw.rangeOfCharacter(from: CharacterSet(charactersIn: "\t\r\n")) == nil else { return nil }
+        return raw
     }
 
     /// Whether an annotation exports `Name=<its name>` (walk GFF3-b, UX ruling). It does, except for a database row whose

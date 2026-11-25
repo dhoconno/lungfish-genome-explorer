@@ -1779,15 +1779,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             return annotation
         }
 
-        let type = AnnotationType.from(rawString: result.type) ?? .gene
+        let (type, rawType) = AnnotationDatabaseRecord.annotationType(forStoredType: result.type)
         let strand: Strand = result.strand == "+" ? .forward : (result.strand == "-" ? .reverse : .unknown)
         return SequenceAnnotation(
             type: type,
             name: result.name,
             chromosome: result.chromosome,
-            start: result.start,
-            end: result.end,
-            strand: strand
+            intervals: [AnnotationInterval(start: result.start, end: result.end)],
+            strand: strand,
+            qualifiers: rawType.map { [GenBankReader.rawFeatureTypeQualifierKey: AnnotationQualifier($0)] } ?? [:]
         )
     }
 
