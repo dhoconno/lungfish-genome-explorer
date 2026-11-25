@@ -13,7 +13,7 @@ entry_points:
   - "CLI: lungfish-cli tools update"
 shots: []
 illustrations: []
-glossary_refs: [cache, conda, container, continuous-integration, dependency-set, environment-variable, exit-status, host-depletion, htcondor, kraken2, linux, nf-core, offline-pack, path, plan-folder, plugin-pack, provenance, provenance-sidecar, run-bundle, runner, symlink, tool-lock-manifest, workflow-engine, yaml]
+glossary_refs: [cache, checksum, command-line-flag, conda, container, continuous-integration, dependency-set, docker, environment-variable, exit-status, glob, host-depletion, htcondor, kraken2, linux, nf-core, offline-pack, path, plan-folder, plugin-pack, provenance, provenance-sidecar, push, repository, required-setup-pack, run-bundle, runner, samplesheet, shell, symlink, terminal, tool-lock-manifest, wall-time, workflow-engine, yaml]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -34,7 +34,7 @@ The two templates in this appendix are starting points to adapt. Every command i
 
 Everything on this page is typed. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows where it sits in the Stable and the Preview app, the two [release channels](../01-foundations/06-the-lungfish-project.md#release-channels).
 
-A fresh runner holds no app, so a job must place it in `/Applications` before its first `lungfish-cli` step. Neither template below has that step, and [Getting LGE](../01-foundations/06-the-lungfish-project.md#getting-lge) and [Release channels](../01-foundations/06-the-lungfish-project.md#release-channels) say where the download comes from. A runner that only unpacked the application has no `lungfish-cli` on its [search path](../../GLOSSARY.md#path), the list of folders the [shell](../../GLOSSARY.md#shell) looks in for a program, so a step that types the bare name fails. A [symbolic link](../../GLOSSARY.md#symlink) to the program, a small file that points at it, makes the bare name work when you place the link in a folder already on the search path. The program follows the link back to its app, so it still finds that app's storage folder and its [tool lock manifest](../../GLOSSARY.md#tool-lock-manifest), the file that pins every tool version. Both templates below store the full quoted path once in a [variable](../../GLOSSARY.md#environment-variable) named `LUNGFISH` and write `"$LUNGFISH"` in every command. They name the Preview app, so change the path to `/Applications/Lungfish.app/Contents/MacOS/lungfish-cli` if the runner holds the Stable app. The examples in the body of this appendix use the bare name for readability.
+A fresh runner holds no app, so a job must place it on the runner before its first `lungfish-cli` step, in `/Applications` for the path both templates use. Neither template below has that step, and [Getting LGE](../01-foundations/06-the-lungfish-project.md#getting-lge) and [Release channels](../01-foundations/06-the-lungfish-project.md#release-channels) say where the download comes from. A runner that only unpacked the application has no `lungfish-cli` on its [search path](../../GLOSSARY.md#path), the list of folders the [shell](../../GLOSSARY.md#shell) looks in for a program, so a step that types the bare name fails. A [symbolic link](../../GLOSSARY.md#symlink) to the program, a small file that points at it, makes the bare name work when you place the link in a folder already on the search path. The program follows the link back to its app, so it still finds that app's storage folder and its [tool lock manifest](../../GLOSSARY.md#tool-lock-manifest), the file that pins every tool version. Both templates below store the full quoted path once in a [variable](../../GLOSSARY.md#environment-variable) named `LUNGFISH` and write `"$LUNGFISH"` in every command. They name the Preview app, so change the path to `/Applications/Lungfish.app/Contents/MacOS/lungfish-cli` if the runner holds the Stable app. The examples in the body of this appendix use the bare name for readability.
 
 ## What a job needs installed
 
@@ -85,7 +85,7 @@ lungfish-cli run-headless hello-world-nextflow.lungfishflowpkg/main.nf \
   --bundle-root ./bundles
 ```
 
-`--results-dir` names where the pipeline writes. `--expected-output` names one finished output LGE must find and give a provenance record, and it is repeated once per scientific output. `--bundle-root` names the folder that receives the [run bundle](../../GLOSSARY.md#run-bundle), a `.lungfishrun` folder LGE writes before it starts the engine, recording the pipeline, the executor (how an nf-core run starts its tools), the inputs, every parameter, and the outputs that must receive provenance. The run exits 0 and prints one line, the path of that run bundle, which a later step can capture with `RUN_BUNDLE=$("$LUNGFISH" run-headless ...)`.
+`--results-dir` names where the pipeline writes. `--expected-output` names one finished output LGE must find and give a provenance record, and it is repeated once per scientific output. `--bundle-root` names the folder that receives the [run bundle](../../GLOSSARY.md#run-bundle), a `.lungfishrun` folder LGE writes before it starts the engine, recording the pipeline, the executor (how an nf-core run starts its tools), the inputs, every parameter, and the outputs that must receive provenance. The run exits 0 and prints one line, the path of that run bundle, which the same step can keep in a variable, as in `RUN_BUNDLE=$("$LUNGFISH" run-headless ...)`.
 
 An executed run must name an output. Without `--expected-output` the command refuses with exit status 64 and says that every final scientific output needs a provenance record, and `--quiet` does not hide the refusal.
 
@@ -112,7 +112,7 @@ A CI step fails when its command ends with any [exit status](../../GLOSSARY.md#e
 Four more flags of `workflow run` matter in CI.
 
 - `--executor` applies to the nf-core run only. It reads `docker`, `conda`, or `local`, but the command refuses the last two, so only the default, `docker`, runs, as [`workflow run`](cli-reference.md#workflow-run) explains, and a runner without Docker cannot run that pipeline.
-- `--dry-run` prints the workflow, results folder, executor, and parameters without running anything, and needs no expected output, which makes it a fast check on a proposed change.
+- `--dry-run` prints the workflow, results folder, executor, and parameters without running anything, and needs no expected output, so it is a fast way to see what a run would use, though it never opens a local workflow file and so does not show that the file runs.
 - `--prepare-only` writes the run bundle and the command preview without starting the engine, and also needs no expected output.
 - `--resume` continues from the engine's last checkpoint, so it helps only when the work folder, which `--workdir` names, survived in a cache, and not for a local Snakemake run.
 
