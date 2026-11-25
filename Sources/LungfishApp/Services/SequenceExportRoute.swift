@@ -85,10 +85,10 @@ enum SequenceExportRoute {
         let outcome = await CLIProcessLauncher.run(spec, cancellation: CLIRunCancellation())
         switch outcome {
         case .exited(let exit) where exit.succeeded:
-            return try outcome(in: exit.stdout)
+            return try Self.outcome(in: exit.stdout)
         case .cancelled(let exit?) where exit.succeeded:
             // A command that exits 0 had published before the cancel reached it.
-            return try outcome(in: exit.stdout)
+            return try Self.outcome(in: exit.stdout)
         case .exited(let exit):
             removeStages(beside: outputURL)
             let detail = exit.failureDetail.trimmingCharacters(in: .whitespacesAndNewlines)
