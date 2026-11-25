@@ -86,7 +86,7 @@ Install the Variant Phasing (`phasing`) pack as well for the phased route, from 
 ### Open the Call Variants dialog
 
 1. Click the HG002 mapping result under Analyses in the sidebar, and wait for the viewport to show the `chr20_10.0-10.5Mb` sequence and ruler. LGE selects the one row of the table of mapped contigs for you, and that loads the reference bundle inside the mapping result, the bundle that owns the `HG002 minimap2` track, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) describes.
-2. Choose **Tools > Variant Calling > Call Variants…**. The same dialog opens from the **Call Variants…** button on the **Variant Calling** tab, one of the [six tabs](../04-alignments/02-reading-an-alignment.md#the-inspector-summary-and-the-analysis-tabs) under the **Analysis** tab of the [Inspector](../../GLOSSARY.md#inspector), the pane at the right of the window. Both are greyed out until the loaded bundle holds a sorted and indexed BAM track, which a track mapped in LGE already is.
+2. Choose **Tools > Variant Calling > Call Variants…**. The same dialog opens from the **Call Variants…** button on the **Variant Calling** tab, one of the [six tabs](../04-alignments/02-reading-an-alignment.md#the-inspector-summary-and-the-analysis-tabs) under the **Analysis** tab of the [Inspector](../../GLOSSARY.md#inspector), the pane at the right of the window. Both are grayed out until the loaded bundle holds a sorted and indexed BAM track, which a track mapped in LGE already is.
 
 ### Select GATK HaplotypeCaller and read the dialog
 
