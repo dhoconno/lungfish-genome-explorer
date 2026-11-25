@@ -54,7 +54,7 @@ The two programs write a barcode in two forms. STARsolo writes it bare, as `AAAC
 
 [Ambient RNA](../../GLOSSARY.md#ambient-rna) is RNA floating free in the cell suspension, often from cells that broke open. It drifts into every droplet, so each cell's counts include a little of it, and a droplet with no cell still holds some.
 
-That matters when you look for a virus or a bacterium cell by cell, since a cell can show viral UMIs only because viral RNA drifted into its droplet. If you import with a [reference set](01-what-is-rna-seq.md#reference-sets-and-why-a-count-names-one) that holds extra not-host sequences, [built as Counting Bulk Reads shows](02-counting-bulk-reads.md#build-a-reference-set-with-rnaseq-reference-set), and with each sample's [BAM](../../GLOSSARY.md#bam) file, the alignments that Cell Ranger or STARsolo wrote, LGE counts the not-host UMIs of every cell and of an ambient pool. The pool is the barcodes ranked 45,000 to 90,000 by UMIs in the raw matrix, droplets that very likely held no cell.
+That matters when you look for a virus or a bacterium cell by cell, since a cell can show viral UMIs only because viral RNA drifted into its droplet. If you import with a [reference set](01-what-is-rna-seq.md#reference-sets-and-why-a-count-names-one) that holds extra not-host sequences, [built as Counting Bulk RNA-seq Reads shows](02-counting-bulk-reads.md#build-a-reference-set-with-rnaseq-reference-set), and with each sample's [BAM](../../GLOSSARY.md#bam) file, the alignments that Cell Ranger or STARsolo wrote, LGE counts the not-host UMIs of every cell and of an ambient pool. The pool is the barcodes ranked 45,000 to 90,000 by UMIs in the raw matrix, droplets that very likely held no cell.
 
 A cell is flagged when it holds at least 2 not-host UMIs and more than the ambient pool would explain, meaning more than a droplet that only caught ambient RNA would hold by chance. The test allows, on average, at most about one wrong flag per thousand flags. This is a simplified account, and the import's record states the exact rule. The flag reads **viral RNA above ambient** or **bacterial RNA above ambient**, and a [spike-in](../../GLOSSARY.md#spike-in-control), a synthetic RNA added in a known amount, gets counts but no flag. A flag cannot say whether the virus grew in that cell, so LGE never calls a cell infected.
 
@@ -149,12 +149,12 @@ The plan sheet writes a folder that a Linux machine runs, and nothing runs or is
 
 5. Click **Check**, which runs every check of the plan and writes no folder. When the sheet says that every check passed and no folder was written, click **Write Plan**.
 
-A sheet for one library read on two lanes, two channels of the sequencer's flow cell, looks like this, with made-up file names. Read 1 (`r1`) holds the barcode and UMI, and read 2 (`r2`) the cDNA. The sheet has no column for the I1 file, the index read some runs write as a third file, so leave it out.
+A sheet for one library read on two lanes, two channels of the sequencer's flow cell, looks like this, with made-up paths, since each `r1` and `r2` is the absolute path of the file on the Linux machine, inside the staging folder, and the plan refuses any read that the staged reads list does not name. Read 1 (`r1`) holds the barcode and UMI, and read 2 (`r2`) the cDNA. The sheet has no column for the I1 file, the index read some runs write as a third file, so leave it out.
 
 ```text
 sample,r1,r2
-PBMC_A,PBMC_A_S1_L001_R1_001.fastq.gz,PBMC_A_S1_L001_R2_001.fastq.gz
-PBMC_A,PBMC_A_S1_L002_R1_001.fastq.gz,PBMC_A_S1_L002_R2_001.fastq.gz
+PBMC_A,/home/lab/staging/PBMC_A_S1_L001_R1_001.fastq.gz,/home/lab/staging/PBMC_A_S1_L001_R2_001.fastq.gz
+PBMC_A,/home/lab/staging/PBMC_A_S1_L002_R1_001.fastq.gz,/home/lab/staging/PBMC_A_S1_L002_R2_001.fastq.gz
 ```
 
 Each library gets its own plan, which runs STAR 2.7.11b in STARsolo mode. Copy, run, and return it as [Copy the plan folder and stage the reads](../08-workflows/04-running-on-a-linux-machine.md#copy-the-plan-folder-and-stage-the-reads) and the steps after it show. Then adopt the returned folder with the **RNA-seq Linux Run Result** card, as [Adopt the counts a Linux run returned](02-counting-bulk-reads.md#adopt-the-counts-a-linux-run-returned) shows, and the filtered matrix of `Solo.out/Gene` becomes one single-cell result.
@@ -318,6 +318,8 @@ The flag column shows words such as these.
 | `not computed: <n> barcodes, too few for an ambient pool` | The raw matrix holds fewer than 45,000 barcodes with a UMI, so there is no pool |
 | `not computed: no rRNA mask for <extra>` | The bacterium came with no rRNA mask, so the test could not run |
 
+Under the histograms, a line for each extra's masked column says what its mask covers, or "No rRNA mask, none needed" for a virus or a spike-in, which has no ribosomal RNA to mask.
+
 An alignment counts only when it is primary, meaning the read's main placement, places the read at one spot, and carries a cell barcode and a UMI. A BAM file stores these as two-letter tags, `NH:i:1` for one placement, `CB` for the cell barcode, and `UB` for the UMI, and a labmate can print one alignment's tags with `samtools view <bam> | head -n 1`. The view shows no total of flagged cells. The total is in the line that `lungfish-cli import rnaseq` prints, `<n> flagged above ambient`. When a BAM gives no count, that line says how many alignments it left out and asks you to check the BAM's tags and barcodes.
 
 ### The Seurat and Scanpy export folder
@@ -373,6 +375,7 @@ The sheet, the dialog, or the Operations row shows each refusal in words that na
 | Words | Cause | What to do |
 |---|---|---|
 | "… is not a Cell Ranger or STARsolo folder." | The folder holds neither `filtered_feature_bc_matrix` nor `Solo.out` | Choose the `outs` folder, or the STARsolo folder that holds `Solo.out` |
+| "Cell Ranger and STARsolo count cells by two routes…" | One import holds folders of both programs | Import each program's folders in a run of its own |
 | "The BAM … has no index (.bai or .csi) beside it." | The BAM file was never indexed | Index it with `samtools index` and import again |
 | "The folder … has no raw matrix…" | The ambient pool needs the raw matrix | Import the folder as the program wrote it |
 | "… barcodes that the result does not hold…" | The labels table and the result disagree on the `-1` suffix | Use the labels table in the result's barcode form |
