@@ -87,14 +87,14 @@ A [PCR duplicate](../../GLOSSARY.md#pcr-duplicate) is a copy of one original fra
 
 **Clumpify**, behind Remove Duplicate Reads, works on the FASTQ file before any mapping. It collapses reads whose sequences match exactly, or within the one or two mismatches a preset allows, and needs no reference. On paired reads it compares whole pairs, so a pair is kept or removed as one. In a bundle that mixes pairs with merged reads, the pairs are deduplicated as pairs and the merged reads on their own, and the two parts are joined again with the pairs first. Exact copies are rare among nanopore reads, whose errors differ from copy to copy.
 
-**samtools markdup**, behind Mark Duplicates in the Inspector once reads are mapped, calls two pairs duplicates when their mates map to the same positions on the same strands, whatever their sequence. It flags the extra copies rather than deleting them, as [Alignment Quality](../04-alignments/04-alignment-quality.md#mark-duplicates) shows.
+**samtools markdup**, behind **Mark Duplicates in Bundle Tracks** in the Inspector once reads are mapped, calls two pairs duplicates when their mates map to the same positions on the same strands, whatever their sequence. It flags the extra copies rather than deleting them, as [Alignment Quality](../04-alignments/04-alignment-quality.md#mark-duplicates) shows.
 
 **fastp** removes duplicates only inside the Illumina paired-end cleanup import recipe, where duplicate removal is on in both of its presets, VSP2 target enrichment and Wastewater metagenomics.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
 | clumpify, Remove Duplicate Reads | Reads that will not be mapped first | You want a smaller FASTQ before assembly or classification | The reads are headed for mapping and variant calling |
-| samtools markdup, Mark Duplicates | Duplicates judged by mapped position | Shotgun human or macaque data headed for variant calling | The library is amplicon data |
+| samtools markdup, Mark Duplicates in Bundle Tracks | Duplicates judged by mapped position | Shotgun human or macaque data headed for variant calling | The library is amplicon data |
 | fastp dedup, Illumina paired-end cleanup recipe | Paired Illumina reads cleaned as they are imported | You import with that recipe | Any library you import another way |
 
 Amplicon data gets none of the three, because every read from one amplicon starts at the same primer and looks like a copy. The HG002 fixture is a PCR-free human library headed for variant calling, so its duplicates are best marked after mapping. SRR36291587 is an amplicon run, so it gets human read removal and no deduplication. Deacon, BBTools, fastp, and SAMtools are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
@@ -109,7 +109,7 @@ This chapter uses the hg002-chr20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.
 
 The human-read-removal steps use a second sample, because removing human reads from a human sample leaves nothing to look at. They use run SRR36291587, the SARS-CoV-2 amplicon run from a clinical swab that [Downloading Reads from the SRA](02-downloading-from-sra.md) fetches, where the patient's own DNA is the background rather than the subject. Fetch it as that chapter shows if you work in a project of your own.
 
-Every tool in this chapter's dialogs arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE. The two Deacon indexes, Human Read Removal Data and Ribosomal RNA Removal Data, belong to it too and do not appear on the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. The Human Read Removal Data, about 3.3 GB, installs with the pack. The Ribosomal RNA Removal Data, about 10 MB, is not stored inside the app and downloads the first time an operation needs it. Remove Contaminants needs no database, because its PhiX reference is a file bundled with BBTools.
+Every tool in this chapter's dialogs arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE. The two Deacon indexes, Human Read Removal Data and Ribosomal RNA Removal Data, belong to it too and do not appear on the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. The Human Read Removal Data, about 3.3 GB, installs with the pack. The Ribosomal RNA Removal Data, about 10 MB, is not stored inside the app, so the Required Setup install downloads it. Remove Contaminants needs no database, because its PhiX reference is a file bundled with BBTools.
 
 Each operation finishes in seconds on these fixtures, with Remove Human Reads the slowest because it first loads the human index into memory. The Deacon figures in this chapter came from Deacon 0.16.0.
 
