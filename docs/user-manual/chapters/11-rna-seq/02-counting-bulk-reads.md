@@ -223,7 +223,7 @@ B_1	SRR896743	B
 
 [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) explains the whole route once, from writing the plan to copying the returned files back. This section gives only what is particular to bulk RNA-seq.
 
-A salmon plan for a Linux machine runs on the salmon index that `lungfish-cli rnaseq index` built on a Mac with more than 16 GB, and LGE does not build a salmon index on Linux. The STAR chains build their own index on the Linux machine with `rnaseq index-plan`. The jobs run in a tool image, a file such as `lge-tools-<id>.sif` in the staging folder's `images/` folder. LGE neither includes nor downloads it, so ask whoever gave you the Linux login. LGE does hold the image's two description files, `image.json` and `image-manifest.json`, in the app's resources and reads them for every plan.
+A salmon plan for a Linux machine runs on the salmon index that `lungfish-cli rnaseq index` built on a Mac with more than 16 GB, and LGE does not build a salmon index on Linux. The STAR chains build their own index on the Linux machine with `rnaseq index-plan`. The jobs run in a tool image, a file such as `lge-tools-<id>.sif` in the staging folder's `images/` folder. LGE neither includes nor downloads it, so ask whoever gave you the Linux login. LGE does hold the image's two description files, `image.json` and `image-manifest.json`, in the app's resources and reads them for each plan unless you choose another one under **Image**.
 
 A chain is what each sample's plan runs. The last column of the table says whether a chain takes [single-end](../../GLOSSARY.md#single-end) reads, one read per [fragment](../../GLOSSARY.md#fragment) of the library, as well as read pairs.
 
@@ -237,7 +237,8 @@ A chain is what each sample's plan runs. The last column of the table says wheth
 | `star-2.7.11b-featurecounts` | STAR 2.7.11b, then featureCounts on exons | STAR 2.7.11b | Yes |
 
 1. In the Import Center's **Sequencing Reads** tab, click **RNA-seq Plan for a Linux Machine**. The **Plan RNA-seq Counts for a Linux Machine** sheet opens at once, since a plan needs no project, though the adopt later does.
-2. In **Reference set**, type the set's id.3. Under **Reads**, keep **FASTQ bundles** and click **Choose…** to pick the bundles, or choose **Reads in the staging folder** and pick a staged reads list and a sample sheet.
+2. In **Reference set**, type the set's id.
+3. Under **Reads**, keep **FASTQ bundles** and click **Choose…** to pick the bundles, or choose **Reads in the staging folder** and pick a staged reads list and a sample sheet.
 4. In **Chain**, keep **salmon (the default)** or choose a STAR chain. On a Mac with 16 GB or less, choose a STAR chain, and `star-salmon` when you have no reason to pick another.
 5. Type the **Staging folder** path, then click **Choose…** next to **Plan folder** and name a new folder.
 
@@ -252,11 +253,11 @@ A plan pins each read file of a bundle by its size and checksum, and it refuses 
 
 ### Count bundles that keep their pairs interleaved
 
-An interleaved bundle keeps both mates of each pair in one file. To check, select the bundle in the sidebar and look at the **Pairing** row in the **Ingestion** group of the Inspector, which reads **Interleaved**. LGE usually stores a matched pair of files this way on import, as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) shows, and a plan refuses it, so you plan from R1 and R2 files on the Linux machine.
+An interleaved bundle keeps both reads of each pair in one file. To check, select the bundle in the sidebar and look at the **Pairing** row in the **Ingestion** group of the [Inspector](../../GLOSSARY.md#inspector), the details panel on the right. The row reads **Interleaved**. LGE usually stores a matched pair of files this way on import, as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) shows, and a plan refuses it, so you plan from R1 and R2 files on the Linux machine.
 
 1. Put each sample's R1 and R2 files in a folder inside the staging folder. If you no longer have them, `lungfish-cli fastq deinterleave "<bundle>" --out1 A_1_R1.fastq.gz --out2 A_1_R2.fastq.gz` writes them. Use letters, digits, `_`, `.`, and `-` in file names, and give R1 and R2 different names.
-2. On Linux, write the staged reads list with the example below, and copy it to the Mac with `scp`.
-3. On the Mac, save a comma-separated sample sheet with `sample`, `r1`, and `r2` columns that hold absolute Linux paths.
+2. On Linux, write the staged reads list with the example below, and copy it to the Mac with `scp`, a command that copies a file between two computers.
+3. On the Mac, save a comma-separated sample sheet with `sample`, `r1`, and `r2` columns that hold [absolute paths](../../GLOSSARY.md#absolute-path) on the Linux machine.
 4. Follow the previous section, choosing **Reads in the staging folder** in step 3.
 5. Run the plan, copy each `result/` folder's files back, and adopt.
 
@@ -269,7 +270,7 @@ for f in /data/lge/reads/*.fastq.gz; do
 done
 ```
 
-The list has one tab-separated line for each file, so six lines for three samples. This example shows the first two, with made-up sizes and checksums, and then a three-sample sheet.
+The list has one tab-separated line for each file, so six lines for three samples. This example shows the first two, with made-up sizes and a placeholder in place of each checksum, and then a three-sample sheet.
 
 ```text
 file	bytes	sha256
@@ -282,7 +283,7 @@ A_2,/data/lge/reads/A_2_R1.fastq.gz,/data/lge/reads/A_2_R2.fastq.gz
 B_1,/data/lge/reads/B_1_R1.fastq.gz,/data/lge/reads/B_1_R2.fastq.gz
 ```
 
-On an HTCondor pool the folders sit like this when the jobs finish. With `run-local.sh`, each `result/` sits in the sample's folder of the copied plan folder instead. Copy the files inside each into the same sample's folder on the Mac, beside its `plan.json`.
+On a pool run by HTCondor, a program that shares a group of Linux computers among its users, the folders sit like this when the jobs finish. With `run-local.sh`, the script that runs a plan on one Linux machine, each `result/` sits in the sample's folder of the copied plan folder instead. Copy the files inside each into the same sample's folder on the Mac, beside its `plan.json`.
 
 ```text
 rnaseq-plan/                      on the Mac, the plan folder LGE wrote
