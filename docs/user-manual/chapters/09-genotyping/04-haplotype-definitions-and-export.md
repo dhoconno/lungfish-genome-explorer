@@ -41,7 +41,7 @@ The second is a CSV or TSV table, a plain text file with one row per sample and 
 
 The third is a set of [LabKey](../../GLOSSARY.md#labkey) files. LabKey is a laboratory data server many primate centers use, and its import expects [long-format](../../GLOSSARY.md#long-format) tables, meaning one row per fact rather than one column per sample. This export also comes from the command line only.
 
-Between them the exports record the calls, the read counts, and the notes and review marks you added in the window, and every one of them reports the same calls, an analyst's corrections included. The [genotype matrix](../../GLOSSARY.md#genotype-matrix), the grid of allele targets by samples, is read and annotated as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md) shows. This chapter starts where that one ends. The haplotype definitions a run used are managed separately, in the MHC Haplotype Definitions window that [Where haplotype definitions come from](02-running-genotyping.md#where-haplotype-definitions-come-from) describes, and **Export** there writes a definition set kept on its own to a file.
+Between them the exports record the calls, the read counts, and the notes and review marks you added in the window, and each export of a result with haplotype calls reports the same calls, an analyst's corrections included. The [genotype matrix](../../GLOSSARY.md#genotype-matrix), the grid of allele targets by samples, is read and annotated as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md) shows. This chapter starts where that one ends. The haplotype definitions a run used are managed separately, in the MHC Haplotype Definitions window that [Where haplotype definitions come from](02-running-genotyping.md#where-haplotype-definitions-come-from) describes, and **Export** there writes a definition set kept on its own to a file.
 
 ## Why you would do this
 
@@ -69,7 +69,7 @@ The report holds two copies of the matrix. One holds everything. The other, Geno
 
 ### Choose Export to Excel
 
-Open the [Inspector](../../GLOSSARY.md#inspector)'s Bundle tab, expand its **Excel** section, and click **Export to Excel…**.
+Open the [Inspector](../../GLOSSARY.md#inspector)'s Bundle tab, find its **Excel** section, which starts expanded, and click **Export to Excel…**.
 
 <!-- SHOT: genotype-inspector-export -->
 

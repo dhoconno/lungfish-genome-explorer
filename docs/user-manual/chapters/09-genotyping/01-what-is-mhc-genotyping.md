@@ -105,7 +105,7 @@ A library can still hold two records whose sequences are identical, either direc
 
 ## What LGE offers, and where it lives
 
-Every genotyping workflow opens from **Tools > Genotyping**. The submenu holds two MHC workflows, **MiSeq Amplicon MHC Genotyping…** and **Full-Length ONT MHC Genotyping…**, and below a separator **MHC Haplotype Definitions…**, the window [Where haplotype definitions come from](02-running-genotyping.md#where-haplotype-definitions-come-from) describes. **12S Amplicon Matching…** uses the same exact-matching method to identify vertebrate species from a short mitochondrial marker, but it names species rather than alleles, so it sits under **Tools > Classification**. [12S Amplicon Metabarcoding](../06-classification/10-twelve-s-metabarcoding.md) covers it.
+Every genotyping workflow opens from **Tools > Genotyping**. The submenu holds two MHC workflows, **MiSeq Amplicon MHC Genotyping…** and **Full-Length ONT MHC Genotyping…**, and below a separator **MHC Haplotype Definitions…**, the window [Where haplotype definitions come from](02-running-genotyping.md#where-haplotype-definitions-come-from) describes. 12S Amplicon Matching uses the same exact-matching method to identify vertebrate species from a short mitochondrial marker, but it names species rather than alleles, so it sits under **Tools > Classification**, where its item reads **Enable 12S Amplicon Matching…** until you turn it on. [12S Amplicon Metabarcoding](../06-classification/10-twelve-s-metabarcoding.md) covers it.
 
 <!-- SHOT: genotyping-submenu -->
 
