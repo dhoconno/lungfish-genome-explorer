@@ -105,6 +105,7 @@ extension SequenceViewerView {
             pasteboard.clearContents()
             pasteboard.setString(fasta, forType: .string)
             extractionLogger.info("Copied FASTA for '\(annotation.name)' (\(result.nucleotideSequence.count) bp) to clipboard")
+            presentGTFPartsNotJoinedWords(for: request, step: "Copy the annotation as FASTA")
         } catch {
             extractionLogger.error("Failed to extract sequence for FASTA: \(error.localizedDescription)")
             presentExtractionFailure(step: "Copy the annotation as FASTA", error: error)
@@ -202,6 +203,7 @@ extension SequenceViewerView {
             pasteboard.clearContents()
             pasteboard.setString(proteinFASTA, forType: .string)
             extractionLogger.info("Copied protein FASTA for '\(annotation.name)' to clipboard")
+            presentGTFPartsNotJoinedWords(for: request, step: "Copy the translation as FASTA")
         } catch {
             extractionLogger.error("Failed to extract translation for FASTA: \(error.localizedDescription)")
             presentExtractionFailure(step: "Copy the translation as FASTA", error: error)
@@ -467,6 +469,8 @@ extension SequenceViewerView {
                     sampleFilter: visibleFilter
                 )
             }
+
+            presentGTFPartsNotJoinedWords(for: request, step: "Extract the annotation")
         } catch {
             extractionLogger.error("Extraction failed: \(error.localizedDescription)")
             presentExtractionFailure(step: "Extract the sequence", error: error)
