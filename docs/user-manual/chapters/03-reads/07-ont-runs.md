@@ -7,7 +7,7 @@ estimated_reading_min: 21
 task: Import an Oxford Nanopore run folder, split a pooled nanopore bundle by barcode, and prepare the reads for mapping or assembly.
 tags: [reads, nanopore, ont, long-read, barcoded, demultiplex, fluidigm]
 tools: [cutadapt]
-parameters_refs: [import.ont-run, fastq.demultiplex-barcodes, fastq.ont-fluidigm-sample-split]
+parameters_refs: [import.ont-run, fastq.ont-fluidigm-sample-split]
 entry_points:
   - "File > Import Center… (Cmd-Shift-I) > Sequencing Reads > ONT Run Folder"
   - "Tools > Demultiplexing > Demultiplex Barcodes…"
@@ -19,8 +19,6 @@ shots:
     caption: "The Import FASTQ configuration sheet as it opens for an Oxford Nanopore run folder, with Platform reading Oxford Nanopore, no Pairing control, and the processing recipe checkbox off."
   - id: ont-barcode-sheet-controls
     caption: "The Barcode Sheet and Demux Folder controls that appear on the configuration sheet once a nanopore demultiplexing recipe is chosen."
-  - id: demultiplex-barcodes-pane
-    caption: "The Demultiplex Barcodes pane of the FASTQ/FASTA Operations dialog with ONT Native Barcoding V14 (SQK-NBD114-96, 96) chosen, showing Barcode Source, Built-In Kit, Engine, the caption that replaces the Location and distance controls for a nanopore kit, Error Rate, and Trim Barcodes, with Output Strategy at the foot of the pane."
   - id: sidebar-after-ont-import
     caption: "The sidebar after importing the NRG1 run folder, showing the six barcode bundles, barcode85 to barcode91, inside the ont-run folder under Imports."
 illustrations: []
@@ -111,43 +109,15 @@ This procedure imports the NRG1 run folder as one bundle per barcode folder.
 
 The importer skips the `unclassified` folder, because reads with no callable barcode belong to no sample. Here it holds 204 reads. The window has no control that changes this, so bringing those reads in is a command-line job, worth doing only when you are working out why a barcode came back thin.
 
-### Demultiplex a pooled bundle
-
-MinKNOW usually splits a barcoded run for you. Three situations leave the split to you. MinKNOW may have written one undivided `fastq_pass` with no barcode folders. The run may have used barcodes MinKNOW does not know. Or the library may carry a second, inner barcode behind the outer one MinKNOW read. The `nrg1-pooled` bundle stands for the first case.
-
-1. Click the `nrg1-pooled` bundle under `Imports` in the sidebar.
-
-2. Choose **Tools > Demultiplexing > Demultiplex Barcodes...**. The FASTQ/FASTA Operations dialog opens on its Demultiplex Barcodes pane, with the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes.
-
-3. Leave **Barcode Source** on Built-In Kit and change **Built-In Kit**, which starts on the 24-barcode native kit for nanopore reads, to ONT Native Barcoding V14 (SQK-NBD114-96, 96), the [barcode kit](../../GLOSSARY.md#barcode-kit) the library was made with. The pane hides the Location and distance controls and shows a caption in their place, because for a nanopore kit the whole construct is searched at both ends, in both orientations, and both ends must carry the same barcode.
-
-    <!-- SHOT: demultiplex-barcodes-pane -->
-
-4. Leave **Engine** on Cutadapt, **Error Rate** at 0.15, and **Trim Barcodes** on, then click Run.
-
-When the run finishes, one bundle per barcode that received reads appears nested under `nrg1-pooled` in the sidebar, named by the barcode's identifier, from `NB85` to `NB91`, with an `unassigned` bundle beside them for reads that matched no barcode. On disk they sit in a `demux` folder inside the `nrg1-pooled` bundle. Running Demultiplex Barcodes on the same bundle again keeps the earlier split and writes the new one beside it in `demux-2`, then `demux-3`, and the sidebar lists the bundles of every run, with the folder name shown under the names from a later run. Each barcode bundle can be a [virtual bundle](../../GLOSSARY.md#virtual-bundle), which stores a recipe for its reads rather than a copy, as [Virtual bundles](06-subsetting-and-extraction.md#virtual-bundles) explains.
-
-To try the third route on the same reads, set **Barcode Source** to Custom Definition, choose `nrg1-barcodes.csv` in the Inputs section, set **Engine** to Exact Bare Barcode, and click Run.
-
-A run writes its bundles into a hidden folder first and moves them into place only when it finishes. A run that fails or that you cancel leaves no barcode bundle behind, so every bundle you see came from a run that completed.
-
-### Demultiplexing paired short reads
-
-Demultiplex Barcodes also splits a pooled bundle of paired short reads, such as an Illumina run tagged with a TruSeq kit or with barcodes from a Custom Definition. It keeps the two mates of each pair together, with one call for the whole fragment. A pair whose mates carry the same barcode goes to that barcode, and so does a pair in which only one mate carries a barcode. A pair whose mates carry different barcodes goes to `unassigned` whole, as the input held it, because its two mates name two different samples. Merged reads and reads whose mate is missing keep their own call. No pair is ever split between two bundles, whether the bundles hold their reads or are virtual.
-
-`lungfish-cli fastq demultiplex` adds one line to its summary for paired input, such as `Mate pairs: 15 (4 with both mates called alike, 7 placed by their one called mate, 2 sent to unassigned because their mates disagree)`, and `demux-manifest.json` records the same counts under `mateCalls`, as [File Formats](../appendices/file-formats.md#the-read-dataset-bundle) lists.
+To split a pooled nanopore bundle by barcode after import, or to check a kit's barcodes before a full split, use Demultiplex Barcodes and the barcode scout, which [Demultiplexing by Barcode](09-demultiplexing-barcodes.md) covers for every platform.
 
 ### Split a Fluidigm library
 
 For a library with a second, inner barcode, choose **Tools > Demultiplexing > ONT Fluidigm Sample Split...**. It handles libraries built with Fluidigm Access Array primers, where each read carries a target stretch between two common sequence tags, CS1 and CS2, followed by a [Fluidigm sample barcode](../../GLOSSARY.md#fluidigm-sample-barcode) just past CS2. LGE already knows CS1 and CS2, so you supply only the barcode file, in the dialog's Inputs section. The operation finds the two tags, reads the barcode just past CS2, cuts out the insert between the tags, and writes one bundle per sample holding its own reads. Each bundle keeps every distinct insert once, with the number of reads that carried it written into the read's name line as `size=N`. The recipe checkbox from step 4 of the import offers the same kind of split at import time. A [virtual bundle](../../GLOSSARY.md#virtual-bundle) given as the input is read whole, every read it lists rather than the short preview it keeps, and the provenance names the bundle. The NRG1 library is not a Fluidigm library, so this chapter does not run it.
 
-### Checking barcodes before you commit
-
-This check runs only on the command line, so a reader working in the window can skip it. The [barcode scout](../../GLOSSARY.md#barcode-scout) reads a sample of the reads, counts hits for every barcode in a kit, and writes `scout-result.json`, marking each barcode accepted, rejected, or undecided. Accepted means the hit count reached an upper threshold, rejected means it stayed at or under a lower one, and undecided usually means a real sample with few reads. Run the scout to confirm the kit before a long demultiplex.
-
 ## Settings
 
-The ONT Run Folder card opens the Import FASTQ configuration sheet, whose Platform, Quality Binning, Optimize storage, Compression Tool, and Compression Level controls are documented once in [Importing Sequencing Reads](01-importing-fastq.md#settings). For Oxford Nanopore, Optimize storage starts off and Quality Binning starts on None (preserve original), and this chapter keeps both. The first four entries below belong to that sheet, and the rest to the Demultiplex Barcodes pane. ONT Fluidigm Sample Split has no settings. Its pane reads "Uses the selected Fluidigm sample barcode definition, extracts CS1-CS2 inserts, and writes one counted FASTQ bundle per sample."
+The ONT Run Folder card opens the Import FASTQ configuration sheet, whose Platform, Quality Binning, Optimize storage, Compression Tool, and Compression Level controls are documented once in [Importing Sequencing Reads](01-importing-fastq.md#settings). For Oxford Nanopore, Optimize storage starts off and Quality Binning starts on None (preserve original), and this chapter keeps both. The four entries below belong to that sheet, and [Demultiplexing by Barcode](09-demultiplexing-barcodes.md#settings) documents the Demultiplex Barcodes pane. ONT Fluidigm Sample Split has no settings. Its pane reads "Uses the selected Fluidigm sample barcode definition, extracts CS1-CS2 inserts, and writes one counted FASTQ bundle per sample."
 
 **Apply processing recipe after import.** Runs one of two nanopore splitting recipes on the reads as they land, instead of importing each barcode folder unchanged. It is off by default, because a run MinKNOW already split needs no more splitting. Turn it on when one barcode folder holds several samples told apart by an inner barcode. This setting has no command-line flag.
 
@@ -156,24 +126,6 @@ The ONT Run Folder card opens the Import FASTQ configuration sheet, whose Platfo
 **Barcode Sheet.** Supplies the CSV or TSV file that maps barcodes to sample names, chosen from a popup of sheets already in the project or with the Choose... button. Nothing is selected by default, because the sheet comes from whoever prepared the library, and the import will not start without one while a recipe is on. The Fluidigm recipe needs sample and barcode columns, and the PacBio recipe needs `sample_id`, `barcode_1`, and `barcode_2`. This setting has no command-line flag.
 
 **Demux Folder.** Names the project folder that collects the per-sample bundles a recipe writes. It starts as the name of the folder around `fastq_pass`, here `ont-run`, falls back to "ONT Demultiplexed FASTQs", and turns any run of characters other than letters, digits, spaces, periods, underscores, and hyphens into a hyphen. Change it when you import several runs and want each run's samples under its own name. This setting has no command-line flag.
-
-**Barcode Source.** Chooses where the barcode sequences come from, offering Built-In Kit and Custom Definition. The default is Built-In Kit, which covers the commercial kits most libraries use. Pick Custom Definition when the barcodes came from a plate layout or an in-house primer set, then choose a CSV, TSV, or whitespace-delimited file in the Inputs section. Its columns are `id,sequence[,secondary_sequence][,sample_name]`, and a header line naming the columns lets you give a sample name without a secondary sequence, as `nrg1-barcodes.csv` does. On the command line this is `--kit`.
-
-**Built-In Kit.** Names the commercial barcode set the library was tagged with, chosen from twenty kits, ten of them nanopore kits and the rest Illumina, PacBio, Fluidigm, and M13 sets. The default follows the reads' platform. Nanopore reads start on ONT Native Barcoding (NBD104/NBD114, 24), PacBio and Illumina reads start on their platform's first kit, and mixed or undetected reads start on TruSeq Single Index Set A (D701-D712). Always check it, because the NRG1 barcodes NB85 to NB91 exist only in the 96-barcode kit. Set it to the kit named on the kit box or in the library preparation record, such as ONT Native Barcoding V14 (SQK-NBD114-96, 96) for the NRG1 run, because a wrong kit sends almost every read to the unassigned bundle. On the command line this is `--kit`.
-
-**Engine.** Chooses the matching program, offering Cutadapt and Exact Bare Barcode. The default is Cutadapt, which tolerates mismatches and small insertions or deletions and so suits nanopore barcodes that carry basecalling errors. Choose Exact Bare Barcode when the barcode sits at no fixed place in the read, knowing that it demands a letter-perfect match anywhere in the read or its reverse complement, never trims, hides the Cutadapt controls, and narrows Built-In Kit to the kits it can use. On the command line this is `--engine`.
-
-**Location.** Tells Cutadapt which end of the read a barcode may sit at, offering Both Ends, 5' End, and 3' End, where 5' is the start of the read and 3' its finish. It appears only for kits and definitions that are not Oxford Nanopore kits, since a nanopore kit is always searched at both ends. The default is Both Ends. Narrow it to one end when the library puts the barcode only there and reads land in the wrong sample. On the command line this is `--location`.
-
-**5' Distance.** Sets how many bases in from the start of the read the barcode may begin, and it is hidden for Oxford Nanopore kits like Location. The default is 0, which means the barcode must start at the very first base, as it does in a clean short-read library. Raise it, to about 10, when a few leading adapter bases sit in front of the barcode and many reads land unassigned. On the command line this is `--max-distance-5prime`, and the command warns when it is given with a nanopore kit.
-
-**3' Distance.** Sets how many bases in from the end of the read the barcode may end, and it is hidden for Oxford Nanopore kits. The default is 0, which means the barcode must end at the very last base. Raise it when trailing bases follow the barcode. On the command line this is `--max-distance-3prime`, and the command warns when it is given with a nanopore kit.
-
-**Error Rate.** Sets the fraction of barcode bases that may be wrong in a match, so at 0.15 a 20-base barcode tolerates three wrong bases. The default is 0.15, loose enough for nanopore errors without letting similar barcodes blur together. Lower it toward 0.05 when samples cross-assign, and raise it when a large share of reads lands unassigned. On the command line this is `--error-rate`.
-
-**Trim Barcodes.** Removes the matched barcode, and for a nanopore kit the adapter around it, from the start of each read before writing it out. For a nanopore kit that tags both ends of the molecule, the barcode and adapter at the far end of each read stay in it. It starts on, so each read begins with the sample's own sequence. Turn it off when a later step needs the barcode still in the read, such as a second demultiplex on an inner barcode. Off keeps every read whole in every bundle, virtual bundles included. On the command line this is `--no-trim`.
-
-**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default, and see [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) for the two choices. This setting has no command-line flag.
 
 ## Reading the results
 
@@ -197,27 +149,7 @@ Time: 0.3s
 
 Read it as six barcode folders found, each holding 1,000 reads, written as six bundles. `Output` repeats the output folder the command was given. The per-barcode lines are the ones to check, because an empty or thin barcode shows itself there. On a 24-sample run, one barcode with a few dozen reads against its neighbours' tens of thousands means that sample failed at the bench, not that the import went wrong. Beside the bundles the importer writes `demux-manifest.json`, naming each barcode, its read count, and the bundle that holds it.
 
-### The demultiplex of the pooled bundle
-
-The pooled bundle holds 400 reads from each of the six samples. Every read's name begins with the accession of the run it came from, so each assignment can be checked against the truth.
-
-| Barcode | Built-in kit, Cutadapt | Custom Definition, Exact Bare Barcode |
-|---|---|---|
-| NB85 | 319 | 339 |
-| NB86 | 318 | 332 |
-| NB87 | 300 | 305 |
-| NB89 | 310 | 348 |
-| NB90 | 315 | 286 |
-| NB91 | 317 | 311 |
-| Assigned | 1,879 (78.3%) | 1,921 (80.0%) |
-| Unassigned | 521 | 479 |
-| Assigned to the wrong sample | 2 | 0 |
-
-Every one of the 2,400 reads is accounted for in both runs, as assigned or unassigned. The built-in kit sent two reads to the wrong sample, one read from NB89's run to NB87 and one from NB85's run to NB90, a rate of about one in a thousand. It also trimmed the adapter and barcode off the start of every assigned read, while the copy at each read's far end stayed. The exact engine made no wrong call and assigned a few more reads here, but it left the adapter and barcode on every read. The fifth of the reads that neither route assigned carry basecalling errors in their barcodes at both ends.
-
-With a Custom Definition the bundles take their names from the `id` column, and the `sample_name` column, such as `IPSC-progenitors-long` for NB85, is recorded as each bundle's sample name.
-
-Keep `unassigned` distinct from `unclassified`. MinKNOW writes `unclassified` during the run, while LGE writes `unassigned.lungfishfastq` during a demultiplex, so the two hold reads that failed at different steps. LGE keeps the `unassigned` bundle by default so you can look inside it.
+[Demultiplexing by Barcode](09-demultiplexing-barcodes.md#reading-the-results) reads the results of a demultiplex, the split of the `nrg1-pooled` bundle among them.
 
 ## After import
 
@@ -243,7 +175,7 @@ LGE records each import and demultiplex in the new bundles' [provenance](../../G
 
 ## On the command line
 
-The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Demultiplexing and Oxford Nanopore runs](../appendices/cli-reference.md#demultiplexing-and-oxford-nanopore-runs) in the CLI Reference lists every flag of these commands. Scout and demultiplex work only inside a project, so the block first moves Terminal into the project folder with `cd`, and later paths are written from there.
+The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Demultiplexing and Oxford Nanopore runs](../appendices/cli-reference.md#demultiplexing-and-oxford-nanopore-runs) in the CLI Reference lists every flag of these commands. The block first moves Terminal into the project folder with `cd`, and later paths are written from there.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Long Reads and Assembly.lungfish"
@@ -252,22 +184,9 @@ cd "$PROJECT"
 # Import the run folder as one bundle per barcode folder.
 lungfish-cli fastq import-ont "Practice Data/nrg1-ont-barcoded/ont-run/fastq_pass" \
   -o "$HOME/Desktop/nrg1-import"
-
-# Check which barcodes of a kit are present before a full split.
-lungfish-cli fastq scout Imports/nrg1-pooled.lungfishfastq/nrg1-pooled.fastq.gz \
-  --kit ont-nbd114-96 --source-platform ont -o "$HOME/Desktop/scout-result.json"
-
-# Split the pooled reads with the built-in kit.
-lungfish-cli fastq demultiplex Imports/nrg1-pooled.lungfishfastq/nrg1-pooled.fastq.gz \
-  --kit ont-nbd114-96 -o "$HOME/Desktop/nrg1-demux-builtin"
-
-# Split them with the custom definition and the exact engine.
-lungfish-cli fastq demultiplex Imports/nrg1-pooled.lungfishfastq/nrg1-pooled.fastq.gz \
-  --kit "Practice Data/nrg1-ont-barcoded/nrg1-barcodes.csv" --engine exact-bare \
-  -o "$HOME/Desktop/nrg1-demux-exact"
 ```
 
-Two command-line differences change what the import writes. The window never imports `unclassified`, while `--include-unclassified` brings those reads in as their own bundle, 204 reads here. When Optimize storage is on, the window passes `--storage-mode flattened --optimize-storage`, which joins each barcode's files into one, and the command refuses `--optimize-storage` without `--storage-mode flattened`, while `--quality-binning`, default `none`, acts only alongside `--optimize-storage`. `fastq demultiplex` writes its bundles into the folder `-o` names rather than into the input bundle, and it refuses a folder that already holds files, naming them, unless you add `--replace`. Even then it refuses a folder that holds the input or anything else the run reads. With `--replace` it makes every check first, sets the old contents aside, removes them once the new bundles are in place, and puts them back if the run fails. `fastq ont-fluidigm-samples` runs the Fluidigm split.
+Two command-line differences change what the import writes. The window never imports `unclassified`, while `--include-unclassified` brings those reads in as their own bundle, 204 reads here. When Optimize storage is on, the window passes `--storage-mode flattened --optimize-storage`, which joins each barcode's files into one, and the command refuses `--optimize-storage` without `--storage-mode flattened`, while `--quality-binning`, default `none`, acts only alongside `--optimize-storage`. `fastq ont-fluidigm-samples` runs the Fluidigm split, and [Demultiplexing by Barcode](09-demultiplexing-barcodes.md#on-the-command-line) gives the `fastq scout` and `fastq demultiplex` commands.
 
 ## Next
 
