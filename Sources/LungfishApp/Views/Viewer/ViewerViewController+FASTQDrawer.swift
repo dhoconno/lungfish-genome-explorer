@@ -81,6 +81,8 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
 
     func teardownFASTQMetadataDrawer() {
         keepWaitingFASTQDrawerEdit()
+        // The drawer the close sheet spoke of goes now, and an edit made in the next one is the person's to hear of.
+        fastqDrawerEditReportedByCloseSheet = false
         fastqMetadataDrawerView?.removeFromSuperview()
         fastqMetadataDrawerView = nil
         fastqMetadataDrawerBottomConstraint = nil
@@ -125,6 +127,8 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
     /// says that the edit was not saved and why. A drawer with no edit writes nothing.
     func keepWaitingFASTQDrawerEdit() {
         guard let unkept = keepWaitingFASTQDrawerEditReportingFailure() else { return }
+        // The close sheet has said this edit was not saved. Only this step reads the mark, so Quit still asks.
+        guard !fastqDrawerEditReportedByCloseSheet else { return }
         Self.presentUnkeptFASTQDrawerEdit(Self.unkeptFASTQDrawerEditAlert(unkept), view.window)
     }
 

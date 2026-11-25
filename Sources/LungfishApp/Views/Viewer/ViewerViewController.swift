@@ -363,6 +363,11 @@ public class ViewerViewController: NSViewController {
     /// Height constraint for the FASTQ metadata drawer (resizable via drag).
     var fastqMetadataDrawerHeightConstraint: NSLayoutConstraint?
 
+    /// Whether the window's close sheet has told the person that the drawer's waiting edit was not saved (CSA-CLOSE-S2).
+    /// The select route's keep step then shows no second sheet for it, which would hold the window open. The mark ends
+    /// with the drawer, and with a close that did not go on.
+    var fastqDrawerEditReportedByCloseSheet = false
+
     /// Whether the FASTQ metadata drawer is currently open.
     var isFASTQMetadataDrawerOpen: Bool = false
 

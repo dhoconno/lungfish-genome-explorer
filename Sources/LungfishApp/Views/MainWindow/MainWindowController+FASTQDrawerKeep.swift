@@ -14,10 +14,16 @@ extension MainWindowController {
         guard let viewer = mainSplitViewController?.viewerController,
               let unkept = viewer.keepWaitingFASTQDrawerEditReportingFailure() else { return true }
         let alert = ViewerViewController.unkeptFASTQDrawerEditAlert(unkept, closingWindow: true)
+        // This sheet is the person's one report of the edit. Marked as it goes up, since the dashboard can go before
+        // OK, and a second sheet from the drawer's teardown would hold the window open (CSA-CLOSE-S2). Quit does not
+        // read the mark.
+        viewer.fastqDrawerEditReportedByCloseSheet = true
         ViewerViewController.presentUnkeptFASTQDrawerEditBeforeClose(alert, sender) { [weak viewer, weak sender] in
             // The person has read that the edit was not saved, and the drawer goes with the window.
             viewer?.fastqMetadataDrawerView?.markSettingsKept()
             sender?.performClose(nil)
+            // A close that did not go on leaves the drawer, and an edit made in it next is new to the person.
+            if sender?.isVisible == true { viewer?.fastqDrawerEditReportedByCloseSheet = false }
         }
         return false
     }
