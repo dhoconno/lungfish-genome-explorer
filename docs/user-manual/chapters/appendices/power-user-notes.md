@@ -304,11 +304,11 @@ The third is running the tool yourself with no LGE involvement, which also write
 | MEGAHIT on one thread, Apple Silicon | Measured to repeat, on one sample | 40 of 40 runs gave a byte-identical contig file |
 | fastp, its adapter choice | Repeats by design | LGE gives fastp its pairs in one fixed order and, on single reads, a known adapter list |
 | `bundle export --export-format container` | Repeats by design | The tar writer gives the same bytes for the same bundle |
-| Every other tool on this page, MEGAHIT on more than one thread, and fastp on a mixed file's single reads | Not promised | Not measured and not built to repeat |
+| Every other tool on this page, MEGAHIT on more than one thread, and fastp on a mixed file's single reads | Not promised | Not built to repeat, and not measured except MEGAHIT on two threads, which gave different files between runs |
 
 ### What was measured
 
-Only what is listed here was measured, in the manual's 2026-09 checks and in one LGE probe of MEGAHIT.
+Only what is listed here and in the first row of the table above was measured, in the manual's 2026-09 checks and in one LGE probe of MEGAHIT.
 
 - The MHC genotyping route gave the same 102 allele rows for sample `Animal_01` in a whole-plate run and in a rerun of three of its samples. The agreement matters, not the number.
 - Two exports of the same [pivot workbook](../../GLOSSARY.md#pivot-workbook) differ only in `docProps/core.xml`, a timestamp inside the file, so compare the sheets in a spreadsheet program rather than the files.
@@ -338,7 +338,7 @@ Skip this section unless you look after a Mac that several people share. Nothing
 
 On a shared Mac, an administrator can put the packs and databases on a larger shared drive so every user draws on one installation. LGE reads the `LUNGFISH_CONDA_ROOT` [environment variable](../../GLOSSARY.md#environment-variable), a named setting the system passes to every program it starts. Set it, and every LGE process, window and command line alike, installs to and reads from that location. To move the whole shared storage folder, databases included, set `LUNGFISH_STORAGE_ROOT` instead. When both are set, `LUNGFISH_CONDA_ROOT` still decides where the tools go.
 
-The pattern that works is to set the variable in a shell startup file the other accounts share, install the packs and databases once from the [Plugin Manager](../../GLOSSARY.md#plugin-manager) as the administrator, then leave the folder readable by everyone but writable only by the administrator. Other users then see the packs and databases as installed and can run analyses with them. An install attempt by another user stops with `conda root is read-only; reinstall as the admin user`, and only the administrator can fix that.
+Where you set the variable depends on how LGE starts. `lungfish-cli` in Terminal reads it from the environment of the shell that starts it, so a line in a shell startup file, the text file a shell reads when it starts, sets it for every account that reads that file. An app opened from the Dock or Finder is not started by a shell and does not read that file, so each account instead chooses the shared folder with **Change Location...** on the **Storage** tab of **Settings…** (Cmd-,), a choice that belongs to that account alone. Install the packs and databases once from the [Plugin Manager](../../GLOSSARY.md#plugin-manager) with the shared folder in use. LGE accepts a folder only after it writes a small test file there, so an account that cannot write to the shared folder does not use it, and every account that shares the folder needs permission to write to it.
 
 ### One Mac, two copies of LGE
 
