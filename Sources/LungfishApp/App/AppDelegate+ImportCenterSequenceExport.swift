@@ -162,6 +162,34 @@ extension AppDelegate {
         AnnotationDatabase.LeftOutWords.message("Exported \(count) sequence(s) to \(fileName)", leftOut: leftOut, notIn: "file")
     }
 
+    /// The words the batch export ends on, for the row's detail and for the alert: the count of files and sequences,
+    /// then each annotation track a file lacks, with its file. A healthy batch keeps the words it always had
+    /// (ANNOT-EXPORT-MISSING-TRACK, BIO and UX review of ANNOT-EXPORT, B1).
+    nonisolated static func batchSequenceExportCompletionWords(
+        fileCount: Int,
+        sequenceCount: Int,
+        folderName: String,
+        leftOut: [(file: String, tracks: [AnnotationDatabase.LeftOutTrack])]
+    ) -> (detail: String, alert: String) {
+        let counts = "Exported \(fileCount) file(s) with \(sequenceCount) sequence(s)"
+        let words = batchSequenceExportLeftOutWords(leftOut)
+        return (counts + (words.map { ". " + $0 } ?? ""), counts + " to \(folderName)." + (words.map { " " + $0 } ?? ""))
+    }
+
+    /// The sentence that names each annotation track the batch left out, with the file it is missing from, or nil when
+    /// no file lacks one. Several bundles can share a track name, so each name carries its file.
+    nonisolated static func batchSequenceExportLeftOutWords(
+        _ left: [(file: String, tracks: [AnnotationDatabase.LeftOutTrack])]
+    ) -> String? {
+        let named = left.flatMap { entry in entry.tracks.map { "\($0.name) (\(entry.file))" } }
+        guard !named.isEmpty else { return nil }
+        let lead = named.count == 1
+            ? "1 annotation track is not in its file, because its annotation database is missing or cannot be read"
+            : "\(named.count) annotation tracks are not in their files, because their annotation databases are missing or cannot be read"
+        let again = AnnotationDatabase.LeftOutWords.again(notIn: "file")
+        return "\(lead): \(named.joined(separator: ", ")). \(AnnotationDatabase.LeftOutWords.remedy) \(again)"
+    }
+
     nonisolated static func batchSequenceExportTargets(
         for bundleURLs: [URL],
         outputFolder: URL,

@@ -887,6 +887,7 @@ extension AppDelegate {
                 let task = Task.detached { [weak self] in
                     do {
                         var count = 0
+                        var leftOutByFile: [(file: String, tracks: [AnnotationDatabase.LeftOutTrack])] = []
                         for (index, bundleURL) in bundleURLs.enumerated() {
                             try Task.checkCancellation()
                             guard let outputURL = targets[bundleURL] else { continue }
@@ -899,23 +900,25 @@ extension AppDelegate {
                                 )
                                 OperationCenter.shared.log(id: opID, level: .info, message: "\(detail) -> \(outputURL.lastPathComponent)")
                             }
-                            count += try await self?.performSequenceExport(
-                                inputs: [bundleURL],
-                                outputURL: outputURL,
-                                format: format,
-                                compression: compression
-                            ) ?? 0
+                            let outcome = try await self?.performSequenceExportNamingLeftOutTracks(
+                                inputs: [bundleURL], outputURL: outputURL, format: format, compression: compression
+                            ) ?? SequenceExportRoute.Outcome(count: 0, leftOutTracks: [])
+                            count += outcome.count
+                            leftOutByFile.append((outputURL.lastPathComponent, outcome.leftOutTracks))
                         }
+                        let words = AppDelegate.batchSequenceExportCompletionWords(
+                            fileCount: bundleURLs.count, sequenceCount: count, folderName: outputFolder.lastPathComponent, leftOut: leftOutByFile
+                        )
 
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 guard OperationCenter.shared.complete(
                                     id: opID,
-                                    detail: "Exported \(bundleURLs.count) file(s) with \(count) sequence(s)"
+                                    detail: words.detail
                                 ) else { return }
                                 let alert = NSAlert()
                                 alert.messageText = "Export Complete"
-                                alert.informativeText = "Exported \(bundleURLs.count) file(s) with \(count) sequence(s) to \(outputFolder.lastPathComponent)."
+                                alert.informativeText = words.alert
                                 alert.alertStyle = .informational
                                 alert.addButton(withTitle: "OK")
                                 alert.addButton(withTitle: "Show in Finder")
@@ -1099,7 +1102,11 @@ extension AppDelegate {
                 let annotations = try self.loadAnnotationsForExport(bundleURL: bundleURL)
                 guard let window, window.isVisible else { return }
                 guard !annotations.isEmpty else {
-                    self.showAnnotationExportMessage("No annotations to export", detail: "\(source.name) has no annotations.", window: window)
+                    self.showAnnotationExportMessage(
+                        "No annotations to export",
+                        detail: AppDelegate.noAnnotationsToExportWords(sourceName: source.name, bundleURL: bundleURL),
+                        window: window
+                    )
                     return
                 }
                 self.beginGFF3Export(annotations: annotations, source: source,

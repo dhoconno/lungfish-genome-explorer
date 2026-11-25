@@ -121,11 +121,30 @@ extension AppDelegate {
         }
         Task { @MainActor in
             if case .completed = await begun.task.value {
-                report("Export complete", AnnotationDatabase.LeftOutWords.message(
-                    "Exported \(count) annotations from \(source.name) to \(outputURL.lastPathComponent).",
-                    leftOut: leftOut, notIn: "file"
+                report("Export complete", Self.annotationGFF3ExportCompletionWords(
+                    count: count, sourceName: source.name, fileName: outputURL.lastPathComponent, leftOut: leftOut
                 ))
             }
         }
+    }
+
+    /// The words the alert ends on: the count, the source and the file, then each track the leaf left out (SWIFT and
+    /// ARCH review of ANNOT-EXPORT, SF-2 a).
+    nonisolated static func annotationGFF3ExportCompletionWords(
+        count: Int, sourceName: String, fileName: String, leftOut: [AnnotationDatabase.LeftOutTrack]
+    ) -> String {
+        AnnotationDatabase.LeftOutWords.message(
+            "Exported \(count) annotations from \(sourceName) to \(fileName).", leftOut: leftOut, notIn: "file"
+        )
+    }
+
+    /// The alert's words when a sidebar bundle gave no annotations to export. A bundle that lists tracks whose databases
+    /// are missing or cannot be read names each of them and says that nothing was written, as the leaf's refusal does,
+    /// and does not say that it has no annotations (BIO and UX review of ANNOT-EXPORT, SF-1).
+    nonisolated static func noAnnotationsToExportWords(sourceName: String, bundleURL: URL) -> String {
+        let none = "\(sourceName) has no annotations."
+        guard let manifest = try? BundleManifest.load(from: bundleURL) else { return none }
+        let leftOut = AnnotationDatabase.openBundleTracks(bundleURL: bundleURL, manifest: manifest).leftOut
+        return leftOut.isEmpty ? none : AnnotationDatabase.LeftOutWords.noneCouldBeRead(sourceName: sourceName, leftOut)
     }
 }
