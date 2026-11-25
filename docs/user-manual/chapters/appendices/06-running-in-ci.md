@@ -3,9 +3,9 @@ title: Running in CI
 chapter_id: appendices/06-running-in-ci
 audience: power-user
 prereqs: [01-foundations/08-provenance-and-reproducibility, 08-workflows/03-running-external-workflows]
-estimated_reading_min: 18
+estimated_reading_min: 19
 task: Run Lungfish Genome Explorer workflows on a continuous integration runner with no window, provision the tools the job needs, and keep the provenance as a build artifact.
-tags: [ci, headless, github-actions, circleci, conda, provenance]
+tags: [ci, headless, github-actions, circleci, conda, provenance, time-limit]
 tools: [nextflow, snakemake]
 entry_points:
   - "CLI: lungfish-cli run-headless"
@@ -13,7 +13,7 @@ entry_points:
   - "CLI: lungfish-cli tools update"
 shots: []
 illustrations: []
-glossary_refs: [cache, conda, container, continuous-integration, dependency-set, environment-variable, exit-status, host-depletion, kraken2, nf-core, offline-pack, plugin-pack, provenance, provenance-sidecar, run-bundle, runner, workflow-engine, yaml]
+glossary_refs: [cache, conda, container, continuous-integration, dependency-set, environment-variable, exit-status, host-depletion, htcondor, kraken2, linux, nf-core, offline-pack, path, plan-folder, plugin-pack, provenance, provenance-sidecar, run-bundle, runner, symlink, tool-lock-manifest, workflow-engine, yaml]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -34,11 +34,13 @@ The two templates in this appendix are starting points to adapt. Every command i
 
 Everything on this page is typed. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows where it sits in the Stable and the Preview app.
 
-A runner that only unpacked the application has no `lungfish-cli` on its search path, so a step that types the bare name fails. Both templates below store the full quoted path once in a variable named `LUNGFISH` and write `"$LUNGFISH"` in every command. They name the Preview app, so change the path to `/Applications/Lungfish.app/Contents/MacOS/lungfish-cli` if the runner holds the Stable app. The examples in the body of this appendix use the bare name for readability.
+A runner that only unpacked the application has no `lungfish-cli` on its [search path](../../GLOSSARY.md#path), the list of folders the shell looks in for a program, so a step that types the bare name fails. A [symbolic link](../../GLOSSARY.md#symlink) to the program, a small file that points at it, makes the bare name work when you place the link in a folder already on the search path. The program follows the link back to its app, so it still finds that app's storage folder and its [tool lock manifest](../../GLOSSARY.md#tool-lock-manifest), the file that pins every tool version. Both templates below store the full quoted path once in a variable named `LUNGFISH` and write `"$LUNGFISH"` in every command. They name the Preview app, so change the path to `/Applications/Lungfish.app/Contents/MacOS/lungfish-cli` if the runner holds the Stable app. The examples in the body of this appendix use the bare name for readability.
 
 ## What a job needs installed
 
 The runner must be an Apple Silicon Mac running macOS 26 or later, the same requirement as the app, because `lungfish-cli` is built for that system and will not start on an older one. On GitHub Actions the operating system is chosen by the runner label on the `runs-on:` line, and the label is `macos-26`. Check it against GitHub's published list of runner images, since vendors rename labels.
+
+A step too large for a hosted runner, such as storing a whole genome's reads or counting RNA-seq reads, can run on a [Linux](../../GLOSSARY.md#linux) machine instead, Linux being the operating system most shared research computers run. LGE writes a [plan folder](../../GLOSSARY.md#plan-folder), a folder of plain files that one Linux machine or an [HTCondor](../../GLOSSARY.md#htcondor) pool of shared computers runs. LGE then checks each returned file before it imports the results into a project, as [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) shows.
 
 A job that runs the nf-core Viral Recon pipeline also needs a Docker engine the runner can reach, because LGE runs that pipeline's containers through Docker, as [Tools that run in containers](../01-foundations/07-plugin-packs.md#tools-that-run-in-containers) explains. Hosted macOS runners often come without one, so check your service's runner image before you plan such a job, or use a runner you manage yourself. A local `.nf` file or Snakefile needs Docker only if the workflow itself asks for containers.
 
@@ -52,7 +54,7 @@ A [cache](../../GLOSSARY.md#cache) is a folder the CI service keeps between jobs
 
 To do the work, run `lungfish-cli tools update --apply --yes --required-only`. `--yes` is required because the command changes nothing without confirmation. `--required-only` installs only what LGE cannot run without, so the job then adds each [plugin pack](../../GLOSSARY.md#plugin-pack) it needs with `lungfish-cli conda install --pack <id>`, replacing `<id>` with the pack's id. The ids and what each pack holds are listed in [The packs, and what is in them](../01-foundations/07-plugin-packs.md#the-packs-and-what-is-in-them).
 
-Databases are installed apart from packs. `lungfish-cli conda db download <name>` fetches a catalogue database, such as `Viral` for the [Kraken 2](../../GLOSSARY.md#kraken2) classifier, and `lungfish-cli conda db list` prints the others. `lungfish-cli conda db install-managed <identifier>` fetches a managed database, such as `deacon-panhuman` for [host depletion](../../GLOSSARY.md#host-depletion), and `--list` prints the identifiers.
+Databases are installed apart from packs. `lungfish-cli conda db download <name>` fetches a catalog database, such as `Viral` for the [Kraken 2](../../GLOSSARY.md#kraken2) classifier, and `lungfish-cli conda db list` prints the others. `lungfish-cli conda db install-managed <identifier>` fetches a managed database, such as `deacon-panhuman` for [host depletion](../../GLOSSARY.md#host-depletion), and `--list` prints the identifiers.
 
 ### Install from an offline pack
 
@@ -95,10 +97,10 @@ A CI step fails when its command ends with any [exit status](../../GLOSSARY.md#e
 |---|---|
 | 0 | The command succeeded. |
 | 2 | A usage error, such as `tools update --apply` without `--yes`. Nothing ran. |
-| 3 | An input error, such as a pack id that was not recognised. Nothing was installed. |
+| 3 | An input error, such as a pack id that was not recognized. Nothing was installed. |
 | 4 | An output error, including an expected output that was not created. |
 | 10 | `tools update --plan` found pending work, which fails the step on purpose. |
-| 64 | A workflow error, such as a missing `--expected-output`, an unrecognised option, or a failed workflow step. |
+| 64 | A workflow error, such as a missing `--expected-output`, an unrecognized option, or a failed workflow step. |
 | 65 | `debug container` could not reach the Docker engine. |
 | 126 | A tool the command needs is missing, or an offline pack install failed. |
 
@@ -111,7 +113,11 @@ Four more flags of `workflow run` matter in CI.
 - `--prepare-only` writes the run bundle and the command preview without starting the engine, and also needs no expected output.
 - `--resume` continues from the engine's last checkpoint, so it helps only when the engine's work folder survived in a cache.
 
-Leave `--timeout` alone and use the CI service's own limit instead, such as `timeout-minutes:` in the GitHub template.
+### Time limits
+
+No analysis step stops at a fixed time, so a step that never finishes runs until the CI service ends the job. Set the service's own limit, such as `timeout-minutes:` in the GitHub template. Leave `--timeout` off `workflow run`, because the nf-core run refuses it with exit status 3 and a local workflow ignores it.
+
+To stop one command sooner, give it `--time-limit <minutes>`, which eight analysis commands take, among them `map`, `assemble`, and `kraken2 classify`. It stops any analysis step that runs longer than that many minutes, and the command then fails with a message saying the tool was stopped by its time limit. Each step gets the whole limit, so a command of several steps can run longer in total. [Global flags](cli-reference.md#global-flags) lists the eight.
 
 ### Where LGE keeps its tools
 
@@ -275,7 +281,7 @@ nf-results/
 
 A step that looks for `*.lungfish-provenance.json` files beside the output finds nothing, so upload the whole results folder, as both templates do.
 
-`lungfish-cli ops stats <folder>` walks a folder and summarises every record under it, printing the number of records, completed runs, and total wall time, then one row per operation. Peak RAM reads `unknown` for local workflow runs, which do not record it.
+`lungfish-cli ops stats <folder>` walks a folder and summarizes every record under it, printing the number of records, completed runs, and total wall time, then one row per operation. Peak RAM reads `unknown` for local workflow runs, which do not record it.
 
 `lungfish-cli provenance verify` checks a signed record, and signing is off by default, so on an ordinary record it exits 64 and reports that the signature file is missing. Until you set up signing, check the record's `exitStatus` field and that the declared outputs exist. With the `jq` JSON reader that most runners carry, that is one line.
 
@@ -295,7 +301,7 @@ Seven failures account for most failed jobs.
 | Exit 3 with an unknown-pack error | The pack id is misspelled, or `conda install --pack` was given an experimental pack, which it refuses although `offline-export` accepts it. | Read the list the error prints, and see [Known defects in this release](troubleshooting.md#known-defects-in-this-release) for experimental packs. |
 | Exit 65 from `debug container` | The runner has no Docker engine, or it is not running. | Use a runner with Docker for the nf-core pipeline, or drop that pipeline from the job. |
 | A second cached run fails on existing environments | `conda offline-install` ran without `--overwrite`. | Add `--overwrite`. |
-| The workflow file is not recognised | The file is named `pipeline.NF` rather than `pipeline.nf`. | Name pipeline files in lower case. |
+| The workflow file is not recognized | The file is named `pipeline.NF` rather than `pipeline.nf`. | Name pipeline files in lower case. |
 
 [Troubleshooting](troubleshooting.md) lists other symptoms, and its known-defects list includes the command-line faults a script is most likely to meet.
 

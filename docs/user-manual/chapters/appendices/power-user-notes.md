@@ -3,14 +3,14 @@ title: Power User Notes
 chapter_id: appendices/power-user-notes
 audience: power-user
 prereqs: []
-estimated_reading_min: 22
+estimated_reading_min: 25
 task: Look up the exact arguments Lungfish Genome Explorer passes to each wrapped tool, and the limits on repeating a run and getting the same answer.
-tags: [reference, power-user, mpileup, ivar, lofreq, bcftools, minimap2, kraken2, assembly, gatk, determinism, reproducibility]
-tools: [samtools, bcftools, ivar, lofreq, minimap2, bwa-mem2, bowtie2, kraken2, spades, megahit, skesa, flye, hifiasm, gatk]
+tags: [reference, power-user, mpileup, ivar, lofreq, bcftools, fastp, bbduk, minimap2, kraken2, assembly, gatk, determinism, reproducibility]
+tools: [samtools, bcftools, ivar, lofreq, fastp, bbduk, cutadapt, minimap2, bwa-mem2, bowtie2, kraken2, spades, megahit, skesa, flye, hifiasm, gatk]
 entry_points: []
 shots: []
 illustrations: []
-glossary_refs: [allele-frequency, alternate-read, amplicon, argument, baq, bed, bracken, bundle, codon, command-line-flag, conda, contig, dependency-set, determinism, environment-variable, gvcf, haplotype, hg002, indel, ivar, kraken2, linkage, lofreq, mapping-quality, oci-layout, phase, phred-score, pileup, pivot-workbook, plugin-pack, primer-trim, provenance, provenance-sidecar, read-group, ref-alt, reference-bundle, secondary-alignment, sliding-window-trimming, strand-bias, thread, vcf, wrapper]
+glossary_refs: [adapter, allele-frequency, alternate-read, amplicon, argument, assembly-graph, baq, bbduk, bed, bracken, bundle, codon, command-line-flag, conda, contig, cutadapt, dependency-set, determinism, environment-variable, fastp, gvcf, haplotype, hg002, indel, interleaved-fastq, ivar, k-mer, kraken2, linkage, lofreq, mapping-quality, mate, oci-layout, phase, phred-score, pileup, pivot-workbook, plugin-pack, primer-dimer, primer-trim, provenance, provenance-sidecar, read-group, ref-alt, reference-bundle, secondary-alignment, sliding-window-trimming, strand-bias, thread, vcf, wrapper]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -35,7 +35,7 @@ The problems in this table stop a rerun from matching the first run. Check for e
 
 | Caveat | What to do |
 |---|---|
-| A setting that is not passed to the tool | The iVar tuning flags configure LGE's own converter, not iVar ([The four iVar tuning flags](#the-four-ivar-tuning-flags-do-not-reach-ivar)). The minimum contig length and the memory limit never reach some assemblers ([Two settings are ignored on some assemblers](#two-settings-are-ignored-on-some-assemblers)). Read the recorded command in the sidecar rather than the one you meant to run. |
+| A setting that is not passed to the tool | The iVar tuning flags configure LGE's own converter, not iVar ([The four iVar tuning flags](#the-four-ivar-tuning-flags-do-not-reach-ivar)), and the merge threshold changes nothing ([Codon merging](#codon-merging)). The minimum contig length and the memory limit never reach some assemblers ([Two settings are ignored on some assemblers](#two-settings-are-ignored-on-some-assemblers)). Read the recorded command in the sidecar rather than the one you meant to run. |
 | Your own extra arguments losing to LGE's | On some tools LGE's value comes after yours and wins. Each section below says which way round it is. |
 | Tool version drift | Compare each step's `toolVersion` in the two sidecars before comparing results ([Cross-architecture and cross-version drift](#cross-architecture-and-cross-version-drift)). |
 | Thread count | Pin `--threads` to one number for every run you mean to compare ([What was measured](#what-was-measured)). |
@@ -45,7 +45,7 @@ The problems in this table stop a rerun from matching the first run. Check for e
 
 This section is for readers with a copy of the LGE source code. Everyone else can skip to [iVar variant calling](#ivar-variant-calling), since every argument list is quoted in full below.
 
-Each section names the source file that builds its command, under `Sources/LungfishWorkflow/`. The code that builds an argument list only assembles text and runs nothing, so reading it tells you the whole command. Two habits of these builders matter. Some put your extra arguments before LGE's own and some after, and since most tools read the last value of a repeated flag, that order decides whose value wins. And several builders add an argument only when a condition holds, so a flag missing from one run can still appear in another.
+Each section names the source file that builds its command, under `Sources/LungfishWorkflow/` unless the section names another folder. The code that builds an argument list only assembles text and runs nothing, so reading it tells you the whole command. Two habits of these builders matter. Some put your extra arguments before LGE's own and some after, and since most tools read the last value of a repeated flag, that order decides whose value wins. And several builders add an argument only when a condition holds, so a flag missing from one run can still appear in another.
 
 ## iVar variant calling
 
@@ -64,7 +64,7 @@ samtools mpileup -aa -A -d 600000 -B -Q 20 -q 0 -f reference.fasta alignment.bam
 | `-aa` | Report every position, including those with no reads | iVar needs a complete pileup |
 | `-A` | Keep read pairs whose mate is unmapped or oddly oriented | [Amplicon](../../GLOSSARY.md#amplicon) pairs often look odd after [primer trimming](../../GLOSSARY.md#primer-trim), and dropping them loses real evidence |
 | `-d 600000` | Raise the per-position read cap from the default of 8,000 | Amplicon panels reach tens of thousands of reads at one position |
-| `-B` | Turn off [BAQ](../../GLOSSARY.md#baq), a per-base penalty near likely misalignments | BAQ assumes randomly broken DNA and wrongly penalises bases near primer ends |
+| `-B` | Turn off [BAQ](../../GLOSSARY.md#baq), a per-base penalty near likely misalignments | BAQ assumes randomly broken DNA and wrongly penalizes bases near primer ends |
 | `-Q 20` | Ignore bases whose [Phred score](../../GLOSSARY.md#phred-score) is under 20 | Matches the floor LGE gives iVar |
 | `-q 0` | Set no [mapping quality](../../GLOSSARY.md#mapping-quality) floor | Placement is judged later |
 
@@ -86,15 +86,15 @@ For every caller except iVar, Minimum Allele Frequency and Minimum Depth are app
 
 ### The four iVar tuning flags do not reach iVar
 
-`--ivar-consensus-af` (default 0.75), `--ivar-merge-af-threshold` (default 0.25), `--ivar-bad-quality-threshold` (default 20), and `--ivar-no-ignore-strand-bias` all configure LGE's own table-to-VCF converter, which runs after iVar finishes. None is passed to `ivar variants`. In the window they are the four controls under **iVar Options** in the Call Variants dialog. So running `ivar variants` yourself with the flags LGE records will not reproduce LGE's VCF, because the part these flags control is LGE's own code.
+`--ivar-consensus-af` (default 0.75), `--ivar-merge-af-threshold` (default 0.25), `--ivar-bad-quality-threshold` (default 20), and `--ivar-no-ignore-strand-bias` all go to LGE's own table-to-VCF converter, which runs after iVar finishes. None is passed to `ivar variants`. In the window they are the four controls under **iVar Options** in the Call Variants dialog. So running `ivar variants` yourself with the flags LGE records will not reproduce LGE's VCF, because the part these flags control is LGE's own code.
 
 LGE's converter ignores [strand bias](../../GLOSSARY.md#strand-bias) by default, meaning it keeps a call even when the reads carrying the change come mostly from one strand. On amplicon data that imbalance usually reflects the primer layout, so ignoring it is right. `--ivar-no-ignore-strand-bias` turns the filter on for data where the balance is meaningful.
 
 ### Codon merging
 
-The converter folds changes inside one codon into a single VCF row with a multi-base [REF and ALT](../../GLOSSARY.md#ref-alt), so the row names the one amino acid they produce together. A group merges if any one of three tests passes, in `Variants/IVarCodonMerger.swift`. Every frequency is above the consensus threshold, `--ivar-consensus-af`, default 0.75. Every frequency lies between 0.40 and 0.60, a band fixed in the code with no setting. Or no two neighbouring frequencies, sorted by value, differ by the merge threshold, `--ivar-merge-af-threshold`, default 0.25, or more.
+The converter folds changes inside one codon into a single VCF row with a multi-base [REF and ALT](../../GLOSSARY.md#ref-alt), so the row names the one amino acid they produce together. It merges a group only when every frequency in it is above the consensus threshold, `--ivar-consensus-af`, default 0.75, in `Variants/IVarCodonMerger.swift`. Any other group is written as one row per change, each with the frequency and depth iVar measured. `--ivar-merge-af-threshold`, default 0.25, is recorded with the run, but the merge rule does not read it.
 
-None of this knows about [phase](../../GLOSSARY.md#phase), which of a sample's two chromosome copies a change sits on. A merged row asserts a codon boundary and nothing about [linkage](../../GLOSSARY.md#linkage), whether the two changes sit on one molecule. Phased [haplotypes](../../GLOSSARY.md#haplotype) are a separate job, covered in [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md).
+None of this reads [phase](../../GLOSSARY.md#phase), which of a sample's two chromosome copies a change sits on, or [linkage](../../GLOSSARY.md#linkage), whether two changes sit on one molecule, from the reads. The rule rests on arithmetic instead. When two changes both have a frequency above 0.75, more than half of the reads must carry both, assuming the same reads cover both positions. Phased [haplotypes](../../GLOSSARY.md#haplotype) are a separate job, covered in [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md).
 
 ## LoFreq variant calling
 
@@ -129,7 +129,7 @@ bcftools call --ploidy 2 -mv -Ov -o variants.raw.vcf
 
 ## Primer trimming
 
-Primer trimming runs `ivar trim`, then sorts and indexes the result, in `Primers/BAMPrimerTrimPipeline.swift`.
+Primer trimming on an alignment runs `ivar trim`, then sorts and indexes the result, in `Primers/BAMPrimerTrimPipeline.swift`. [Removing primers from reads](#removing-primers-from-reads) covers the step that works on reads instead.
 
 ```bash
 ivar trim -b scheme.bed -i input.bam -p output-prefix -q 20 -m 30 -s 4 -x 0 -e
@@ -141,6 +141,43 @@ ivar trim -b scheme.bed -i input.bam -p output-prefix -q 20 -m 30 -s 4 -x 0 -e
 
 Before trimming, LGE matches the scheme's accessions against the sequence names in the alignment's header, and stops with an error naming both when nothing matches. `--target-reference` overrides that match on the command line, as [Primer Scheme Bundles](primer-schemes.md#matching-the-scheme-to-your-alignment) explains.
 
+## Trimming reads with fastp
+
+The **fastp Adapter & Quality Trim** pane runs [`fastq trim`](cli-reference.md#fastq-trim), which builds the [fastp](../../GLOSSARY.md#fastp) arguments in `Ingestion/FastpTrimOptions.swift` and runs them through `Ingestion/FastpPairedRunner.swift`. At the pane's defaults the first call is a paired bundle and the second a single-read one.
+
+```bash
+fastp -i r1.fastq -I r2.fastq -o out_R1.fastq -O out_R2.fastq --detect_adapter_for_pe \
+    -w 8 -W 4 -M 20 --disable_quality_filtering --disable_length_filtering \
+    --json /dev/null --html /dev/null --cut_right
+fastp -i reads.fastq -o out.fastq -w 8 -W 4 -M 20 \
+    --disable_quality_filtering --disable_length_filtering \
+    --json /dev/null --html /dev/null --cut_right \
+    -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA --adapter_fasta fastp-known-adapters.fasta
+```
+
+`-W 4` and `-M 20` are **Window Size** and **Threshold**, and `--cut_right` is **Cut Right** under **Mode**. `-w` is the Mac's core count, at most 16. The two `--disable` flags stop fastp from dropping reads by its own quality and length rules, which is why **Filter by Read Length** is a separate step, and the reports go to `/dev/null`, which discards them.
+
+A paired bundle keeps its pairs in one [interleaved file](../../GLOSSARY.md#interleaved-fastq), so LGE first splits it by read name into the two files above. fastp's paired mode then keeps or drops both [mates](../../GLOSSARY.md#mate) together and finds [adapters](../../GLOSSARY.md#adapter) where the mates overlap, and with no adapter named `--detect_adapter_for_pe` adds fastp's own adapter search. That search guesses from the reads fastp meets first, so LGE hands it the pairs in a fixed shuffled order, the same on every rerun. A single-read file with no adapter named gets `-a` with the TruSeq Read 1 adapter and `--adapter_fasta` with five known adapters, TruSeq Read 1 and Read 2, Nextera, and two small RNA adapters. fastp then guesses nothing, and the result does not depend on the order of the reads. The single reads of a file that mixes pairs with single reads run in their own fastp call without those two flags, so fastp guesses their adapter.
+
+Naming an adapter, with **Manual Sequence** in the pane or `--adapter` on the command line, replaces the search with `--adapter_sequence`. In an import recipe the trim step names its kit's pair with `--adapter_sequence` and `--adapter_sequence_r2`, the Nextera pair for the **VSP2 target enrichment** preset and the TruSeq pair otherwise. Your `--extra-args` text comes after LGE's options and, on a single-read file, before the two adapter flags.
+
+## Removing primers from reads
+
+The **Primer Trimming** pane removes PCR primers from the reads themselves, before mapping, by running [`fastq primer-remove`](cli-reference.md#fastq-primer-remove). Its tool calls are built in `Sources/LungfishCLI/Commands/FastqPrimerRemovalSubcommand.swift` and the `+ReadThrough` file beside it. With a typed primer the pane uses [bbduk](../../GLOSSARY.md#bbduk), which runs twice. The block assumes one 24-base primer and a single-read file.
+
+```bash
+bbduk.sh in=reads.fastq out=five-prime.fastq ktrim=l k=15 mink=11 hdist=1 rcomp=f \
+    restrictleft=91 interleaved=f literal=<primer> qin=33 qout=33 maxcalledquality=93
+bbduk.sh in=five-prime.fastq out=trimmed.fastq ktrim=r k=24 mink=11 hdist=1 rcomp=f \
+    restrictright=24 interleaved=f literal=<primer-reverse-complement> qin=33 qout=33 maxcalledquality=93
+```
+
+The first pass finds the primer as written (`rcomp=f`) and cuts it with every base before it (`ktrim=l`), but only when the match ends within the first 91 bases, the longest primer plus 67. Those 67 bases are a nanopore adapter and barcode that may still sit in front of the primer, and the limit keeps bbduk off a primer of another amplicon deeper inside a long read. `k`, `mink`, and `hdist` are the pane's **k**, **mink**, and **hdist**, where k is the length of the [k-mer](../../GLOSSARY.md#k-mer), or exact-match word, bbduk looks for. A `k` longer than the shortest primer is refused before bbduk starts.
+
+The second pass removes a primer that a read runs through at its far end. A single read loses the primer's reverse complement when it ends within the last 24 bases, the longest primer, matched with a `k` as long as the shortest primer and at most 31. A pair runs `tbo=t interleaved=t` instead, which trims each mate where it overlaps its partner. bbduk drops a read that either pass leaves under 10 bases, such as a [primer dimer](../../GLOSSARY.md#primer-dimer), and in a pair it drops the mate too. The `qin=33 qout=33 maxcalledquality=93` flags set the score encoding and keep scores above Q50, which bbduk would otherwise lower to 50.
+
+With **Reference FASTA** as the **Primer Source**, the pane uses the cutadapt-linked engine instead, which runs [cutadapt](../../GLOSSARY.md#cutadapt) and keeps only reads that hold both primers of an amplicon. A file that mixes pairs with single reads is split by read name, each part runs on its own, and the outputs are joined with the pairs first.
+
 ## Mapping
 
 The mappers are built in `Mapping/MappingCommandBuilder.swift`.
@@ -149,12 +186,12 @@ The mappers are built in `Mapping/MappingCommandBuilder.swift`.
 minimap2 -a -x sr -t 8 -R '@RG\tID:...' --secondary=no -o out.sam reference.fasta reads.fastq
 bwa-mem2 mem -t 8 -R '@RG\tID:...' index-prefix reads.fastq
 bowtie2 -x index-prefix -p 8 --rg-id ... --rg SM:... --rg LB:... --rg PL:... --rg PU:... -S out.sam -1 r1.fastq -2 r2.fastq
-bbmap.sh ref=reference.fasta out=out.sam threads=8 nodisk=t overwrite=t secondary=f rgid=... rgsm=... rglb=... rgpl=... rgpu=... in=r1.fastq in2=r2.fastq
+bbmap.sh qin=33 ref=reference.fasta out=out.sam threads=8 nodisk=t overwrite=t secondary=f rgid=... rgsm=... rglb=... rgpl=... rgpu=... in=r1.fastq in2=r2.fastq
 ```
 
-The `\t` and `...` stand for a tab and the sample's own identifiers, which LGE fills in. Three things hold across the mappers. The minimap2 `-x` preset follows the read class of the reads, `sr` for short reads, `map-ont` for Nanopore reads, `map-hifi` for PacBio HiFi reads, and `map-pb` for other PacBio reads, and a preset you choose always wins. A [read group](../../GLOSSARY.md#read-group), the `@RG` header naming the sample, library, and platform, is always written. And [secondary alignments](../../GLOSSARY.md#secondary-alignment), extra lower-scoring placements of one read, are off unless you ask for them. Asking adds `-k 10` on bowtie2.
+The `\t` and `...` stand for a tab and the sample's own identifiers, which LGE fills in. Three things hold across the mappers. The minimap2 `-x` preset follows the read class of the reads, `sr` for short reads, `map-ont` for Nanopore reads, `map-hifi` for PacBio HiFi reads, and `map-pb` for other PacBio reads, and a preset you choose always wins. A [read group](../../GLOSSARY.md#read-group), the `@RG` header naming the sample, library, and platform, is always written. And [secondary alignments](../../GLOSSARY.md#secondary-alignment), extra lower-scoring placements of one read, are off unless you ask for them. Asking adds `-k 10` on bowtie2. A bundle stored as one file in which every read is followed by its mate maps as pairs, with `-p` on bwa-mem2 and `--interleaved` on bowtie2.
 
-Your extra arguments land in different places. On minimap2, bwa-mem2, and bowtie2 they come after LGE's options and before the output and input files, so your value wins on a flag you both set. On BBMap they come first, so LGE's value wins.
+Your extra arguments land in different places. On minimap2, bwa-mem2, and bowtie2 they come after LGE's options and before the output and input files, so your value wins on a flag you both set. On BBMap they come after `qin=33` and before LGE's other options, so your `qin=` wins and LGE's value wins on any other flag you both set.
 
 ## Kraken 2 classification
 
@@ -181,17 +218,21 @@ The five assemblers are built in `Assembly/ManagedAssemblyPipeline.swift`. SPAde
 
 ```bash
 spades.py --isolate -1 r1.fastq -2 r2.fastq -o out/ --threads 8 --memory 24
-megahit -1 r1.fastq -2 r2.fastq -o out/ --num-cpu-threads 8 --min-contig-len 200 --no-hw-accel
-skesa --reads r1.fastq,r2.fastq --contigs_out contigs.fasta --cores 8 --min_count 2
+megahit -1 r1.fastq -2 r2.fastq -o out/ --num-cpu-threads 1 --min-contig-len 200 \
+    --memory 25769803776 --no-hw-accel
+skesa --reads r1.fastq,r2.fastq --contigs_out contigs.fasta --cores 8 --memory 24 \
+    --min_contig 200 --min_count 2
 flye --nano-hq reads.fastq --out-dir out/ --threads 8
 hifiasm -o out/prefix -t 8 reads.fastq
 ```
 
-The `--memory`, `--min-contig-len`, and similar values are examples. They appear only when a memory limit or minimum contig length is set. The window sets a memory limit of three quarters of the Mac's memory, capped at 32 GB, and passes MEGAHIT its limit in bytes. The command line sets neither unless you ask.
+The memory and minimum contig length values are examples, and each flag appears only when that limit is set. The window sets a memory limit of three quarters of the Mac's memory, capped at 32 GB, and passes MEGAHIT its limit in bytes, so 24 GB becomes 25,769,803,776. The command line sets neither unless you ask.
 
-SPAdes opens with `--isolate` for one cultured organism, `--meta` for a mixed sample, or `--plasmid`, defaulting to `--isolate`. Flye's read mode becomes the flag itself, so the `nano-hq` profile gives `flye --nano-hq`. HiFi reads run `--pacbio-hifi` and PacBio subreads `--pacbio-raw` unless you choose a profile. hifiasm gets `--ont` at the front when the reads are Nanopore.
+The `-1` and `-2` form is a pair stored as two files. A bundle that stores its pairs in one interleaved file reaches SPAdes and MEGAHIT as `--12 reads.fastq` and SKESA as `--reads reads.fastq --use_paired_ends`, so the mates are assembled as pairs. A file that mixes pairs with merged or single reads is split by read name first. Its pairs then go in as `-1` and `-2`, and its other reads go beside them as `--merged` and `-s` on SPAdes, `-r` on MEGAHIT, and one more `--reads` each on SKESA. On the command line `--read-layout` says how the records of one file relate, as `auto`, `single-end`, `interleaved`, or `mixed`. The default, `auto`, reads the bundle's metadata and then the read names, as [`assemble`](cli-reference.md#assemble) explains.
 
-Two are LGE's own choices. On Apple Silicon Macs, where LGE also caps MEGAHIT's threads, MEGAHIT gets `--no-hw-accel`, which turns off processor-specific fast instructions, unless your extra arguments already set it. SKESA is pinned to `--min_count 2`, its documented default, because leaving it automatic can produce no contigs at all on a small input. Your extra arguments come after LGE's on all five.
+SPAdes opens with `--isolate` for one cultured organism, `--meta` for a mixed sample, or `--plasmid`, defaulting to `--isolate`. A MEGAHIT profile is passed as `--presets`. Flye's read mode becomes the flag itself. PacBio HiFi reads take `--pacbio-hifi`, and reads whose names mark them as PacBio subreads take `--pacbio-raw`, Flye's mode for older, noisier PacBio CLR reads. Other long reads take `--nano-raw` when their measured read quality is under Q10, and `--nano-hq` otherwise or when no quality can be measured. A profile you choose replaces that choice. hifiasm gets `--ont` at the front when the reads are Nanopore, and its haploid-viral profile adds `--n-hap 1`, `-l0`, and `-f0` unless your extra arguments set them. hifiasm can exit 0 without writing its contig [graph](../../GLOSSARY.md#assembly-graph), the `<name>.bp.p_ctg.gfa` file, so LGE counts a run without that file as failed.
+
+Three are LGE's own choices. On an Apple Silicon Mac, MEGAHIT runs on one thread whatever **Threads** says, because more threads can crash it, and the note under **Threads** in the assembly dialog says so. MEGAHIT there also gets `--no-hw-accel`, which turns off processor-specific fast instructions, unless your extra arguments already set it. SKESA is pinned to `--min_count 2`, its documented default, because leaving it automatic can produce no contigs at all on a small input. Your extra arguments come after LGE's options on all five, and on hifiasm before the reads file.
 
 ### Two settings are ignored on some assemblers
 
@@ -217,7 +258,7 @@ No dialog shows every flag of its tool. There are three ways around that, each k
 
 The first is extra arguments, `--extra-args` on most commands, which inserts your text into the command LGE builds and keeps the provenance record. The sections above say whether your value or LGE's wins. Some commands take `--extra-args` as one quoted string and others take a repeatable `--extra-arg`, one argument each time.
 
-The second is `lungfish-cli conda run [--env <name>] <tool> [args...]`, which runs a tool from its managed environment and passes its output and [exit status](../../GLOSSARY.md#exit-status) straight through. It writes no provenance record.
+The second is `lungfish-cli conda run [--env <env>] <tool-and-args> ...`, which runs a tool from its managed environment and passes its output and [exit status](../../GLOSSARY.md#exit-status) straight through. It writes no provenance record.
 
 The third is running the tool yourself with no LGE involvement, which also writes no record, and gives a loose file where later LGE commands expect an LGE result folder. Prefer the second.
 
@@ -231,7 +272,7 @@ Only what is listed here was measured, during the manual's 2026-09 checks.
 
 - The MHC genotyping route gave the same 102 allele rows for sample `Animal_01` in a whole-plate run and in a rerun of three of its samples. The agreement matters, not the number.
 - Two exports of the same [pivot workbook](../../GLOSSARY.md#pivot-workbook) differ only in `docProps/core.xml`, a timestamp inside the file, so compare the sheets rather than the files.
-- MEGAHIT often fails on Apple Silicon, always with a nonzero exit and no [contigs](../../GLOSSARY.md#contig), so a run that does finish can be trusted. The defect registry in [Known defects in this release](troubleshooting.md#known-defects-in-this-release) gives the details, and SPAdes is the alternative for short reads.
+- MEGAHIT can crash on Apple Silicon even on its one thread, and a crash always ends with a nonzero exit and no [contigs](../../GLOSSARY.md#contig), so a run that does finish can be trusted. The defect registry in [Known defects in this release](troubleshooting.md#known-defects-in-this-release) gives the details, and SPAdes is the alternative for short reads.
 - A long-read assembler can report a circular genome, such as the mitochondrion, as a contig about twice its true length. Compare a contig's length with the known genome length, as [When to Assemble](../07-assembly/01-when-to-assemble.md#circular-genomes-trimmed-overlapped-or-walked-twice) explains.
 - Tools that run on several [threads](../../GLOSSARY.md#thread) can give slightly different output at different thread counts, so fix `--threads` to one number for every run you compare.
 
