@@ -3,28 +3,28 @@ title: Decontamination
 chapter_id: 03-reads/05-decontamination
 audience: analyst
 prereqs: [03-reads/01-importing-fastq, 03-reads/02-downloading-from-sra, 01-foundations/07-plugin-packs]
-estimated_reading_min: 20
+estimated_reading_min: 21
 task: Remove host, ribosomal, contaminant, low-complexity, and duplicate reads from a FASTQ bundle.
-tags: [reads, decontamination, human, rrna, low-complexity, entropy, duplicates, deacon, bbduk, clumpify]
-tools: [deacon, bbduk, clumpify]
+tags: [reads, decontamination, human, rrna, low-complexity, entropy, duplicates, deacon, bbduk, clumpify, ribodetector]
+tools: [deacon, bbduk, clumpify, ribodetector]
 parameters_refs: [fastq.remove-human-reads, fastq.remove-ribosomal-rna, fastq.remove-contaminants, fastq.low-complexity-filter, fastq.remove-duplicates]
 entry_points:
-  - "Tools > Decontamination > Remove Human Reads..."
-  - "Tools > Decontamination > Remove Ribosomal RNA Reads..."
-  - "Tools > Decontamination > Remove Contaminants..."
-  - "Tools > Trimming & Filtering > Remove Low-Complexity Reads..."
-  - "Tools > Trimming & Filtering > Remove Duplicate Reads..."
-  - "CLI: lungfish-cli fastq scrub-human, deacon-ribo, contaminant-filter, entropy-filter, deduplicate"
+  - "Tools > Decontamination > Remove Human Reads…"
+  - "Tools > Decontamination > Remove Ribosomal RNA Reads…"
+  - "Tools > Decontamination > Remove Contaminants…"
+  - "Tools > Trimming & Filtering > Remove Low-Complexity Reads…"
+  - "Tools > Trimming & Filtering > Remove Duplicate Reads…"
+  - "CLI: lungfish-cli fastq scrub-human, deacon-ribo, ribodetector, contaminant-filter, entropy-filter, deduplicate"
 shots:
   - id: human-scrub-dialog
-    caption: "The Remove Human Reads pane, with only the selected read bundle in the Inputs section and a line of text in place of settings controls, because the operation always uses the managed human index."
+    caption: "The Remove Human Reads pane, showing only an Inputs section that names the selected read bundle and an Output section, because the operation has no settings of its own."
   - id: low-complexity-pane
     caption: "The Remove Low-Complexity Reads pane, showing the Entropy Threshold slider at 0.60 with the Advanced disclosure open on the Window and K-mer fields."
   - id: remove-duplicates-preset-picker
     caption: "The Remove Duplicate Reads pane with the Preset picker open on its six choices, Exact PCR selected."
 illustrations: []
 glossary_refs: [fastq, read, bundle, paired-end, deacon, bbduk, clumpify, k-mer, minimizer, hamming-distance, ribosomal-rna, phix, pcr-duplicate, optical-duplicate, shannon-entropy, host-depletion, required-setup-pack, provenance, checksum, depth, coverage-breadth, amplicon, primer-scheme, shotgun, variant-caller, fastp, mark-duplicates, samtools]
-features_refs: []
+features_refs: [fastq.decontaminate, fastq.trim-filter]
 fixtures_refs: [hg002-chr20, sarscov2-srr36291587]
 brand_reviewed: false
 lead_approved: false
@@ -34,7 +34,7 @@ lead_approved: false
 
 Decontamination here is a computational step, not a bench one. It throws away sequencing reads you do not want before anything is computed from them. A [read](../../GLOSSARY.md#read) is the record a sequencer writes for one DNA fragment. [FASTQ](../../GLOSSARY.md#fastq) is the read file format [Importing Sequencing Reads](01-importing-fastq.md) introduces.
 
-There are two ways to recognise an unwanted read. The first compares it against a reference, a stored collection of sequence such as the human genome. The second needs no reference. A read made almost entirely of one short repeated unit carries little information whatever it came from, and a read identical to another read in the same file is usually a copy rather than an independent observation.
+There are two ways to recognize an unwanted read. The first compares it against a reference, a stored collection of sequence such as the human genome. The second needs no reference. A read made almost entirely of one short repeated unit carries little information whatever it came from, and a read identical to another read in the same file is usually a copy rather than an independent observation.
 
 Lungfish Genome Explorer (LGE) offers five operations for this. The three under **Tools > Decontamination** match against a reference. The two that do not, Remove Low-Complexity Reads and Remove Duplicate Reads, sit at the foot of **Tools > Trimming & Filtering**.
 
@@ -58,7 +58,7 @@ The second reason is that unwanted reads can produce answers that look real. [De
 
 The third reason is privacy. Sequencing a patient sample also captures that patient's own genome. Stripping the human reads, a step called [host depletion](../../GLOSSARY.md#host-depletion), is what makes a clinical dataset shareable.
 
-This chapter runs four operations on HG002 reads, from a well-characterised human genome. Removing human reads from a human sample would leave nothing behind, so human read removal runs on SRR36291587 instead, a SARS-CoV-2 run from a clinical sample that carries a human background.
+This chapter runs four operations on HG002 reads, from a well-characterized human genome. Removing human reads from a human sample would leave nothing behind, so human read removal runs on SRR36291587 instead, a SARS-CoV-2 run from a clinical sample that carries a human background.
 
 ## Choosing a tool
 
@@ -69,6 +69,8 @@ Check what the host is and whether the library is amplicon or shotgun, as [Know 
 **Deacon** reduces every read to its [minimizers](../../GLOSSARY.md#minimizer), compact fingerprints made by keeping the smallest k-mer in each stretch of the read, and looks each one up in a prebuilt index. [Three ways to match a read](../06-classification/01-what-is-classification.md#three-ways-to-match-a-read) works through this kind of word lookup. A read counts as a match when enough of its minimizers hit. Remove Human Reads keeps Deacon's defaults, at least two hits that make up at least 1 percent of the read's minimizers. Remove Ribosomal RNA Reads uses looser settings, one hit with no share required, as its provenance record shows. LGE hands Deacon both mates of a pair, so the two are kept or removed together. Deacon handles short and long reads, with lower accuracy on very short ones.
 
 **bbduk** takes every 31-base [k-mer](../../GLOSSARY.md#k-mer) of the reference each time it runs and removes any read that shares one, allowing one mismatched base. That is quick for the 5,386-base PhiX genome or a cloning vector and impractical for a whole genome.
+
+**RiboDetector** is a second way to find ribosomal reads. It is a deep-learning classifier, a program that learned from example sequences which reads are ribosomal, and the Metagenomics plugin pack installs it. No operation or bundled recipe in LGE runs it. `lungfish-cli fastq ribodetector` runs it from the command line, with the same `--retain` choices as `fastq deacon-ribo`, so you can compare the two methods on one sample.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
@@ -87,15 +89,15 @@ A [PCR duplicate](../../GLOSSARY.md#pcr-duplicate) is a copy of one original fra
 
 **samtools markdup**, behind Mark Duplicates in the Inspector once reads are mapped, calls two pairs duplicates when their mates map to the same positions on the same strands, whatever their sequence. It flags the extra copies rather than deleting them, as [Alignment Quality](../04-alignments/04-alignment-quality.md#mark-duplicates) shows.
 
-**fastp** removes duplicates only inside the VSP2 Target Enrichment import recipe.
+**fastp** removes duplicates only inside the Illumina paired-end cleanup import recipe, where duplicate removal is on in both of its presets, VSP2 target enrichment and Wastewater metagenomics.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
 | clumpify, Remove Duplicate Reads | Reads that will not be mapped first | You want a smaller FASTQ before assembly or classification | The reads are headed for mapping and variant calling |
 | samtools markdup, Mark Duplicates | Duplicates judged by mapped position | Shotgun human or macaque data headed for variant calling | The library is amplicon data |
-| fastp dedup, VSP2 recipe | Short-insert viral target enrichment | You import VSP2 libraries | Any other library |
+| fastp dedup, Illumina paired-end cleanup recipe | Paired Illumina reads cleaned as they are imported | You import with that recipe | Any library you import another way |
 
-Amplicon data gets none of the three, because every read from one amplicon starts at the same primer and looks like a copy. Nor does abundance work, so the wastewater recipe leaves deduplication out. The HG002 fixture is a PCR-free human library headed for variant calling, so its duplicates are best marked after mapping. SRR36291587 is an amplicon run, so it gets human read removal and no deduplication. Deacon, BBTools, fastp, and SAMtools are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
+Amplicon data gets none of the three, because every read from one amplicon starts at the same primer and looks like a copy. The HG002 fixture is a PCR-free human library headed for variant calling, so its duplicates are best marked after mapping. SRR36291587 is an amplicon run, so it gets human read removal and no deduplication. Deacon, BBTools, fastp, and SAMtools are cited in [Tools installed with every copy of LGE](../appendices/bibliography.md#tools-installed-with-every-copy-of-lge).
 
 ## Before you start
 
@@ -107,7 +109,7 @@ This chapter uses the hg002-chr20 fixture. Download `HG002.chr20.10.0-10.5Mb_R1.
 
 The human-read-removal steps use a second sample, because removing human reads from a human sample leaves nothing to look at. They use run SRR36291587, the SARS-CoV-2 amplicon run from a clinical swab that [Downloading Reads from the SRA](02-downloading-from-sra.md) fetches, where the patient's own DNA is the background rather than the subject. Fetch it as that chapter shows if you work in a project of your own.
 
-Every tool in this chapter arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE. The two Deacon indexes, Human Read Removal Data and Ribosomal RNA Removal Data, also arrive with it and do not appear on the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. Remove Contaminants needs no database, because its PhiX reference is a file bundled with BBTools.
+Every tool in this chapter's dialogs arrives with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE. The two Deacon indexes, Human Read Removal Data and Ribosomal RNA Removal Data, belong to it too and do not appear on the Plugin Manager's Databases tab, as [The Databases tab](../01-foundations/07-plugin-packs.md#the-databases-tab) describes. The Human Read Removal Data, about 3.3 GB, installs with the pack. The Ribosomal RNA Removal Data, about 10 MB, is not stored inside the app and downloads the first time an operation needs it. Remove Contaminants needs no database, because its PhiX reference is a file bundled with BBTools.
 
 Each operation finishes in seconds on these fixtures, with Remove Human Reads the slowest because it first loads the human index into memory. The Deacon figures in this chapter came from Deacon 0.16.0.
 
@@ -117,21 +119,21 @@ The steps run Remove Human Reads on the SARS-CoV-2 run, and the section after th
 
 1. In the sidebar, select the SRR36291587 read bundle.
 
-2. Choose **Tools > Decontamination > Remove Human Reads...**. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, with this operation already chosen.
+2. Choose **Tools > Decontamination > Remove Human Reads…**. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, with this operation already chosen.
 
-3. Check that the Inputs section names the bundle you selected, and leave **Output Strategy** on Per Input. There is nothing else to set. The operation always matches against the managed human index, so the settings sections hold only text, no controls.
+3. Check that the Inputs section names the bundle you selected, and leave **Output Strategy** on Per Input. There is nothing else to set. The operation always matches against the managed human index, so the pane has no settings section at all.
 
     <!-- SHOT: human-scrub-dialog -->
 
-4. Click Run.
+4. Click **Run**.
 
-Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes.
+Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. The row ran a `lungfish-cli fastq scrub-human` command. To see it, right-click the row and choose **Copy CLI Command**, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes.
 
 ### The other four operations
 
 Select the HG002 bundle and open each operation from its own item, under **Tools > Decontamination** for the first two below and under **Tools > Trimming & Filtering** for the last two. What follows is only what a first run needs.
 
-**Remove Ribosomal RNA Reads** shows one **Retain Reads** control, three joined buttons labelled non-rRNA, rRNA, and Both. The label names what is kept. It starts on non-rRNA, which keeps every read that is not ribosomal, so a first run needs no change.
+**Remove Ribosomal RNA Reads** shows one **Retain Reads** control, three joined buttons labeled non-rRNA, rRNA, and Both. The label names what is kept. It starts on non-rRNA, which keeps every read that is not ribosomal, so a first run needs no change.
 
 **Remove Contaminants** shows a **Contaminant Mode** control set to PhiX, a **K-mer** field at 31, and a **Hamming Distance** field at 1. PhiX mode needs nothing else. Switching to Custom Reference adds a **Contaminant Reference** row to the Inputs section, where you choose the FASTA to match against.
 
@@ -147,13 +149,13 @@ Select the HG002 bundle and open each operation from its own item, under **Tools
 
 ### Remove Human Reads
 
-This operation has no controls of its own. The Remove Human Reads pane shows none of Deacon's matching settings, and only its Output Strategy, described at the end of this section, can be changed. It always uses the managed human index, panhuman-1, which Deacon's authors built from many human genome assemblies, so it recognises human variation that no single genome carries. They also report that accuracy drops on very short reads, such as the 50-base reads of older Illumina runs. The two import recipes that remove human reads run Deacon with the same index.
+This operation has no controls of its own. The Remove Human Reads pane shows none of Deacon's matching settings, and only its Output Strategy, described at the end of this section, can be changed. It always uses the managed human index, panhuman-1, which Deacon's authors built from many human genome assemblies, so it recognizes human variation that no single genome carries. They also report that accuracy drops on very short reads, such as the 50-base reads of older Illumina runs. The Illumina paired-end cleanup import recipe removes human reads with Deacon and the same index.
 
 ### Remove Ribosomal RNA Reads
 
 **Retain Reads.** Chooses which class of reads is written out, offering non-rRNA, rRNA, and Both. [Ribosomal RNA](../../GLOSSARY.md#ribosomal-rna) is the structural RNA of the ribosome and usually swamps an RNA library, so the default of non-rRNA keeps everything else and discards it. Choose rRNA to inspect what was removed, and Both to get two bundles, one holding each class, from one run of the operation. On the command line this is `--retain`.
 
-The operation always runs Deacon against the managed ribosomal index. The Metagenomics plugin pack also installs a program called RiboDetector, but no operation or bundled recipe in LGE runs it.
+The operation always runs Deacon against the managed ribosomal index. RiboDetector, the second method [Choosing a tool](#choosing-a-tool) describes, runs only from the command line.
 
 ### Remove Contaminants
 
@@ -167,7 +169,7 @@ Two of these settings work on k-mers. A [k-mer](../../GLOSSARY.md#k-mer) is a su
 
 ### Remove Low-Complexity Reads
 
-**Entropy Threshold.** Sets the score below which a read is discarded as repetitive. [Shannon entropy](../../GLOSSARY.md#shannon-entropy) measures how varied a stretch of sequence is, from 0 when the window repeats one short word to 1 when every 5-base word in it is different, and the default of 0.60 is the value the pane reports as removing about 4 percent of reads and about 89 percent of tandem-repeat reads on a benchmark set of reads the pane does not name. A clean human library loses far less, 68 reads of 91,148 on this fixture. Raise it when repeats still inflate depth after filtering, and lower it when the removal rate looks too aggressive for the sample. On the command line this is `--entropy`.
+**Entropy Threshold.** Sets the score below which a read is discarded as repetitive. [Shannon entropy](../../GLOSSARY.md#shannon-entropy) measures how varied a stretch of sequence is, from 0 when the window repeats one short word to 1 when every 5-base word in it is different, and the default of 0.60 is the value the pane reports as removing about 4 percent of reads and about 89 percent of tandem-repeat reads on a benchmark set of reads the pane does not name. A clean human library loses far less, 68 of 91,148 reads on this fixture. Raise it when repeats still inflate depth after filtering, and lower it when the removal rate looks too aggressive for the sample. On the command line this is `--entropy`.
 
 **Window.** Sets the length in bases of the sliding stretch over which entropy is measured, which lets the filter catch a repeat that fills only part of a read. The default is 50, short enough that several windows fit inside a typical Illumina read. Shorten it when your reads are under about 100 bases, so a full window fits inside each read. On the command line this is `--window`.
 
@@ -189,7 +191,7 @@ A flowcell is the glass slide the sequencing happens on. An Illumina instrument 
 
 ### Output Strategy
 
-**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default, and see [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) for the two choices. This setting has no command-line flag.
+**Output Strategy.** Chooses how the results of several selected bundles are filed, offering Per Input and Grouped Result. Leave it on Per Input, the default, which files each bundle's result as a bundle of its own. Grouped Result keeps a batch together in one folder with a sub-folder for each bundle, and neither choice pools the reads of several bundles. This setting has no command-line flag.
 
 Four of the five dialogs show this control. Remove Ribosomal RNA Reads does not.
 
@@ -209,7 +211,7 @@ Run on the HG002 bundle instead, Deacon printed `Retained 6/91148 sequences (0.0
 
 The table below comes from running each operation on the HG002 bundle, 91,148 reads in 45,574 pairs, the input a run from the Tools menu gets. On a paired bundle every operation keeps or removes the two mates of a pair together, so each count is even.
 
-| Operation and setting | Reads kept | Removed |
+| Operation and setting | Reads kept | Reads removed |
 |---|---|---|
 | Remove Ribosomal RNA Reads, non-rRNA | 90,912 | 236 (0.26%) |
 | Remove Contaminants, PhiX | 91,148 | 0 (0.00%) |
@@ -217,13 +219,13 @@ The table below comes from running each operation on the HG002 bundle, 91,148 re
 | Remove Low-Complexity Reads, threshold 0.60 | 91,080 | 68 (0.07%) |
 | Remove Duplicate Reads, Exact PCR | 91,148 | 0 (0.00%) |
 
-Every row but the third is what a clean human library looks like. A little ribosomal sequence turns up in any whole-genome library, since the ribosomal genes are part of the genome. No PhiX is expected when the sequencing centre did not spike the run, and 68 low-complexity reads, 34 pairs, says this slice carries little repeat content.
+Every row but the third is what a clean human library looks like. A little ribosomal sequence turns up in any whole-genome library, since the ribosomal genes are part of the genome. No PhiX is expected when the sequencing center did not spike the run, and 68 low-complexity reads, 34 pairs, says this slice carries little repeat content.
 
 The third row is there on purpose. Supplying the chromosome 20 reference as the contaminant removes every read, because the reads did come from chromosome 20. Custom Reference mode does exactly what you tell it, mistakes included.
 
 The last row holds the one number worth remembering as a threshold. The HG002 library was built without PCR, and on this slice no pair repeats another base for base, so Exact PCR removes nothing. A rate of one or two percent would still be normal for such a PCR-free library. A library here is the set of prepared DNA fragments that went onto the sequencer. A rate many times higher usually means the library was amplified from too little starting material. Removing duplicates cannot fix that, because it leaves the same small number of original fragments, so treat such a rate as a reason to prepare the library again from more input.
 
-Across its range on the same reads, the Entropy Threshold removed 16 reads at 0.3, 68 at the default 0.60, and 2,806, or 3.08 percent, at 0.9.
+Across its range on the same reads, the Entropy Threshold removed 16 reads at 0.3, 68 reads at the default 0.60, and 2,806 reads, or 3.08 percent, at 0.9.
 
 ### Provenance
 
@@ -231,7 +233,7 @@ A ribosomal run's sidecar and log name Deacon's thresholds differently, and noth
 
 ## What good looks like
 
-Check the removal rate against what the sample is. A rate near zero on a sample you expected to be mostly host, or near total on one you expected to be mostly target, points to the wrong database or a mislabelled sample.
+Check the removal rate against what the sample is. A rate near zero on a sample you expected to be mostly host, or near total on one you expected to be mostly target, points to the wrong database or a mislabeled sample.
 
 Check that the output is not nearly empty. A run that kept a handful of reads, like the 6-read HG002 result, has told you the sample was almost entirely human, so account for it before mapping what is left.
 
@@ -270,7 +272,7 @@ lungfish-cli fastq deduplicate "$READS" \
   --subs 0 --output "$HOME/Desktop/dedup.fastq"
 ```
 
-Each command reads the pairing the bundle records, so given the file inside a paired bundle it keeps the mates together as the window does. `--pairing` overrides that choice. It takes `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and no tool can pair such a file by position. Every command checks the records before it pairs anything. On such a mixed file `deduplicate` splits the records by name and deduplicates the pairs as pairs and the merged reads on their own. The other commands treat each record as a single read, say so on standard error, and record the layout they found in provenance. `deacon-ribo` also accepts the two original mate files, R1 then R2, and writes a filtered file for each into the directory you name.
+Each command reads the pairing the bundle records, so given the file inside a paired bundle it keeps the mates together as the window does. `--pairing` overrides that choice. It takes `interleaved`, `single`, or `auto`, the default, which reads the bundle's record first and then the read names. A bundle written by a merge recipe holds merged single reads between the pairs that did not merge, and no tool can pair such a file by position. Every command checks the records before it pairs anything. On such a mixed file `deduplicate` splits the records by name and deduplicates the pairs as pairs and the merged reads on their own. The other commands treat each record as a single read, say so on standard error, and record the layout they found in provenance. `deacon-ribo` also accepts the two original mate files, R1 then R2, and writes a filtered file for each into the directory you name. Given two loose mate files, `deacon-ribo` and `ribodetector` read both whole before the tool starts, and they stop with exit status 3 when the pair is cut short or its mates are out of step by read name.
 
 ## Next
 

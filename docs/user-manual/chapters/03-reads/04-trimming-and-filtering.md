@@ -3,7 +3,7 @@ title: Trimming and Filtering Reads
 chapter_id: 03-reads/04-trimming-and-filtering
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 03-reads/01-importing-fastq, 03-reads/03-quality-control]
-estimated_reading_min: 25
+estimated_reading_min: 28
 task: Trim adapters, low-quality bases, primers, and fixed base counts from FASTQ reads, and filter the survivors by length.
 tags: [reads, trim, adapter, primer, length, filter, fastp, bbduk, cutadapt, seqkit]
 tools: [fastp, bbduk, cutadapt, seqkit]
@@ -13,14 +13,14 @@ entry_points:
   - "CLI: lungfish-cli fastq trim, quality-trim, adapter-trim, primer-remove, fixed-trim, length-filter"
 shots:
   - id: trimming-dialog
-    caption: "The FASTQ/FASTA Operations window on the fastp Adapter & Quality Trim pane at its defaults, with Threshold 20, Window Size 4, Mode on Cut Right, and Adapter Mode on Auto-Detect."
+    caption: "The FASTQ/FASTA Operations window on the fastp Adapter & Quality Trim pane at its defaults, with Threshold 20, Window Size 4, Mode on Cut Right, and Adapter Mode on Auto-Detect under Primary settings."
   - id: primer-trimming-literal-pane
-    caption: "The Primer Trimming pane with Primer Source on Literal Sequence, showing the Primer Sequence field above the three compact fields labelled k, mink, and hdist."
+    caption: "The Primer Trimming pane with Primer Source on Literal Sequence, showing the Primer Sequence field above the three compact fields labeled k, mink, and hdist."
   - id: length-filter-readiness
-    caption: "The Filter by Read Length pane with both bounds empty, showing the readiness line reading Enter a minimum, a maximum, or both."
+    caption: "The Filter by Read Length pane with both bounds empty and the readiness line at the foot of the window reading Enter a minimum, a maximum, or both."
 illustrations: []
 glossary_refs: [fastq, phred-score, basecaller, read-length, adapter, library-prep, fastp, bbduk, cutadapt, seqkit, sliding-window-trimming, k-mer, hamming-distance, umi, amplicon, shotgun, primer, primer-scheme, primer-trim, paired-end, mapping, variant-caller, required-setup-pack, provenance, checksum, bundle, chimera, ivar, soft-clip]
-features_refs: []
+features_refs: [fastq.trim-filter]
 fixtures_refs: [hg002-chr20]
 brand_reviewed: false
 lead_approved: false
@@ -43,11 +43,11 @@ Four programs do the work behind those six operations, which is why the settings
 | Program | What it does here |
 |---|---|
 | [fastp](../../GLOSSARY.md#fastp) | Quality trimming, adapter removal, and fixed-base trimming |
-| [bbduk](../../GLOSSARY.md#bbduk) | Primer trimming when you type a primer sequence |
+| [bbduk](../../GLOSSARY.md#bbduk) | Primer trimming when you type a primer sequence, and the length filter on read pairs |
 | [Cutadapt](../../GLOSSARY.md#cutadapt) | Primer trimming when you choose a FASTA file of primers |
-| [seqkit](../../GLOSSARY.md#seqkit) | The length filter |
+| [seqkit](../../GLOSSARY.md#seqkit) | The length filter on single reads |
 
-Trim only what quality control showed you was there, then measure what the trim cost, because every operation removes some real sequence along with the artefact.
+Trim only what quality control showed you was there, then measure what the trim cost, because every operation removes some real sequence along with the artifact.
 
 ## Why you would do this
 
@@ -55,7 +55,7 @@ A read that ends in adapter may fail to map, or may map to the wrong place becau
 
 Length filtering solves a different problem. Trimming shortens reads, and a very short read can match many places on a large genome equally well. Dropping those reads before mapping is cheaper than untangling ambiguous alignments afterwards.
 
-This chapter works on a half-million-base slice of chromosome 20 from HG002, a human genome from the Genome in a Bottle project whose true sequence is already known. The reads are already good, which is deliberate. You need to know what a trim costs on clean data before you can recognise one that has gone wrong on bad data.
+This chapter works on a half-million-base slice of chromosome 20 from HG002, a human genome from the Genome in a Bottle project whose true sequence is already known. The reads are already good, which is deliberate. You need to know what a trim costs on clean data before you can recognize one that has gone wrong on bad data.
 
 ## Choosing a tool
 
@@ -63,9 +63,9 @@ Check whether your reads are short or long and amplicon or shotgun, as [Know you
 
 ### Adapters and low-quality ends
 
-**fastp** runs behind four of the six operations. Its quality trim cuts where the average score in a short sliding window drops below the Threshold. On a paired bundle LGE hands fastp both mates of each pair together, so fastp keeps or drops the two as one and finds adapter by lining the mates up against each other. Where two mates overlap past the end of their fragment, whatever hangs off the overlap must be adapter, so this finds even an adapter that turns up in only a few reads. On single reads fastp has to guess the adapter from sequence shared by the ends of many reads, and that guess can miss a rare adapter. LGE does not report which adapter fastp chose.
+**fastp** runs behind four of the six operations. Its quality trim cuts where the average score in a short sliding window drops below the Threshold. On a paired bundle LGE hands fastp both mates of each pair together, so fastp keeps or drops the two as one and finds adapter by lining the mates up against each other. Where two mates overlap past the end of their fragment, whatever hangs off the overlap must be adapter, so this finds even an adapter that turns up in only a few reads. fastp also guesses the adapter's sequence from the first pairs it reads, and an import often stores similar reads side by side, so LGE hands fastp the pairs in a fixed shuffled order that is the same on every run. On a bundle of single reads LGE lets fastp guess nothing. Unless you type an adapter, it names the Illumina TruSeq Read 1 adapter and a bundled list of five common adapters (TruSeq Read 1 and Read 2, Nextera, and two small-RNA adapters), and the new bundle's record lists them.
 
-**Trim Galore** runs only on the import sheet, as [Importing Sequencing Reads](01-importing-fastq.md#choosing-a-tool) describes. It is a trimming program that recognises common [adapter](../../GLOSSARY.md#adapter) types from the reads themselves, among them the standard Illumina and Nextera adapters, cuts low-quality bases from the 3' end of each read, and drops reads left too short. Its strength is that every sample in a batch gets the same standard trim the moment it lands. Its weakness is that the trim is baked into the only copy of the reads LGE stores, with settings the sheet does not let you change, so you cannot measure what it removed. It also stops with an error on a single file that mixes read pairs with unpaired reads.
+**Trim Galore** runs only on the import sheet, as [Importing Sequencing Reads](01-importing-fastq.md#choosing-a-tool) describes. It is a trimming program that recognizes common [adapter](../../GLOSSARY.md#adapter) types from the reads themselves, among them the standard Illumina and Nextera adapters, cuts low-quality bases from the 3' end of each read, and drops reads left too short. Its strength is that every sample in a batch gets the same standard trim the moment it lands. Its weakness is that the trim is baked into the only copy of the reads LGE stores, with settings the sheet does not let you change, so you cannot measure what it removed. It also stops with an error on a single file that mixes read pairs with unpaired reads.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
@@ -76,7 +76,7 @@ For human or macaque whole-genome data headed for germline variant calling, a de
 
 ### Primers
 
-**bbduk**, the Literal Sequence choice, breaks the one primer you type into short words, finds the primer at the start of each read, and cuts it off with every base before it. It looks only within the first stretch of each read, as long as the primer plus 67 bases, which leaves room for an untrimmed Nanopore adapter and barcode in front of the primer. A second bbduk pass then removes the copy of a primer that a read runs into at its 3' end, which happens when the fragment is shorter than the read. It cuts a pair where its two mates overlap, so each mate ends where its partner's primer began, and it cuts a single read where the primer's reverse complement ends within the read's last bases, as many bases as the primer is long. A read that either pass leaves shorter than 10 bases, such as a primer dimer, is dropped together with its mate. Because it matches by sequence, a real variant plus a sequencing error inside the primer can let a primer through.
+**bbduk**, the Literal Sequence choice, breaks the one primer you type into short words, finds the primer at the start of each read, and cuts it off with every base before it. It looks only within the first stretch of each read, as long as the primer plus 67 bases, which leaves room for an untrimmed Nanopore adapter and barcode in front of the primer. A second bbduk pass then removes the copy of a primer that a read runs into at its 3' end, which happens when the fragment is shorter than the read. It cuts a pair where its two mates overlap, so each mate ends where its partner's primer began, and it cuts a single read where the primer's reverse complement ends within the read's last bases, as many bases as the primer is long. A read that either pass leaves shorter than 10 bases, such as a primer dimer, is dropped together with its mate. When a tiled scheme's primers are given as a file on the command line, the second pass can also cut real bases from a single read whose last bases happen to hold the reverse complement of another amplicon's primer. Pairs escape this, because they are cut where their mates overlap. Because it matches by sequence, a real variant plus a sequencing error inside the primer can let a primer through.
 
 **Cutadapt**, the Reference FASTA choice, finds primers by alignment that tolerates a set share of wrong, missing, or extra bases. LGE runs it in linked mode, looking for the forward and reverse primer of one amplicon on the same read. It pairs primers by name, so the names must end in `_F` and `_R` or a variant that the [Primer Trimming settings](#primer-trimming) list, and it discards every read in which no primer pair was found. Because a read must hold both primers of an amplicon to stay, this choice suits reads that span a whole amplicon, such as full-length Nanopore amplicon reads. Short reads of a longer amplicon rarely reach both primers, so most of them are dropped.
 
@@ -102,23 +102,25 @@ A [paired-end](../../GLOSSARY.md#paired-end) run gives two mates per DNA fragmen
 
 fastp, bbduk, Cutadapt, and seqkit arrive with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), which the Welcome window offers to install the first time you open LGE. Reading [Quality Control for Reads](03-quality-control.md) first helps, because its summary cards are how you judge whether a trim helped.
 
+A fastp trim of read pairs writes work files beside its output, and they need free disk space of about three times the size of the uncompressed reads. LGE checks the disk before it starts, and when the disk is short the trim writes nothing and its message says how much space it needs. The fixture needs very little.
+
 ## Procedure
 
-This chapter's example runs the combined fastp pass on the imported bundle, then filters the result by length. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, and one window, titled FASTQ/FASTA Operations, serves all six operations.
+This chapter's example runs the combined fastp pass on the imported bundle, then filters the result by length. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, and one window, titled FASTQ/FASTA Operations, serves all six operations. The readiness line at the foot of the window, beside **Run**, says what the run still needs before it can start.
 
 ### The combined adapter and quality trim
 
 1. Click the `HG002.chr20.10.0-10.5Mb` bundle in the sidebar.
 
-2. Choose **Tools > Trimming & Filtering > fastp Adapter & Quality Trim...**.
+2. Choose **Tools > Trimming & Filtering > fastp Adapter & Quality Trim…**.
 
     <!-- SHOT: trimming-dialog -->
 
-3. Leave **Threshold** at 20, **Window Size** at 4, **Mode** on Cut Right, and **Adapter Mode** on Auto-Detect. These defaults suit this data, and [Settings](#settings) explains when to change each one.
+3. Leave **Threshold** at 20, **Window Size** at 4, **Mode** on Cut Right, and **Adapter Mode** on Auto-Detect, all under Primary settings. These defaults suit this data, and [Settings](#settings) explains when to change each one.
 
 4. Leave **Output Strategy** on Per Input, which writes one trimmed bundle for the one bundle you selected.
 
-5. Click Run.
+5. Click **Run**.
 
 Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel), which opens with **Operations > Show Operations Panel** (Cmd-Shift-P). The result lands under `Analyses/` in a new folder, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) describes. This run writes a bundle named `HG002.chr20.10.0-10.5Mb-fastpTrim`, the input's name with the operation added.
 
@@ -126,27 +128,27 @@ Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-projec
 
 1. Click the new `HG002.chr20.10.0-10.5Mb-fastpTrim` bundle under `Analyses/` in the sidebar. The original bundle stays under `Imports/`.
 
-2. Choose **Tools > Trimming & Filtering > Filter by Read Length...**.
+2. Choose **Tools > Trimming & Filtering > Filter by Read Length…**.
 
 3. Set **Min Length** to 50 and leave **Max Length** empty. Both fields start empty, and until one is filled the readiness line reads "Enter a minimum, a maximum, or both."
 
     <!-- SHOT: length-filter-readiness -->
 
-4. Click Run.
+4. Click **Run**.
 
 The result, `HG002.chr20.10.0-10.5Mb-fastpTrim-lengthFilter`, also lands under `Analyses/`. On data that needed trimming, this is the bundle you would hand to a mapper. This manual maps the untrimmed `HG002.chr20.10.0-10.5Mb` bundle instead, because these reads are clean, so treat the two bundles you made here as practice. Run the length filter last, because every other operation in this chapter can shorten reads and so change which reads fall below your minimum.
 
 ### Trimming a fixed number of bases
 
-Use **Tools > Trimming & Filtering > Trim Fixed Bases...** when the library design puts the same number of unwanted bases on every read. A common case is a [UMI](../../GLOSSARY.md#umi), a short random barcode attached to each original molecule before amplification so that PCR copies of one molecule can later be told apart from separate molecules.
+Use **Tools > Trimming & Filtering > Trim Fixed Bases…** when the library design puts the same number of unwanted bases on every read. A common case is a [UMI](../../GLOSSARY.md#umi), a short random barcode attached to each original molecule before amplification so that PCR copies of one molecule can later be told apart from separate molecules.
 
-Set **5' Trim**, **3' Trim**, or both, then click Run. The 5' end is the start of the read and the 3' end is its end. This operation ignores quality and removes exactly the count you asked for from every read.
+Set **5' Trim**, **3' Trim**, or both, then click **Run**. The 5' end is the start of the read and the 3' end is its end. This operation ignores quality and removes exactly the count you asked for from every read.
 
 ### Primer trimming at the read level
 
 An [amplicon](../../GLOSSARY.md#amplicon) protocol copies the target in overlapping PCR pieces, and its [primer scheme](../../GLOSSARY.md#primer-scheme) lists where each primer binds, as [Amplicons and Shotgun Sequencing](../01-foundations/03-amplicon-vs-shotgun.md#amplicon-sequencing) explains. A [shotgun](../../GLOSSARY.md#shotgun) library is made from DNA broken at random, so reads land anywhere on the genome.
 
-**Tools > Trimming & Filtering > Primer Trimming...** finds primer sequence in the text of each read and cuts it off, before any mapping. That fits a pipeline whose next tool reads FASTQ. When your next step is mapping and variant calling, [primer trimming](../../GLOSSARY.md#primer-trim) after mapping is the route [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) teaches.
+**Tools > Trimming & Filtering > Primer Trimming…** finds primer sequence in the text of each read and cuts it off, before any mapping. That fits a pipeline whose next tool reads FASTQ. When your next step is mapping and variant calling, [primer trimming](../../GLOSSARY.md#primer-trim) after mapping is the route [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) teaches.
 
 <!-- SHOT: primer-trimming-literal-pane -->
 
@@ -160,7 +162,7 @@ The operation trims whatever sequence you give it, so a human amplicon panel wor
 
 ### Quality trimming and adapter removal on their own
 
-The combined operation does both jobs in one fastp pass and is the right first choice. **Tools > Trimming & Filtering > Quality Trim...** trims quality and leaves adapters alone, and it is the only one of the six panes with an **Extra arguments** field. **Tools > Trimming & Filtering > Adapter Removal...** removes adapters and leaves quality alone.
+The combined operation does both jobs in one fastp pass and is the right first choice. **Tools > Trimming & Filtering > Quality Trim…** trims quality and leaves adapters alone, and it is the only one of the six panes with an **Extra arguments** field. **Tools > Trimming & Filtering > Adapter Removal…** removes adapters and leaves quality alone.
 
 ### FASTA input
 
@@ -174,7 +176,7 @@ Several labels appear on more than one pane. Each is described once, and the hea
 
 **Threshold.** Sets the lowest Phred score a base may have before fastp treats it as unreliable. The default is 20, one expected error in a hundred bases, the usual floor for Illumina data. Raise it toward 30 when you need very clean bases for variant calling, and lower it when trimming discards too much of every read. On the command line this is `--threshold`.
 
-**Window Size.** Sets how many neighbouring bases fastp averages before deciding to cut, which makes this [sliding-window trimming](../../GLOSSARY.md#sliding-window-trimming) rather than a base-by-base cut. The default is 4, wide enough that one bad base does not end an otherwise good read. Use a smaller window for a sharp quality drop at the read end. On the command line this is `--window`.
+**Window Size.** Sets how many neighboring bases fastp averages before deciding to cut, which makes this [sliding-window trimming](../../GLOSSARY.md#sliding-window-trimming) rather than a base-by-base cut. The default is 4, wide enough that one bad base does not end an otherwise good read. Use a smaller window for a sharp quality drop at the read end. On the command line this is `--window`.
 
 **Mode.** Chooses where fastp cuts, offering Cut Right, Cut Front, Cut Tail, and Cut Both. The default is Cut Right, which suits the usual Illumina pattern of good bases early and poor bases late. Switch to Cut Both when quality is poor at both ends of the read. On the command line this is `--mode`.
 
@@ -189,11 +191,11 @@ The names describe where the cut lands, not where the scan starts. Picture the r
 
 Threshold and Window Size must both be above 0. Otherwise the readiness line reads "Enter a positive quality threshold and window size."
 
-Two fastp behaviours sit outside these controls. fastp trims poly-G tails on its own when the read names show a NextSeq or NovaSeq instrument, and LGE leaves that in place. These instruments read the base G as the absence of light, so a read whose signal fades ends in a false run of Gs. LGE also switches off fastp's own minimum-length and read-quality filters, which is why a trimmed bundle can hold one-base reads and why Filter by Read Length is a separate step.
+Two fastp behaviors sit outside these controls. fastp trims poly-G tails on its own when the read names show a NextSeq or NovaSeq instrument, and LGE leaves that in place. These instruments read the base G as the absence of light, so a read whose signal fades ends in a false run of Gs. LGE also switches off fastp's own minimum-length and read-quality filters, which is why a trimmed bundle can hold one-base reads and why Filter by Read Length is a separate step.
 
 ### Adapter settings (fastp Adapter & Quality Trim, Adapter Removal)
 
-**Adapter Mode.** Chooses whether fastp works out the adapter from the reads or uses a sequence you type, offering Auto-Detect and Manual Sequence. The default is Auto-Detect, which looks for sequence shared by many reads and is right whenever you do not know your kit's adapter. Use Manual Sequence when you know the exact adapter from the kit and auto-detection misses it. On the command line this is `--adapter`.
+**Adapter Mode.** Chooses whether LGE finds the adapter for you or uses a sequence you type, offering Auto-Detect and Manual Sequence. The default is Auto-Detect, which finds adapter on pairs where the mates overlap and trims TruSeq Read 1 and the five listed adapters from single reads, so it suits the common TruSeq and Nextera kits. Use Manual Sequence when your kit's adapter is not among those, or when adapter is still there after an auto-detected trim. On the command line this is `--adapter`.
 
 **Adapter Sequence.** Holds the one adapter sequence fastp removes, written in A, C, G, T and the IUPAC ambiguity letters, which stand for more than one base, such as N for any base. It starts empty and appears only while Adapter Mode is Manual Sequence. Fill it in from your kit's documentation when auto-detection does not find the adapter. On the command line this is `--adapter`.
 
@@ -231,7 +233,9 @@ A minimum larger than the maximum makes the readiness line read "Minimum read le
 
 ### Shared settings
 
-**Output Strategy.** Chooses whether each selected bundle gets its own output or all of them are pooled into one, offering Per Input and Grouped Result. The default is Per Input, which keeps samples apart and is right whenever the selected bundles are different samples. Choose Grouped Result only when the selected bundles are pieces of one library, as [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) explains. This setting has no command-line flag.
+**Output Strategy.** Chooses how the results of several selected bundles are filed, offering Per Input and Grouped Result. The default is Per Input, which files each bundle's result as a bundle of its own and is right for most runs. Choose Grouped Result to keep a batch together in one folder, where each selected bundle still runs its own command and gets a sub-folder named for it, with `-2` added when two bundles share a name. This setting has no command-line flag.
+
+Neither choice pools the reads of several bundles into one bundle, so two runs of one library still give two trimmed results.
 
 **Extra arguments.** Passes text straight to fastp without LGE checking it. The default is empty, which is right for almost every run. Use it only for a fastp option the dialog does not show, after reading that tool's own documentation. On the command line this is `--extra-args`.
 
@@ -241,7 +245,7 @@ Only the Quality Trim pane shows Extra arguments. The combined pane has no such 
 
 Click the bundle to open the FASTQ viewport, whose summary cards [Quality Control for Reads](03-quality-control.md#reading-the-results) explains card by card. LGE computes the new bundle's summary as it writes the bundle, so the cards are filled when the bundle appears. Three cards matter here. Reads is how many records the bundle holds, Bases is the total number of letters across them, and Mean Length is Bases divided by Reads.
 
-[Quality Control for Reads](03-quality-control.md) judged these reads fine, so the trim here is practice. You need to know what a trim costs on clean data before you can recognise one that has gone wrong. The table gives the figures for the procedure's two steps on the paired bundle. They come from a run of the same fastp and bbduk commands the window runs, on the bundle's own file.
+[Quality Control for Reads](03-quality-control.md) judged these reads fine, so the trim here is practice. You need to know what a trim costs on clean data before you can recognize one that has gone wrong. The table gives the figures for the procedure's two steps on the paired bundle. They come from a run of the same fastp and bbduk commands the window runs, on the bundle's own file.
 
 | Measure | Imported bundle | After fastp Adapter & Quality Trim | After Filter by Read Length, minimum 50 |
 |---|---|---|---|
@@ -266,15 +270,15 @@ Four more runs on the same bundle show what the settings do.
 | Quality Trim, Threshold 30 | 87,834 | 16,595,750 |
 | Trim Fixed Bases, 5' Trim of 10 | 91,148 | 21,751,366 |
 
-Adapter Removal kept every read and removed 21,561 bases of adapter from 829 reads, under 1 percent of the reads, found by lining up the two mates of each pair. [Subsetting and Extraction](06-subsetting-and-extraction.md#select-reads-by-sequence) finds a similar share, 518 reads, when it searches the reads for the Illumina TruSeq adapter directly. So these reads do carry adapter, at a frequency too low to matter for mapping and too low for fastp to guess from single reads. Quality Trim alone kept 102 more reads than the combined operation and about 29,000 more bases, mostly the adapter the combined pass also took. Ten more points of threshold, Q30 instead of Q20, cost a further 3.67 million bases of real human sequence, 18 percent of what the Q20 trim had left. Trim Fixed Bases removed exactly 911,480 bases, ten bases times 91,148 reads, and kept every read.
+Adapter Removal kept every read and removed 21,561 bases of adapter from 829 reads, under 1 percent of the reads, found by lining up the two mates of each pair. [Subsetting and Extraction](06-subsetting-and-extraction.md#select-reads-by-sequence) finds a similar share, 518 reads, when it searches the reads for the Illumina TruSeq adapter directly. So these reads do carry adapter, at a frequency too low to matter for mapping. Quality Trim alone kept 102 more reads than the combined operation and about 29,000 more bases, mostly the adapter the combined pass also took. Ten more points of threshold, Q30 instead of Q20, cost a further 3.67 million bases of real human sequence, 18 percent of what the Q20 trim had left. Trim Fixed Bases removed exactly 911,480 bases, ten bases times 91,148 reads, and kept every read.
 
-To see the same run as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes.
+Each run's row in the Operations Panel ran a `lungfish-cli fastq` command. To see it, right-click the row and choose **Copy CLI Command**, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes.
 
 ## What good looks like
 
 Compare the trimmed bundle's cards and charts against the input's. The viewport shows one bundle at a time, so note the input's figures first, then click the output. Apply these checks in order.
 
-**The quality chart.** The chart labelled Q / Position plots quality along the read. After a trim at a Threshold of 20 it should no longer dip below Q20 at the read end, where Q20 is the same Phred score of 20.
+**The quality chart.** The chart labeled Q / Position plots quality along the read. After a trim at a Threshold of 20 it should no longer dip below Q20 at the read end, where Q20 is the same Phred score of 20.
 
 **Read survival.** For typical Illumina data expect 90 percent or more of reads to survive a quality trim, and this example's 99.35 percent sits well inside that. Survival below about 70 percent means the Threshold is too harsh for the data. Lower it rather than accept the loss.
 
@@ -290,7 +294,7 @@ LGE records every trim in the new bundle's [provenance](../../GLOSSARY.md#proven
 
 **Low quality persists after trimming.** When the Q / Position chart still dips below Q20 at the read ends, the four-base window probably averaged over isolated bad bases. A Window Size of 1 judges each base on its own and clears them, at the cost of a more aggressive cut. Use 1 as a diagnostic when the chart is flat and healthy apart from isolated downward spikes, and keep 4 when quality declines steadily toward the read end, the ordinary case.
 
-**Adapter still suspected after Adapter Removal.** On single reads auto-detection can miss an adapter it has too few examples of, and the app does not report which adapter fastp settled on. Re-run with **Adapter Mode** set to Manual Sequence and paste your kit's adapter.
+**Adapter still suspected after Adapter Removal.** On a bundle of single reads Auto-Detect trims only TruSeq Read 1 and the five listed adapters, so a library made with another adapter keeps it. Re-run with **Adapter Mode** set to Manual Sequence and paste your kit's adapter.
 
 **Primer bases visible after read-level primer trimming.** bbduk tolerates one mismatch by default, so a read carrying a real variant plus a sequencing error inside the primer can slip through untrimmed. Raising **hdist** helps a little and costs specificity. The second pass, which removes a primer at the 3' end of a read where the read ran past the end of a short fragment, matches by sequence in the same way and misses the same primers. The lasting fix for both is primer trimming after mapping, covered in [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md), which matches on position rather than sequence.
 
@@ -304,7 +308,7 @@ READS="$PROJECT/Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq/HG002.chr20.10.0-1
 
 # The combined adapter and quality pass, at the dialog's defaults.
 lungfish-cli fastq trim "$READS" \
-  --threshold 20 --window 4 --mode cut-right \
+  --threshold 20 --window 4 --mode cut-right --adapter-trimming \
   --output "$HOME/Desktop/hg002.trim.fastq"
 
 # Drop everything under 50 bases, last of all, keeping mates together.
@@ -318,7 +322,7 @@ lungfish-cli fastq primer-remove "$READS" \
   --output "$HOME/Desktop/hg002.primer.fastq"
 ```
 
-The trim and the length filter give the window's numbers. `fastq trim` reads the bundle's pairing, splits the pairs into two files, and runs fastp on them as a pair, the same code the window runs, so it keeps 90,556 reads and 20,236,175 bases. The trimmed file sits outside any bundle, so `--pairing interleaved` states that its records alternate between mates rather than leaving `fastq length-filter` to work that out from the read names. It then runs bbduk, which keeps or drops both mates together, and keeps 86,410 reads, 43,205 whole pairs with no read left without its mate. `fastq primer-remove` reads the pairing from the read names, as the window does, so it keeps the mates of a pair together in the same way. Its `--kmer` defaults to 15, as the dialog's **k** does, and the command a run records always names `--kmer`. One primer-trimming behaviour differs from the window and changes results. `--ref` alone runs bbduk on the primer file, while the dialog's Reference FASTA choice runs cutadapt, so add `--engine cutadapt-linked` to match the window.
+The trim and the length filter give the window's numbers, because the window's rows run these same commands. `fastq trim` reads the bundle's pairing, splits the pairs into two files, and runs fastp on them as a pair in the same fixed shuffled order, so it keeps 90,556 reads and 20,236,175 bases. `--adapter-trimming` is the default, and the window writes it out. The trimmed file sits outside any bundle, so `--pairing interleaved` states that its records alternate between mates rather than leaving `fastq length-filter` to work that out from the read names. It then runs bbduk, which keeps or drops both mates together, and keeps 86,410 reads, 43,205 whole pairs with no read left without its mate. `fastq primer-remove` reads the pairing from the read names, as the window does, so it keeps the mates of a pair together in the same way. Its `--kmer` defaults to 15, as the dialog's **k** does, and the command a run records always names `--kmer`. One primer-trimming behavior differs from the window and changes results. `--ref` alone runs bbduk on the primer file, while the dialog's Reference FASTA choice runs cutadapt, so add `--engine cutadapt-linked` to match the window.
 
 ## Next
 
