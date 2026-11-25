@@ -36,7 +36,7 @@ lead_approved: false
 
 A single-cell result holds a count for every gene in every cell, as [Single-Cell RNA-seq Counts](04-single-cell-counts.md) describes. Each count is a number of [UMIs](../../GLOSSARY.md#umi), the molecular tags that let one captured RNA molecule count once, as [Bulk and single-cell libraries](01-what-is-rna-seq.md#bulk-and-single-cell-libraries) explains. Lungfish Genome Explorer (LGE) can draw those cells as dots on a flat plot called the cell map. On the map you can see which cells resemble one another, color the cells by a group or by one gene, and select a group of cells to sum into a [pseudobulk](../../GLOSSARY.md#pseudobulk), a bulk-style table of counts for each sample.
 
-A [cell map](../../GLOSSARY.md#cell-map) is a result of its own, a `.lungfishrnaseq` folder that sits beside the single-cell result it was made from. It holds one or more embeddings and one or more label sets, such as clusters, and it names that single-cell result as its parent. Nothing is written inside the parent. Every count, legend bound, and gene value the map shows is a number that `lungfish-cli`, LGE's command-line program, wrote into the cell map. The one number the view works out itself is how many cells are selected.
+A [cell map](../../GLOSSARY.md#cell-map) is a result of its own, a `.lungfishrnaseq` folder that sits beside the single-cell result it was made from. It holds one or more embeddings and any label sets, such as clusters, and it names that single-cell result as its parent. Nothing is written inside the parent. Every count, legend bound, and gene value the map shows is a number that `lungfish-cli`, LGE's command-line program, wrote into the cell map. The one number the view works out itself is how many cells are selected.
 
 ### Embeddings, UMAP, t-SNE, and PCA
 
@@ -113,7 +113,7 @@ The settings follow the inputs. Leave **Directory** at the project's Analyses fo
 
 The dialog closes, and the [Operations Panel](../../GLOSSARY.md#operations-panel) shows the row as it works. It reads `projection.csv` and `clusters.csv`, checks the barcodes against the result, and writes the new folder. The row ends Completed with Warnings, because you stated that the embedding came from other counts, and LGE opens the new cell map. The row records the `lungfish-cli rnaseq cell-map import` command it ran.
 
-If the import is refused, an alert names the checkbox to turn on, and the pane opens empty when you choose **Import Embedding…** again, so set every control again.
+If the import is refused for a `-1` suffix, for barcodes the result does not hold, or for other counts, an alert names the checkbox to turn on, and the pane opens empty when you choose **Import Embedding…** again, so set every control again.
 
 ### Compute clusters and a UMAP with rnaseq cell-map compute
 
@@ -319,7 +319,7 @@ A gray cell had no UMI of the gene counted. Single-cell methods capture only par
 
 [PHATE](../../GLOSSARY.md#phate) is a method that draws cells along smooth paths, built to show gradual changes between cell states. LGE does not run PHATE or MIOFlow. Their status in LGE is `not offered: Yale non-commercial licence`. You can still import PHATE coordinates that you made yourself, in LGE's table with columns such as `phate_1` and `phate_2`.
 
-PHATE gets its own caption, "PHATE draws cells along smooth paths. A path suggests a transition and gives no time order." It shows only when the cell map records the method as PHATE, which the command line sets with `--method phate=PHATE`. The Import Embedding pane has no method field, so a PHATE table imported from the pane gets the caption for a method that is not recorded. The Seurat and Scanpy scripts of LGE's single-cell export print an import command with a `--method` flag for the embeddings they write.
+PHATE gets its own caption, "PHATE draws cells along smooth paths. A path suggests a transition and gives no time order." It shows only when the cell map records the method as PHATE, which the command line sets with `--method phate=PHATE`. The Import Embedding pane has no method field, so a PHATE table imported from the pane gets the caption for a method that is not recorded. The Seurat and Scanpy scripts of LGE's single-cell export print an import command with a `--method` flag for an embedding named umap, tsne, or pca, so for PHATE you add `--method phate=PHATE` yourself.
 
 ### The Inspector on a cell map result
 
