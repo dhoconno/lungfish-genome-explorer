@@ -38,6 +38,48 @@ package final class SequenceExtractionPipeline: Sendable {
         isConcatenated: Bool = false,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
+        try await buildBundleNamingLeftOutTracks(
+            from: result, outputDirectory: outputDirectory, sourceBundleURL: sourceBundleURL,
+            sourceBundleName: sourceBundleName, desiredBundleName: desiredBundleName,
+            sourceBundleChromosomes: sourceBundleChromosomes, sourceAnnotationTracks: sourceAnnotationTracks,
+            sourceVariantTracks: sourceVariantTracks, sampleFilter: sampleFilter, isConcatenated: isConcatenated,
+            progressHandler: progressHandler
+        ).bundleURL
+    }
+
+    /// The bundle a run built and the source annotation tracks the build left out, because their databases are
+    /// missing or cannot be read (ANNOT-EXPORT-MISSING-TRACK, row 3).
+    package struct BuildOutcome: Sendable, Equatable {
+        package let bundleURL: URL
+        package let leftOutTracks: [AnnotationDatabase.LeftOutTrack]
+
+        package init(bundleURL: URL, leftOutTracks: [AnnotationDatabase.LeftOutTrack]) {
+            self.bundleURL = bundleURL
+            self.leftOutTracks = leftOutTracks
+        }
+
+        /// The words the run ends on, as `extract sequence --bundle` says them: "Bundle ready", then the left-out
+        /// tracks when there are any.
+        package var completionMessage: String {
+            AnnotationDatabase.LeftOutWords.message("Bundle ready", leftOut: leftOutTracks, notIn: "bundle")
+        }
+    }
+
+    /// Creates the bundle as ``buildBundle(from:outputDirectory:sourceBundleURL:sourceBundleName:desiredBundleName:sourceBundleChromosomes:sourceAnnotationTracks:sourceVariantTracks:sampleFilter:isConcatenated:progressHandler:)``
+    /// does, and names the source annotation tracks the build left out.
+    package func buildBundleNamingLeftOutTracks(
+        from result: LungfishCore.ExtractionResult,
+        outputDirectory: URL,
+        sourceBundleURL: URL? = nil,
+        sourceBundleName: String? = nil,
+        desiredBundleName: String? = nil,
+        sourceBundleChromosomes: [ChromosomeInfo] = [],
+        sourceAnnotationTracks: [SourceAnnotationTrack] = [],
+        sourceVariantTracks: [SourceVariantTrack] = [],
+        sampleFilter: Set<String>? = nil,
+        isConcatenated: Bool = false,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> BuildOutcome {
         let outputBundleURL = SequenceExtractionBundleBuilder.uniqueBundleURL(
             for: result,
             desiredBundleName: desiredBundleName,
@@ -76,7 +118,7 @@ package final class SequenceExtractionPipeline: Sendable {
             ),
             inputURLs: []
         )
-        return try await SequenceExtractionBundleBuilder().buildBundle(
+        let built = try await SequenceExtractionBundleBuilder().buildBundleNamingLeftOutTracks(
             request: SequenceExtractionBundleBuildRequest(
                 result: result,
                 outputDirectory: outputDirectory,
@@ -95,6 +137,7 @@ package final class SequenceExtractionPipeline: Sendable {
             ),
             progressHandler: progressHandler
         )
+        return BuildOutcome(bundleURL: built.url, leftOutTracks: built.leftOutAnnotationTracks)
     }
 
     private static func extractionProvenanceArguments(
