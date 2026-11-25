@@ -20,7 +20,7 @@ shots:
   - id: rnaseq-export-dialog
     caption: "The Workflow Operations window on its Export RNA-seq Counts row, with the SEQC result chosen and the design and contrast filled in."
 illustrations: []
-glossary_refs: [library, mapping, ribosomal-rna, fixture, spike-in-control, inspector, operations-panel, tsv, manifest, checksum, paired-end, terminal, provenance, sample-sheet]
+glossary_refs: [library, mapping, ribosomal-rna, fixture, spike-in-control, inspector, operations-panel, tsv, manifest, checksum, paired-end, terminal, provenance]
 features_refs: [viewport.rnaseq-result, rnaseq.bulk-view, rnaseq.quality, rnaseq.export]
 fixtures_refs: [rnaseq-bulk]
 brand_reviewed: false
@@ -63,7 +63,7 @@ The three libraries of each group came from one commercial RNA, so they are tech
 
 The export writes two scripts that run four methods on the same counts and contrasts. The choice mostly depends on whether each sample comes from a different individual and on how many samples you have.
 
-**DESeq2** models each gene's counts with a negative binomial distribution, a description of counts that vary more than chance alone would give. In simple terms, it estimates how much each gene varies within groups by borrowing information from genes with similar counts, which helps when a group has only three or four samples. `deseq2.R` reports DESeq2's fold change and, beside it, a shrunken fold change, a more cautious estimate for genes with few counts.
+**DESeq2** models each gene's counts with a negative binomial distribution, a description of counts that vary more than chance alone would give. In simple terms, it estimates how much each gene varies within groups by borrowing information from genes with similar counts, which helps when a group has only three or four samples. `deseq2.R` reports DESeq2's fold change and, beside it, a shrunken fold change, a more cautious estimate for genes with few counts. DESeq2 needs whole counts, so the script rounds salmon's fractional estimates first.
 
 **edgeR** also uses the negative binomial distribution. `edger-limma-dream.R` first keeps the genes with enough counts to test, using edgeR's `filterByExpr`, and then runs edgeR's quasi-likelihood test, which allows for the uncertainty in how much each gene varies.
 
@@ -71,7 +71,12 @@ The export writes two scripts that run four methods on the same counts and contr
 
 **dream** extends limma voom to repeated measures, such as several samples from one animal. It fits a column such as `animal` as a random term, one whose levels are a sample of a larger population, through the `random_terms` setting at the top of `edger-limma-dream.R`. It needs the variancePartition package for R.
 
-In short, DESeq2 and edgeR suit groups of independent samples, voom suits many samples or several factors, and dream suits one animal or donor that gave several samples.
+| Tool | Built for | Choose it when | Choose something else when |
+|---|---|---|---|
+| DESeq2 | Counts from groups of independent samples | Each group has a few samples, each from a different individual | You want the animal fitted as a random term |
+| edgeR | Counts from groups of independent samples | You want a second count model beside DESeq2 | You want the animal fitted as a random term |
+| limma voom | Weighted linear models on log counts | You have many samples or several factors in the design | You want the animal fitted as a random term |
+| dream | Repeated measures with random terms | One animal or donor gave several samples | Every sample comes from a different individual |
 
 The **Batch correction** setting adds two more choices. ComBat-seq adjusts the counts themselves for a known batch before the test. SVA, short for surrogate variable analysis, estimates hidden sources of variation and adds them to the model as extra terms. Naming the batch column in the design changes no count at all, since the model allows for the batch directly, and it is the simplest of the three. All three need a batch that holds samples of every group you compare.
 
@@ -81,7 +86,7 @@ This chapter runs DESeq2 on the fixture with the design `group`, the contrast `g
 
 You need a project that holds the fixture's counts as one result. Import the six folders of `salmon-seqc-ercc/` from the `rnaseq-bulk` fixture with the **RNA-seq Counts** card, as [Import salmon folders or a count table with the RNA-seq Counts card](02-counting-bulk-reads.md#import-salmon-folders-or-a-count-table-with-the-rna-seq-counts-card) shows. Choose the fixture's `samples.tsv` as the sample sheet and its `tx2gene.tsv` as the **Transcript-to-gene table**, and name the result "SEQC A and B on ERCC92 genes". The transcript-to-gene table adds the gene counts that the export needs. [Fixture files](../01-foundations/06-the-lungfish-project.md#fixture-files) explains where the fixture folders live, and the fixture's `README.md` gives its source, license, and citation.
 
-For your own samples, the **Design** and **Contrasts** fields name columns of the sample table, which has one row per sample. The result's own table holds `group` when you gave a [sample sheet](../../GLOSSARY.md#sample-sheet) at import. A column it lacks, such as `batch`, comes from a second sheet that you choose in **Sample sheet (optional)** at export. Save it from a spreadsheet as tab-separated text, with a first row of column names and one row for each sample, named as the **Sample** column of the **Quality** tab names them. For six samples, three treated and three control, in two batches that each hold both groups, it reads as follows.
+For your own samples, the **Design** and **Contrasts** fields name columns of the sample table, which has one row per sample. The result's own table holds `group` when the [sample sheet](02-counting-bulk-reads.md#import-salmon-folders-or-a-count-table-with-the-rna-seq-counts-card) you gave at import has a `group` column. A column it lacks, such as `batch`, comes from a second sheet that you choose in **Sample sheet (optional)** at export. Save it from a spreadsheet as tab-separated text, with a first row of column names and one row for each sample, named as the **Sample** column of the **Quality** tab names them. For six samples, three treated and three control, in two batches that each hold both groups, it reads as follows.
 
 | sample | group | batch |
 |---|---|---|
@@ -198,7 +203,7 @@ Read **Library size**, **Counted**, and **Mapping rate (%)** together. For each 
 
 A library type of IU, in salmon's code, means [paired-end](../../GLOSSARY.md#paired-end) reads that face each other from an unstranded library, one that does not record which strand of the DNA each RNA was copied from ([salmon's guide to library types](https://salmon.readthedocs.io/en/latest/library_type.html)).
 
-**On rRNA genes (%)** sums only host genes, the genes of the species studied, whose biotype in `genes.tsv` is rRNA or Mt_rRNA. The fixture's genes have no biotypes, so the cell reads "no rRNA genes annotated". **Not host (%)** needs a reference set that marks its extra sequences, which an import lacks, so it reads **Not recorded**.
+**On rRNA genes (%)** sums only host genes, the genes of the species studied, whose biotype in `genes.tsv` is rRNA or Mt_rRNA. Those are the names that Ensembl, GENCODE, and RefSeq give ribosomal RNA genes, and rRNA that the annotation does not list as a gene is left out. The fixture's genes have no biotypes, so the cell reads "no rRNA genes annotated". **Not host (%)** needs a reference set that marks its extra sequences, which an import lacks, so it reads **Not recorded**.
 
 ### The Correlation tab of the bulk view
 
@@ -239,7 +244,7 @@ Run `edger-limma-dream.R` the same way.
 | `deseq2.R` | `deseq2-results/`, with `size_factors.tsv` and one table per contrast named after it, such as `group_B_A.tsv` |
 | `edger-limma-dream.R` | `edger-limma-dream-results/`, with one table per method and contrast, such as `edger_group_B_A.tsv`, `limma_voom_group_B_A.tsv`, and `dream_group_B_A.tsv` |
 
-`size_factors.tsv` lists each sample's size factor, the number DESeq2 divides that sample's counts by so that deeper and shallower libraries compare fairly. A results table has one row per gene. The packages name its columns differently, as the table shows, and the pages of [DESeq2](https://bioconductor.org/packages/DESeq2), [edgeR](https://bioconductor.org/packages/edgeR), and [limma](https://bioconductor.org/packages/limma) document them.
+`size_factors.tsv` lists each sample's size factor, the number DESeq2 divides that sample's counts by so that deeper and shallower libraries compare fairly. A DESeq2 table has one row per gene, while an edgeR, limma voom, or dream table has one row for each gene that kept enough counts to test, plus every not-host row. The packages name the columns differently, as the table shows, and the pages of [DESeq2](https://bioconductor.org/packages/DESeq2), [edgeR](https://bioconductor.org/packages/edgeR), and [limma](https://bioconductor.org/packages/limma) document them.
 
 | What it holds | `deseq2.R` | `edger-limma-dream.R` |
 |---|---|---|
