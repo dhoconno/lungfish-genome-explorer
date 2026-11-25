@@ -3,7 +3,7 @@ title: Exporting Genotypes
 chapter_id: 09-genotyping/04-haplotype-definitions-and-export
 audience: analyst
 prereqs: [09-genotyping/03-reading-the-genotype-comparison]
-estimated_reading_min: 8
+estimated_reading_min: 9
 task: Export a genotype result as a one-way Excel report, a CSV or TSV table, or a set of LabKey-ready CSV files, and know what each export records.
 tags: [genotyping, mhc, export, xlsx, labkey, macaque]
 tools: []
@@ -14,6 +14,8 @@ entry_points:
   - "CLI: lungfish-cli genotype export-xlsx"
   - "CLI: lungfish-cli genotype export-pivot-xlsx"
   - "CLI: lungfish-cli genotype export-labkey"
+  - "CLI: lungfish-cli genotype export-manual-definitions"
+  - "CLI: lungfish-cli haplotypes export"
 shots:
   - id: genotype-inspector-export
     caption: "The Excel section of the Inspector's Bundle tab on a genotype result, holding the Export to Excel… button."
@@ -23,7 +25,7 @@ shots:
     caption: "The Genotype Matrix - Filtered worksheet of an exported report open in a spreadsheet application, with allele targets down the rows, one column per sample, and the Evidence (display / raw support) column at the right."
 illustrations: []
 glossary_refs: [allele-target, audit-log, bundle, checksum, genotype-matrix, genotype-result-bundle, haplotype, inspector, labkey, long-format, provenance, required-setup-pack, smart-cohort]
-features_refs: [viewport.genotype-matrix]
+features_refs: [viewport.genotype-matrix, genotype.export, genotype.smart-cohorts, genotype.haplotype-definitions]
 fixtures_refs: [mhc-simulated]
 brand_reviewed: false
 lead_approved: false
@@ -37,9 +39,9 @@ The first is an Excel report. It is a one-way snapshot, meaning LGE writes it on
 
 The second is a CSV or TSV table, a plain text file with one row per sample and two columns per locus. CSV separates columns with commas and TSV with tabs. Both come from the command line only.
 
-The third is a set of LabKey files. LabKey is a laboratory data server many primate centres use, and its import expects long-format tables, meaning one row per fact rather than one column per sample. This export also comes from the command line only.
+The third is a set of [LabKey](../../GLOSSARY.md#labkey) files. LabKey is a laboratory data server many primate centers use, and its import expects [long-format](../../GLOSSARY.md#long-format) tables, meaning one row per fact rather than one column per sample. This export also comes from the command line only.
 
-Each export records the calls, the read counts, and the notes and review marks you added in the window. The [genotype matrix](../../GLOSSARY.md#genotype-matrix), the grid of allele targets by samples, is read and annotated as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md) shows. This chapter starts where that one ends. The haplotype definitions a run used are managed separately, in the MHC Haplotype Definitions window that [Where haplotype definitions come from](02-running-genotyping.md#where-haplotype-definitions-come-from) describes, and **Export** there writes a definition set to a file of its own.
+Between them the exports record the calls, the read counts, and the notes and review marks you added in the window, and every one of them reports the same calls, an analyst's corrections included. The [genotype matrix](../../GLOSSARY.md#genotype-matrix), the grid of allele targets by samples, is read and annotated as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md) shows. This chapter starts where that one ends. The haplotype definitions a run used are managed separately, in the MHC Haplotype Definitions window that [Where haplotype definitions come from](02-running-genotyping.md#where-haplotype-definitions-come-from) describes, and **Export** there writes a definition set kept on its own to a file.
 
 ## Why you would do this
 
@@ -59,11 +61,11 @@ The Excel writer, openpyxl, arrives with the [Required Setup pack](../../GLOSSAR
 
 ### Finish your review in the window
 
-Open the result and make every review change you want the report to carry. Comments, false-positive and false-negative marks, and colours all live in the window, as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md#procedure) describes. Excel edits never come back, so a note typed into the workbook is lost to LGE.
+Open the result and make every review change you want the report to carry. Comments, false-positive and false-negative marks, colors, and haplotype corrections all live in the window, as [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md#procedure) describes. Excel edits never come back, so a note typed into the workbook is lost to LGE.
 
 ### Set the view you want in the Filtered worksheet
 
-The report holds two copies of the matrix. One holds everything. The other, Genotype Matrix - Filtered, holds only what the window shows when you export. Set the filters and visible rows and columns now. On the fixture, set **Min reads** to 50 in the Inspector's Genotype Display section. That hides sample A's 4 reads at MHC-DPA1 and sample B's 12 reads at MHC-G.
+The report holds two copies of the matrix. One holds everything. The other, Genotype Matrix - Filtered, holds only what the window shows when you export. Set the filters and visible rows and columns now. On the fixture, set **Min reads** to 50 in the **Genotype Display** section of the Inspector's View tab. That hides sample A's 4 reads at MHC-DPA1 and sample B's 12 reads at MHC-G.
 
 ### Choose Export to Excel
 
@@ -102,13 +104,13 @@ The report holds these worksheets in the order the table gives.
 | Worksheet | What it holds |
 | --- | --- |
 | Haplotype Calls | The haplotype call for each sample and locus, with its status and source. Present only when the result carries a haplotype analysis or haplotypes typed in by hand. |
-| Genotype Matrix - All | Every allele target and every sample in the result, with your comments, colours, and review marks. |
+| Genotype Matrix - All | Every allele target and every sample in the result, with your comments, colors, and review marks. |
 | Genotype Matrix - Filtered | The rows and samples visible when you exported, with the display filters applied, plus an Evidence (display / raw support) column. |
 | Export Metadata | When the report was made, which version of the result it came from, and every filter setting, one per line. |
 
-Both matrix worksheets place allele targets down the rows and samples across the columns, with the row columns the window was showing, such as Genotype and Locus, on the left. When the result carries [haplotype](../../GLOSSARY.md#haplotype) calls, a band of H1 and H2 rows above the matrix gives each sample's two calls per region. Every value is a plain number or text, never a formula. A call LGE left unresolved stays unresolved, and a genotype-only result gains no invented haplotype calls.
+Both matrix worksheets place allele targets down the rows and samples across the columns, with the row columns the window was showing, such as Genotype and Locus, on the left. When the result carries [haplotype](../../GLOSSARY.md#haplotype) calls, a band of H1 and H2 rows above the matrix gives each sample's two calls per region. A call cell takes its haplotype's color only when it holds one haplotype name, so an ambiguity token such as `M4|M7`, a `?`, a dash, `Not assayed`, or an error stays uncolored. Every value is a plain number or text, never a formula. A call LGE left unresolved stays unresolved, and a genotype-only result gains no invented haplotype calls.
 
-On the demo result the Haplotype Calls worksheet holds one row per sample and region, six in all, with the columns Sample, Locus, Effective H1, Effective H2, their statuses and sources, and Pipeline H1 and Pipeline H2. The pipeline columns hold what the run wrote, such as `M4` and `-`. The effective columns hold the call the report uses, and there the dash becomes the named haplotype repeated, `M4` and `M4`, because the report reads a one-haplotype call as homozygous. The H1 and H2 band above both matrices shows the effective calls.
+On the demo result the Haplotype Calls worksheet holds one row per sample and region, six in all, with the columns Sample, Locus, Effective H1, Effective H2, their statuses and sources, and Pipeline H1 and Pipeline H2. The pipeline columns hold what the run wrote, such as `M4` and `-`. The effective columns hold the call the report uses, an override or a hand-entered assignment in place of the run's call, and there the dash becomes the named haplotype repeated, `M4` and `M4`, because the report reads a one-haplotype call as homozygous. On the demo that reading comes from the one-haplotype teaching set and is not a finding about the simulated animals, as [Haplotype calls](03-reading-the-genotype-comparison.md#haplotype-calls) explains. The H1 and H2 band above both matrices shows the effective calls.
 
 ### The Filtered worksheet on the fixture
 
@@ -122,7 +124,7 @@ Filtering is not redaction. The All worksheet still holds the complete result, s
 
 ### Comments and review marks
 
-A cell comment holds your note exactly as you typed it and nothing else. Review marks appear as formatting only. A false-positive cell shows its count in grey italic inside square brackets, such as `[54]`. A false-negative cell shows `FN` inside a dashed orange border on a pale yellow fill.
+A cell comment holds your note exactly as you typed it and nothing else. Review marks appear as formatting only. A false-positive cell shows its count in gray italic inside square brackets, such as `[54]`. A false-negative cell shows `FN` inside a dashed orange border on a pale yellow fill.
 
 ### The receipt and the capture folder
 
@@ -137,7 +139,7 @@ Keep all three together. On the command line, running `replay.sh` with a new out
 
 ### CSV, TSV, and LabKey files
 
-A CSV or TSV export writes a header row reading `Sample` and then `<locus> H1` and `<locus> H2` for each locus, and one row per sample. On the demo result the header reads `Sample,MHC-A H1,MHC-A H2,MHC-DP H1,MHC-DP H2,MHC-DR H1,MHC-DR H2`, and each sample's row reads `M4`, `M1`, and `M7` in the H1 columns and the same names again in the H2 columns, because a locus called with one matched haplotype is homozygous. Every export follows that rule, the workbook's Effective H2, this table, and the LabKey files alike. A `-` in H2 appears only where an analyst marked the second haplotype absent, and a `?` where it is unresolved. It carries calls rather than read counts, so use the Excel report or the LabKey `allele_read_counts.csv` for counts.
+A CSV or TSV export writes a header row reading `Sample` and then `<locus> H1` and `<locus> H2` for each locus, and one row per sample. On the demo result the header reads `Sample,MHC-A H1,MHC-A H2,MHC-DP H1,MHC-DP H2,MHC-DR H1,MHC-DR H2`, and each sample's row reads `M4`, `M1`, and `M7` in the H1 columns and the same names again in the H2 columns, because the export reads a locus called with one matched haplotype as homozygous. Every export follows that rule, the workbook's Effective H2, this table, and the LabKey files alike. The table holds the same effective calls as the workbook, so an override or a hand-entered assignment replaces the run's call. A `-` in H2 appears only where an analyst marked the second haplotype absent, and a `?` where it is unresolved. It carries calls rather than read counts, so use the Excel report or the LabKey `allele_read_counts.csv` for counts.
 
 A genotype-only result, such as the demo run with Genotyping only chosen, still exports a table, with allele names in place of haplotypes. Its header names the allele loci, `MHC-DPA1 H1`, `MHC-DRB H1`, `MHC-G H1`, and their H2 columns, and on the demo each H1 holds the sample's one allele at that locus, such as `Mafa-G_02:31:01:01|OR823640`, with H2 empty.
 
@@ -153,7 +155,9 @@ A LabKey export writes five files into the folder you name. Each is long format,
 | `audit_log.csv` | Recorded review action, the [audit log](../../GLOSSARY.md#audit-log) |
 | `smart_cohorts.csv` | Saved [smart cohort](../../GLOSSARY.md#smart-cohort) |
 
-In `audit_log.csv` a sample status row carries the status it replaced in its `before` column, and an Undo that left a sample with no status is a row whose `action` is `clearSampleStatus`. A file with only its header row is expected when the result carries no facts of that kind, such as `overrides.csv` for a result nobody corrected. On the demo result `haplotype_calls.csv` holds 12 rows, two slots for each of three regions in two samples, and `allele_read_counts.csv` holds 6. The other three files hold only their headers. A genotype-only result writes `haplotype_calls.csv` with only its header, since it carries no calls.
+`haplotype_calls.csv` holds the effective calls, and its `is_override` column says whether an analyst chose the value. In `audit_log.csv` a sample status row carries the status it replaced in its `before` column, and an Undo that left a sample with no status is a row whose `action` is `clearSampleStatus`. `smart_cohorts.csv` names each smart cohort by a `cohort_id`, a fixed identifier written as a UUID, a standard 36-character code, that stays the same when another cohort is deleted, restored, or renamed, so LabKey can match rows from one export to the next. It is the id that `genotype list-cohorts` prints, as [On the command line](03-reading-the-genotype-comparison.md#on-the-command-line) in Reading the Genotype Comparison shows. If two smart cohorts of a bundle share one `cohort_id`, `export-labkey` writes nothing, not even the folder, names each shared id, and stops with exit status 3, a code that tells a script the export was refused. `genotype list-cohorts` lists both cohorts of such a pair, which is how you find them.
+
+A file with only its header row is expected when the result carries no facts of that kind, such as `overrides.csv` for a result nobody corrected. On the demo result before any review, `haplotype_calls.csv` holds 12 rows, two slots for each of three regions in two samples, and `allele_read_counts.csv` holds 6 rows. The other three files hold only their headers, and `smart_cohorts.csv` gains the four built-in smart cohorts once the first edit is saved. A genotype-only result writes `haplotype_calls.csv` with only its header, since it carries no calls.
 
 ## What good looks like
 
@@ -188,6 +192,10 @@ lungfish-cli genotype export-labkey --bundle "$RESULT" \
 One default differs from the window. The window's Percent Basis starts on Source Locus, which the command line spells `viewed-locus`, but `export-pivot-xlsx` starts on `sample-retained`. Pass `--percent-basis viewed-locus` to match the window, as above.
 
 Any folder you can write to works as the output, including one reached through a symbolic link, a pointer file that stands for another folder, such as `/tmp`, which macOS keeps at `/private/tmp`.
+
+`genotype export-manual-definitions` writes the haplotype assignments typed in by hand as a JSON file with its provenance record. The app runs it behind an Operations Panel row when you click **Export Manual Definitions…** in the **Manual Haplotyping** section of a result with haplotype calls that holds such assignments. It reads the assignments from the `selection.json` file the app writes beside the output, not from the bundle, so it repeats an export the app began rather than starting one.
+
+Definition sets have a command group of their own, `lungfish-cli haplotypes`, with eleven commands. `list`, `validate`, `import`, `save`, `export`, `duplicate`, and `delete` work on definition sets, and `bundle-install`, `bundle-create`, `bundle-save`, and `bundle-replace-reference` work on `.lungfishmhcref` bundles. `haplotypes export` writes one set to a JSON file, like **Export** in the MHC Haplotype Definitions window. The CLI Reference lists the flags of every command.
 
 ## Next
 
