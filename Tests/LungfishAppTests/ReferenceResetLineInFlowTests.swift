@@ -81,8 +81,9 @@ final class ReferenceResetLineInFlowTests: XCTestCase {
         assertInFlow(line, in: viewer)
     }
 
-    /// A mapping result can show the read filter line above the viewer and the reset line inside it, above the canvas.
-    /// They stack in the order a person reads, and no two of the lines, the canvas and the tab bar meet.
+    /// A mapping result shows the read filter line and the reset line in its detail area, in that order, above the viewer
+    /// that holds the gene tab bar and the canvas (VS-LINE-HIDDEN hosts the line there, so the placeholder state cannot
+    /// hide it). They stack in the order a person reads, and no two of the lines, the canvas and the tab bar meet.
     func testTheReadFilterLineAndTheResetLineStackAndMeetNothing() async throws {
         let store = makeStore()
         let first = try bundle("First", Self.two)
@@ -97,8 +98,9 @@ final class ReferenceResetLineInFlowTests: XCTestCase {
         let filterLine = try XCTUnwrap(viewport.readFilterLine, "restored filters that hide reads show their line")
         let words = try XCTUnwrap(ViewMemoryWords.dataChanged(.selection))
         viewer.showViewMemoryLine(words, in: try XCTUnwrap(viewer.viewMemory))
-        let resetLine = try showTheTabBarAndFindTheLine(of: viewport)
+        let resetLine = try showTheTabBarAndFindTheLine(of: viewport, in: viewport.view)
         XCTAssertEqual(resetLine.words, ViewMemoryWords.dataChanged(.selection))
+        XCTAssertTrue(resetLines(in: viewer.view).isEmpty, "the viewport hosts the line, so the viewer's own view holds none")
 
         let space: NSView = viewport.view
         let named: [(String, NSView)] = [
@@ -110,10 +112,9 @@ final class ReferenceResetLineInFlowTests: XCTestCase {
                 XCTAssertFalse(meets(one.1, other.1, in: space), "\(one.0) meets \(other.0)")
             }
         }
-        XCTAssertLessThanOrEqual(bottom(of: filterLine, in: space), top(of: viewer.view, in: space) + 0.5, "the filter line is above the viewer")
-        XCTAssertLessThanOrEqual(bottom(of: viewer.geneTabBarView, in: space), top(of: resetLine, in: space) + 0.5, "then the tab bar")
-        XCTAssertLessThanOrEqual(bottom(of: resetLine, in: space), top(of: viewer.viewerView, in: space) + 0.5, "then the reset line")
-        assertInFlow(resetLine, in: viewer)
+        XCTAssertLessThanOrEqual(bottom(of: filterLine, in: space), top(of: resetLine, in: space) + 0.5, "the filter line comes first")
+        XCTAssertLessThanOrEqual(bottom(of: resetLine, in: space), top(of: viewer.view, in: space) + 0.5, "then the reset line, above the viewer")
+        XCTAssertLessThanOrEqual(bottom(of: viewer.geneTabBarView, in: space), top(of: viewer.viewerView, in: space) + 0.5, "and the tab bar sits above the canvas")
     }
 
     // MARK: - The line goes
@@ -251,12 +252,15 @@ final class ReferenceResetLineInFlowTests: XCTestCase {
     }
 
     /// Shows the gene tab bar with a height, so the line has a bar above it to meet, lays out and returns the line.
-    private func showTheTabBarAndFindTheLine(of viewport: ReferenceBundleViewportController) throws -> ViewMemoryResetLineView {
+    /// The line is looked up in the viewer's own view, or in `space` where a mapping result's viewport hosts it.
+    private func showTheTabBarAndFindTheLine(
+        of viewport: ReferenceBundleViewportController, in space: NSView? = nil
+    ) throws -> ViewMemoryResetLineView {
         let viewer = viewport.testEmbeddedViewerController
         viewer.geneTabBarView.setGeneRegions([Self.geneRegion])
         layOut(viewport)
         XCTAssertGreaterThan(viewer.geneTabBarView.frame.height, 0, "the gene tab bar shows")
-        return try XCTUnwrap(resetLines(in: viewer.view).first, "the viewer shows the reset line")
+        return try XCTUnwrap(resetLines(in: space ?? viewer.view).first, "the reset line shows")
     }
 
     /// A reference bundle opened again after its kept record went: the place and the selection are not restored, and
