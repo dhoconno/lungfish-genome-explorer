@@ -79,7 +79,7 @@ This chapter's procedure opens the Human Mapping and Variants (with results) dem
 
 ## Before you start
 
-You need a Mac that meets the requirements in [System requirements](#system-requirements), and an internet connection for the first download. No [plugin pack](../../GLOSSARY.md#plugin-pack) and no Docker Desktop are involved, because nothing here runs an analysis tool. The demo project is about 25 MB to download. Reading the chapter and following the procedure takes about half an hour.
+You need a Mac that meets the requirements in [System requirements](#system-requirements), and an internet connection for the first download. No [plugin pack](../../GLOSSARY.md#plugin-pack) and no Docker Desktop are involved, because nothing here runs an analysis tool. The demo project is about 26 MB to download. Reading the chapter and following the procedure takes about half an hour.
 
 ## Getting LGE
 
@@ -150,7 +150,7 @@ The **View** menu shows, hides, and sizes the parts of the window, so a pane tha
 |---|---|
 | **Show Sidebar** (Ctrl-Cmd-S), **Show Inspector** (Cmd-Opt-I) | Shows a hidden side pane. Each item reads Hide while its pane is showing |
 | **Focus Viewer** (Cmd-Opt-F), **Restore Side Panes** (Ctrl-Cmd-Opt-F) | Hides both side panes so a wide result gets the whole window, then brings them back |
-| **Document Inspector**, **Provenance Inspector** (Cmd-Opt-V) | Opens the window of the selected bundle's descriptive metadata, or the Inspector's Provenance tab |
+| **Document Inspector**, **Provenance Inspector** (Cmd-Opt-V) | Shows the Inspector on its Bundle tab, which holds the selected bundle's descriptive metadata, or on its Provenance tab |
 | **Show Drawer** (Ctrl-Cmd-B), **Make Drawer Taller**, **Make Drawer Shorter** | Shows the table drawer under the viewport and changes its height |
 | **Content Text Size** | Its **Larger**, **Smaller**, and **Default** items change the size of text across LGE, apart from the viewport's zoom |
 | **Zoom In**, **Zoom Out**, **Zoom to Fit**, **Zoom Reset (10kb)** | Change the scale of the viewport |
@@ -181,7 +181,7 @@ The sidebar is the authoritative view of the project, so when it and Finder disa
 | `Practice Data/` | In a demo project only, copies of the fixture files the chapters ask you to import or read |
 | `Analyses/` | Every analysis result, described in [Where results land](#where-results-land) |
 
-The Analyses group at the top of the sidebar is built from the project's own records rather than read straight from the folder. An empty project shows no Analyses group at all, and one appears as soon as the first result lands. Each run shows as one row, named after its folder, with the date it was made underneath.
+The Analyses group at the top of the sidebar is read from the project's `Analyses/` folder, with runs that have not finished left out. An empty project shows no Analyses group at all, and one appears as soon as the first result lands. Each run shows as one row, named after its folder, with the date and time it was made underneath. A Kraken 2, EsViritu, or CZ ID row shows the kind of result there instead.
 
 ### Sidebar commands
 
@@ -192,8 +192,8 @@ Right-click an item in the sidebar for the commands that apply to it. The same c
 | **New Folder…** | Makes a new folder, and also works from a right-click on an empty part of the sidebar | Cmd-Shift-N |
 | **Rename…**, **Duplicate**, **Move to Trash** | Rename the selected item, copy it, or move it to the Trash, as in Finder | Cmd-D for Duplicate, Cmd-Delete for Move to Trash |
 | **Select Siblings** | Selects every item in the same folder as the selected one | Cmd-Shift-A |
-| **Show in Finder**, **Copy Name**, **Copy Path** | Show the item on disk, or copy its name or full path, one line for each selected item. With two items selected the menu reads Copy 2 Names and Copy 2 Paths | Cmd-C for Copy Name |
-| **Show in Inspector** | Shows the selected item in the Inspector, from the top of the **Selection** menu | Cmd-Opt-S |
+| **Show in Finder**, **Copy Name**, **Copy Path** | Show the item on disk, or copy its name or full path, one line for each selected item. With two items selected the right-click menu reads Copy 2 Names and Copy 2 Paths, and the menu bar keeps Copy Name and Copy Path | Cmd-C for Copy Name |
+| **Show in Inspector** | Shows the selected item in the Inspector, from the item at the foot of the **Selection** menu | Cmd-Opt-S |
 
 The menu also holds commands for one kind of item, such as **Export as FASTQ…** for a read bundle, and the chapter for that kind describes them. **Selection > Table Row** does the same for a selected row of a results table.
 
@@ -302,13 +302,13 @@ Each card is explained in the chapter that uses what it imports. Reads are cover
 
 Most analyses in LGE start from one dialog layout, so learning it once covers the mapping, trimming, assembly, classification, and alignment chapters. Choose an operation from a submenu of the **Tools** menu, such as **Tools > Trimming & Filtering**, or click a FASTQ or FASTA bundle and use the operations list the viewport shows beside it. Either way the FASTQ/FASTA Operations dialog opens with that operation already chosen. Workflows that combine several tools, such as the 12S amplicon workflow, open the Workflow Operations dialog, which has the same layout.
 
-The dialog has three parts. A tool sidebar runs down the left. Its top line names the dialog and the kind of data selected, and the line under it, the dataset line, names the one bundle you selected or says how many. Below those, each operation in the group has a card, and a card you cannot use yet shows a short reason on its right, such as a missing pack. The right side holds the chosen operation's settings. The foot of the dialog holds the readiness line, a short status that says whether the dialog can run, and the **Cancel** and **Run** buttons.
+The dialog has three parts. A tool sidebar runs down the left. Its top line names the dialog, FASTQ/FASTA Operations, and the line under it, the dataset line, shows the project path of the one bundle you selected, or says how many, such as 2 FASTQ datasets. Below those, each operation in the group has a card, and a card you cannot use yet shows a short reason on its right, such as a missing pack. The right side holds the chosen operation's settings. The foot of the dialog holds the readiness line, a short status that says whether the dialog can run, and the **Cancel** and **Run** buttons.
 
 For the read operations, such as trimming, filtering, and subsampling, the settings side is divided into sections in this order:
 
-1. **Overview**, one sentence saying what the operation does to the selected data.
-2. **Inputs**, the bundles the operation will read, plus any second input it needs, such as a reference or a primer scheme. When an operation needs a barcode definition file, this section also offers a **Project File** menu of the definition files already in the project.
-3. **Primary settings** and **Advanced settings**, the operation's own controls, which each chapter explains in its `## Settings` section. An operation with no advanced controls has no **Advanced settings** section.
+1. **Inputs**, the bundles the operation will read, plus any second input it needs, such as a reference or a primer scheme. When an operation needs a barcode definition file, this section also offers a **Project File** menu of the definition files already in the project.
+2. **Primary settings**, the operation's own controls, which each chapter explains in its `## Settings` section. An operation with no primary controls has no **Primary settings** section.
+3. **Advanced settings**, the less common controls of the same operation. An operation with no advanced controls has no **Advanced settings** section.
 4. **Output**, holding the **Output Strategy** control when the operation offers a choice.
 
 Mapping, assembly, classification, and the other multi-step tools show their own settings panes in the same place, and each chapter walks through its own. A slider in any of these dialogs has a box beside it where you can type an exact value.
@@ -350,7 +350,7 @@ Nine of the demo projects hold inputs only. The reads, references, and practice 
 | 12S Metabarcoding | Human 12S amplicon reads, a simulated human and macaque 12S mixture, and a primate 12S reference | [12S Amplicon Metabarcoding](../06-classification/10-twelve-s-metabarcoding.md) |
 | Primer Design | Rhesus macaque Mamu-A1 alleles, the Mamu-A1\*001 lineage, and its near relatives and paralogs | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) and the rest of the Primer Design part |
 
-Most projects are small, from under a megabyte to about 50 MB. Pathogen Detection is the exception at about 260 MB, because it carries two corneal tissue runs of several million read pairs each.
+Most projects are small, from under a megabyte to about 50 MB. Pathogen Detection is the exception at about 244 MB, because it carries two corneal tissue runs of several million read pairs each.
 
 [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md) has no demo project of its own, because the chapter's point is the download itself. It fetches its run from the Sequence Read Archive while you watch.
 
@@ -399,7 +399,7 @@ A newer LGE usually opens a project written by an older one. When only the proje
 
 ## Saving and exporting
 
-LGE saves for you, and there is no Save command to look for. A change is stored when the import or edit that made it finishes, so check the Operations Panel for work that is still running or has failed. A few editing tools, the sample metadata fields at the bottom of the Inspector among them, hold unfinished changes as a draft and ask you to apply or discard it before you leave. **File > About Saving…** explains this in LGE.
+LGE saves for you, and there is no Save command to look for. A change is stored when the import or edit that made it finishes, so check the Operations Panel for work that is still running or has failed. A few editing tools, the manual haplotype editor in a genotype view among them, hold unfinished changes as a draft and ask what to do with it before you leave. The sample metadata fields at the bottom of the Inspector are not one of them, since they save themselves half a second after you stop typing. **File > About Saving…** explains this in LGE.
 
 A project can sit on an external drive formatted ExFAT or FAT, or on a network share, and saves there work the same way. If a save of a record or manifest is cut off, for example because the drive was unplugged, LGE puts it back the next time it opens the project.
 
@@ -425,7 +425,7 @@ A search field sits at the top of the sidebar. Type into it and LGE searches the
 
 To find one kind of classification result, type `type:` followed by the tool, such as `type:kraken2`, `type:esviritu`, `type:taxtriage`, `type:nao-mgs`, or `type:nvd`. Capital letters and hyphens do not matter, so `type:NAOMGS` finds the same results as `type:nao-mgs`.
 
-For a structured search, click the filter button to the right of the field to open the Advanced Search popover. Its Scope menu narrows the search to one kind of data, such as FASTQ Datasets or one classifier's results, and its fields filter by keyword, organism name, sample, read counts, and a date range. Apply runs the search, and Clear empties both the popover and the field.
+For a structured search, click the filter button to the right of the field to open the Advanced Search popover. Its Scope menu narrows the search to one kind of data, such as FASTQ Datasets or one classifier's results, and its fields filter by keyword, organism name, sample, read counts, and a date range. Apply runs the search, and Clear empties the field and closes the popover.
 
 ## The Inspector
 
@@ -441,7 +441,7 @@ Select the mapping result under `Analyses/` and the Inspector switches to the ru
 
 The read-bundle Inspector shows the shape that repeats for every selection. The top names the item and gives its size. Summary statistics follow, then the settings recorded when the file was imported, then the steps that produced this exact dataset with the tool, the command, and the time each took. Editable sample metadata sits at the bottom.
 
-A second, separate window, the Document Inspector, lists the descriptive metadata of the selected bundle, such as its source, organism, and assembly. Open it with **View > Document Inspector**, which has no shortcut because macOS keeps Cmd-Opt-D for showing and hiding the Dock.
+The Inspector's Bundle tab lists the descriptive metadata of the selected bundle, such as its source, organism, and assembly. **View > Document Inspector** opens the Inspector on that tab, and it has no shortcut because macOS keeps Cmd-Opt-D for showing and hiding the Dock.
 
 ## The Operations Panel
 
@@ -473,7 +473,7 @@ A failed row shows the error on its detail line and adds three more items. **Cop
 
 When LGE cannot do what you asked, it tells you why. Three kinds of message recur across the manual.
 
-With no project open, an item of the **Tools** menu shows an alert titled **No Project Open** in place of its dialog. For Kraken2 it reads "Open or create a project before running Kraken2. LGE saves its results in the project's Analyses folder." Imports and primer design show the same alert. Nothing has started, so open or create a project and choose the item again.
+With no project open, an item of the **Tools** menu shows an alert titled **No Project Open** in place of its dialog. For Kraken2 it reads "Open or create a project before running Kraken2. LGE saves its results in the project's Analyses folder." Imports and primer design show an alert with the same title and a message of their own. Nothing has started, so open or create a project and choose the item again.
 
 <!-- SHOT: no-project-open-alert -->
 
@@ -493,7 +493,7 @@ The **About Lungfish Genome Explorer** window shows the line "Development suppor
 
 Three small windows in this chapter have settings of their own. They are the Demo Projects sheet, the save sheet of an image export, and the Set Window Size panel.
 
-**Save to.** Chooses the folder that each demo project downloads into, as a folder named for the project that ends in `.lungfish`. The default is `~/Documents/LGE Demo Projects`, the folder that the On the command line blocks of this manual name in their first line. Click **Change…** to pick another folder when your Documents folder is short of space or synced to a cloud service, and **Use Default** to go back. On the command line this is `--dest`.
+**Save to.** Chooses the folder that each demo project downloads into, as a folder named for the project that ends in `.lungfish`. The default is `~/Documents/LGE Demo Projects`, the folder that the On the command line blocks of this manual name in their first line when they work inside a demo project. Click **Change…** to pick another folder when your Documents folder is short of space or synced to a cloud service, and **Use Default** to go back. On the command line this is `--dest`.
 
 **Scope.** Chooses how much of the view the image holds. The default is **Tracks**, which leaves out the coordinate ruler, or **Full Viewer Pane** for a view that offers only that. Choose **Ruler and Tracks** when a reader of the figure needs the coordinates, or **Selected Region**, which appears only after you select a region yourself, to draw only that stretch. On the command line this is `--include-ruler`.
 
@@ -511,9 +511,9 @@ Every task chapter ends with a section called On the command line. It repeats th
 
 The commands are typed into Terminal, the macOS application in the Utilities folder inside Applications that shows a text window where you type commands instead of clicking. A command is one line of text that runs one program, and Terminal runs it when you press Return. The program behind every LGE command is `lungfish-cli`, which ships inside the app, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to make the name work in Terminal for your channel. A long command is split over several lines with a backslash, `\`, at the end of each line but the last, and Terminal reads the pieces as one line.
 
-A word that follows the program's name is an argument. An argument that starts with two hyphens, such as `--project`, is a [flag](../../GLOSSARY.md#command-line-flag), a named option, and the word after it is usually the flag's value. A [path](../../GLOSSARY.md#path) is the address of a file or folder, written as folder names joined by `/`. Folder names in LGE projects often contain spaces, so every path in this manual sits inside double quotation marks, which keep the spaces together. Inside quotation marks, `$HOME` stands for your home folder, the one `~` names outside them.
+A word that follows the program's name is an argument. An argument that starts with two hyphens, such as `--project`, is a [flag](../../GLOSSARY.md#command-line-flag), a named option, and the word after it is usually the flag's value. A [path](../../GLOSSARY.md#path) is the address of a file or folder, written as folder names joined by `/`. Folder names in LGE projects often contain spaces, so every path with a space in it sits inside double quotation marks, which keep the spaces together. Inside quotation marks, `$HOME` stands for your home folder, the one `~` names outside them.
 
-Every block in this manual follows one path convention. Its first line stores the location of the chapter's demo project in a variable named `PROJECT`, a name Terminal remembers until you close the window, and every later path inside the project starts from `$PROJECT`, which Terminal replaces with that stored location.
+Most blocks that work inside a project follow one path convention. The first line of such a block stores the location of the chapter's demo project in a variable named `PROJECT`, a name Terminal remembers until you close the window, and every later path inside the project starts from `$PROJECT`, which Terminal replaces with that stored location.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants (with results).lungfish"
@@ -534,7 +534,7 @@ When one of those disagrees, suspect the project folder before LGE. A project fo
 
 The block below builds a project of your own with the same inputs the demo project holds, following the convention in [Reading an On the command line block](#reading-a-command-line-block). The commands and their flags are listed in [Importing into a project](../appendices/cli-reference.md#importing-into-a-project) in the CLI Reference.
 
-Only LGE itself creates the project store. **File > New Project** creates it, and so does the Create Project card on the Welcome window, but `lungfish-cli` never does. A folder built only from the command line therefore has no store, and LGE opens it as a read-only view with "(Read Only)" after the window title. So first, in LGE, choose **File > New Project**, name the project `MyProject`, save it in your Documents folder, and close its window. The block then fills it with the fixture files that [Fixture files](#fixture-files) shows how to download into `~/Documents`.
+Only LGE itself creates the project store. **File > New Project** creates it, and so does the Create Project card on the Welcome window, but `lungfish-cli` never does. A folder built only from the command line therefore has no store, and LGE opens it as a read-only view with "(Read Only)" after the project name in the window title. So first, in LGE, choose **File > New Project**, name the project `MyProject`, save it in your Documents folder, and close its window. The block then fills it with the fixture files that [Fixture files](#fixture-files) shows how to download into `~/Documents`.
 
 ```bash
 PROJECT="$HOME/Documents/MyProject.lungfish"
