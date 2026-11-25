@@ -358,7 +358,7 @@ final class ProvenanceInspectorAffectedTests: XCTestCase {
         // demo project does (`Analyses/minimap2-2026-09-25T00-00-00/.../variants/vc-3c4d560b-....lungfish-provenance.json`).
         let staging = step("lungfish reference-staging", ["lungfish-internal"], version: "Lungfish 2026.9.58 (5822)")
         let ivar = record("lungfish variants call", app: "lungfish-cli 2026.9.58",
-                          steps: [staging, step("ivar", ["ivar", "variants"])])
+                          steps: [staging, step("ivar", ["ivar", "variants", "-g", "genes.gff3"])])
         let track = shownAndPosted(item(nil), ivar)
         XCTAssertEqual(track.shown, [try words("IVAR-CODON-MERGE")])
         XCTAssertEqual(track.posted?.map(\.backlogID), ["IVAR-CODON-MERGE"])

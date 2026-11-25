@@ -434,7 +434,7 @@ final class AffectedResultsTests: XCTestCase {
         // build in its staging steps, as the record of the 2026.9.58 demo project does.
         var record = named(AffectedResults.RecordName.variantsCall, [
             step("lungfish reference-staging", ["lungfish-internal"], version: "Lungfish 2026.9.58 (5822)"),
-            step("ivar", ["ivar", "variants"]),
+            step("ivar", ["ivar", "variants", "-g", "genes.gff3"]),
         ])
         record.runtimeIdentity = ProvenanceRuntimeIdentity(appVersion: "lungfish-cli 2026.9.58")
         XCTAssertEqual(AffectedResults.builds(of: record), 5822...5822)
