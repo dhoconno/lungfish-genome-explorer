@@ -294,7 +294,7 @@ The four commands in **Selection > Genotype Sample** work once a sample is selec
 
 Cmd-Z undoes the last of those status changes and Cmd-Shift-Z redoes it, and the Edit menu names the command, as in **Undo Mark Sample Confirmed**. Undo puts back the status the sample had before, or no status at all. Each change, an Undo included, adds a row to the Audit Timeline in the Inspector that shows the status before and after it, and an Undo that leaves the sample with no status reads Clear status there. The Undo history ends when the viewport shows something else or reloads the result, for example after another run changes the project, so a change made before then can no longer be undone.
 
-The comparison matrix inside that window, where each cell is one allele in one sample, has three review commands that hold Cmd and Opt together. They live in **Selection > Genotype Call**, and they work only while the matrix has keyboard focus and a selection, so click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-X marks it a false negative, and Cmd-Opt-R clears the review mark. **Edit Comment…** and **Remove Comments** sit in the same Genotype Call menu with no shortcut, because Cmd-Opt-M belongs to macOS as Minimize All. None of the five can be undone with Cmd-Z, so take a mark back with Clear Review and a comment with Remove Comments. All five also appear on the matrix's right-click menu. VoiceOver lists the commands that apply to a row, such as Select Supported Cells, Mark False Positive, Add Comment…, Hide Selected Row, and Show Only Selected Row, as actions on that row, and the **Columns** pull-down lists its items as actions on the button.
+The comparison matrix inside that window, where each cell is one allele in one sample, has three review commands that hold Cmd and Opt together. They live in **Selection > Genotype Call**, and they work only while the matrix has keyboard focus and a selection, so click a cell first. Cmd-Opt-P marks the selected cell a false positive, Cmd-Opt-X marks it a false negative, and Cmd-Opt-R clears the review mark. **Edit Comment…** and **Remove Comments** sit in the same Genotype Call menu with no shortcut, because Cmd-Opt-M belongs to macOS as Minimize All. None of the five can be undone with Cmd-Z, so take a mark back with Clear Review and a comment with Remove Comments. All five also appear on the matrix's right-click menu. VoiceOver lists the commands that apply to a row, such as Select Supported Cells (≥ 1 read), Mark False Positive, Add Comment…, Hide Selected Row, and Show Only Selected Row, as actions on that row, and the **Columns** pull-down lists its items as actions on the button.
 
 The known-allele overview, which draws a reference allele's gene, CDS, and exon blocks, is reachable from the keyboard. Tab moves into a lane that has blocks, and the Left Arrow and Right Arrow keys move between its blocks and show each block's details. Return or Space highlights the focused block, and Escape clears the highlight. VoiceOver reads each block as a button, and pressing a block highlights it, and a **Clear Highlight** action appears while it is highlighted.
 
@@ -314,7 +314,7 @@ The menus that open from a button have VoiceOver actions too. The BLAST table li
 
 Two RNA-seq views take keys of their own once you click into them.
 
-The **Correlation** tab of a bulk RNA-seq result, which holds the gene counts of whole samples, draws one cell for each pair of samples, as [Reading and Exporting Bulk Counts](../11-rna-seq/03-reading-and-exporting-bulk-counts.md#the-correlation-tab-of-the-bulk-view) describes. Click the plot, then the arrow keys move from cell to cell, and the line below the plot names the two samples and their value.
+The **Correlation** tab of a bulk RNA-seq result, which holds the gene counts of whole samples, draws one cell for each pair of samples, as [Reading and Exporting Bulk RNA-seq Counts](../11-rna-seq/03-reading-and-exporting-bulk-counts.md#the-correlation-tab-of-the-bulk-view) describes. Click the plot, then the arrow keys move from cell to cell, and the line below the plot names the two samples and their value.
 
 The [cell map](../../GLOSSARY.md#cell-map) draws each cell of a single-cell result as one dot, and [Select cells on the cell map](../11-rna-seq/05-the-cell-map.md#select-cells-on-the-cell-map) shows how to pick cells on it. Click the plot first. Cmd-A, which is **Edit > Select All**, selects every cell the plot draws, and Escape clears the selection. When an info popover is open, the first Escape closes the popover and keeps the selection. In the legend beside the plot, the Up Arrow and Down Arrow keys move the focus from row to row, and Space adds the focused row's cells to the selection, or takes them away when that row is already selected.
 
@@ -346,7 +346,7 @@ Shortcuts are not the only way to drive LGE. Scrolling moves the viewport along 
 
 A few patterns repeat, and knowing them beats memorizing every row one at a time. This section uses combination and [chord](../../GLOSSARY.md#chord) for the same thing, a set of keys pressed together.
 
-Cmd-Shift-letter usually opens or toggles a panel, which is where **Show Operations Panel**, **Plugin Manager…**, and **Import Center…** come from. For the Sequence menu commands, Cmd-Shift-letter performs the action on the visible region instead, which covers Extract, Copy, Translate, and Reverse Complement. Cmd-Opt-letter targets the inspectors and a few window-level commands, which is **Show Inspector**, **Show in Inspector**, **AI Assistant**, **Provenance Inspector**, **Focus Viewer**, and **New Window for Current Project**. **Go to Gene…** is the exception, on Cmd-Opt-G only because Find Next holds Cmd-G.
+Cmd-Shift-letter usually opens or toggles a panel, which is where **Show Operations Panel**, **Plugin Manager…**, and **Import Center…** come from. For the Sequence menu commands, Cmd-Shift-letter acts on the bases you selected, or on the visible region when nothing is selected, except that Extract and Copy always take the visible region. Cmd-Opt-letter targets the inspectors and a few window-level commands, which is **Show Inspector**, **Show in Inspector**, **AI Assistant**, **Provenance Inspector**, **Focus Viewer**, and **New Window for Current Project**. **Go to Gene…** is the exception, on Cmd-Opt-G only because Find Next holds Cmd-G.
 
 The Sidebar breaks the first pattern. It toggles with Ctrl-Cmd-S rather than Cmd-Shift-S, because Control is what the macOS standard uses for that particular panel.
 
@@ -365,7 +365,7 @@ Escape does a different job in each window.
 | Cell map or its legend | Clears the selected cells, once any open info popover is closed |
 | An info popover | Closes the popover, as Cmd-period does |
 | A hover tooltip panel | Closes the panel |
-| Manage Project Storage sheet | Closes the sheet |
+| Manage Project Storage sheet | Stops a scan, cleanup or revalidation that is running, and otherwise closes the sheet |
 | Distance matrix under an alignment | Clears the cell selection |
 
 ## Customizing shortcuts
