@@ -74,6 +74,7 @@ This chapter is the manual's first stop and its reference for the parts of the w
 Every later chapter tells you where something lands. Reads you bring in land under `Imports/`, references under `Reference Sequences/`, and results under `Analyses/`. Those sentences only help once you know that the project is one folder on disk and that the sidebar is a picture of that folder.
 
 The layout also records where a file came from. A file under `Imports/` came off your own disk. A file under `Downloads/` came from a public archive such as the National Center for Biotechnology Information (NCBI), and it arrived with a [provenance sidecar](../../GLOSSARY.md#provenance-sidecar), a small file naming the source and the time of the download.
+
 This chapter's procedure opens the Human Mapping and Variants (with results) demo project. It holds human reads from the Genome in a Bottle reference sample HG002, a half-megabase slice of human chromosome 20 to map them against, and three finished results made from them, so every kind of folder described here has something in it.
 
 ## Before you start
@@ -206,7 +207,7 @@ The menu also holds commands for one kind of item, such as **Export as FASTQ…*
 
 ### Where results land
 
-An analysis never changes the files you gave it. Most analyses write a new result under `Analyses/`. A few add a new [track](../../GLOSSARY.md#track), a file drawn under the sequence in the viewport, to the reference bundle they were run on, as the table below shows. Only the command-line `lungfish-cli markdup --in-place` ever overwrites its input.
+An analysis never changes the files you gave it. Most analyses write a new result under `Analyses/`. A few add a new [track](../../GLOSSARY.md#track), a file drawn under the sequence in the viewport, to the reference bundle they were run on, as the table below shows. The command-line `lungfish-cli markdup` writes its marked copy beside the input BAM unless you pass `--in-place`, which overwrites it.
 
 A result appears in the sidebar only when its run finishes. While an analysis runs, its folder already exists on disk, but LGE leaves it out of the sidebar so you cannot open a half-written result. Follow the run in the [Operations Panel](#the-operations-panel) instead. Once the row reads **Completed**, its **Results** button selects the result in the sidebar, which for most runs is a row in the `Analyses` group. A run that completes with warnings counts as finished, and its result appears like any other. A run that fails, is canceled, or stops because LGE or the Mac quit never appears in the sidebar. The same holds for a run started from `lungfish-cli`.
 
@@ -240,6 +241,7 @@ A CZ ID import, a saved primer scheme, and an imported tree land in the folders 
 ### What "bundle" means
 
 Every time this manual says [bundle](../../GLOSSARY.md#bundle), it means a folder with an extension that LGE treats as one item. A reference bundle ends in `.lungfishref`, a read bundle ends in `.lungfishfastq`, a multiple sequence alignment ends in `.lungfishmsa`, and a tree bundle ends in `.lungfishtree`. Finder shows a reference, multiple alignment, or tree bundle as a single icon, while a read bundle and the project itself appear as ordinary folders.
+
 A track is an alignment file ([BAM](../../GLOSSARY.md#bam)) or a variant file ([VCF](../../GLOSSARY.md#vcf)) attached inside a reference bundle and drawn under its sequence in the viewport. Mapped reads are therefore not a bundle of their own. They are an [alignment track](../../GLOSSARY.md#alignment-track) inside a reference bundle, and the calls made from them are a [variant track](../../GLOSSARY.md#variant-track) in the same bundle. In the demo project, the reference bundle inside the mapping result carries the alignment track `HG002 minimap2` and the variant tracks `HG002 bcftools` and `HG002 LoFreq`.
 
 A bundle takes its name from the file it was made from, and each sequence inside keeps the name on its FASTA header line. The fixture file `GRCh38.chr20.10.0-10.5Mb.fasta` becomes the bundle `GRCh38.chr20.10.0-10.5Mb`, and its one sequence is named `chr20_10.0-10.5Mb`. Some pickers and the coordinate box in the viewport show the sequence name, so expect to see both.
@@ -266,7 +268,7 @@ Almost every analysis starts from the **Tools** menu. Its submenus follow the or
 |---|---|---|
 | QC & Reporting | Refresh QC Summary… | [Quality Control for Reads](../03-reads/03-quality-control.md) |
 | Demultiplexing | Demultiplex Barcodes…, ONT Fluidigm Sample Split… | [Demultiplexing by Barcode](../03-reads/09-demultiplexing-barcodes.md) and [Oxford Nanopore Runs](../03-reads/07-ont-runs.md) |
-| Trimming & Filtering | fastp Adapter & Quality Trim…, the everyday first trim, and seven more trimming and filtering items | [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), with Remove Low-Complexity Reads… and Remove Duplicate Reads… in [Decontamination](../03-reads/05-decontamination.md) |
+| Trimming & Filtering | fastp Adapter & Quality Trim…, which is the everyday first trim, and seven more trimming and filtering items | [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), with Remove Low-Complexity Reads… and Remove Duplicate Reads… in [Decontamination](../03-reads/05-decontamination.md) |
 | Decontamination | Remove Human Reads…, Remove Ribosomal RNA Reads…, Remove Contaminants… | [Decontamination](../03-reads/05-decontamination.md) |
 | Read Processing | Merge Overlapping Pairs…, Repair Paired-End Files…, and four more | [Read Processing](../03-reads/08-read-processing.md) |
 | Search & Subsetting | Subsample by Proportion…, Subsample by Count…, and three extraction items | [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md) |
@@ -414,7 +416,7 @@ Exports write separate files and never change the project. The **File > Export**
 
 Most results tables have no **File > Export** item, because a table is exported from inside its own viewer. A classification viewer for Kraken 2, EsViritu, or TaxTriage has an **Export** button in the action bar along the bottom, and its menu offers **Export as CSV…** and **Export as TSV…**, as [The action bar and the provenance popover](../06-classification/02-running-kraken2.md#the-action-bar-and-the-provenance-popover) describes. The variant table has a square button with an arrow at the right of the drawer's tab row, with the tooltip "Export table data", and its menus write Excel Workbook, CSV, TSV, or JSON files, as [Export the rows you kept](../05-variants/02-reading-the-variant-browser.md#export-the-rows-you-kept) describes. Either control opens a save sheet where you name the file and pick a folder. A CSV or TSV file is plain text with commas or tabs between the columns, and any spreadsheet program opens it.
 
-These viewer exports run as Operations Panel rows with a `lungfish-cli` command behind them, and a failed export says why in an alert. They also leave a hidden `.lungfish-export-inputs` folder beside the file they write, which you never need to open.
+These viewer exports run as Operations Panel rows with a `lungfish-cli` command behind them, and a failed export says why in an alert. The variant table export also leaves a hidden `.lungfish-export-inputs` folder beside the file it writes, which you never need to open.
 
 ### Exporting an image
 
@@ -422,13 +424,13 @@ These viewer exports run as Operations Panel rows with a `lungfish-cli` command 
 
 1. Show the picture you want in the viewport. For a sequence, select its reference bundle in the sidebar and move to the region you want. For a table, select the result and set its filters and sort order first.
 2. Choose **File > Export > Image (PNG)…**, or **Image (PDF)…** for a PDF.
-3. At the foot of the save sheet, set **Scope**, **Format**, and **Bitmap Scale**, which [Settings](#settings) explains. For a view such as a results table, **Scope** offers **Full Viewer Pane** alone.
+3. At the foot of the save sheet, set **Scope**, **Format**, and **Bitmap Scale**, which [Settings](#settings) explains. For a view such as a classification result, **Scope** offers **Full Viewer Pane** alone.
 4. Type a file name and pick a folder in the sheet.
 5. Click **Save**.
 
 <!-- SHOT: image-export-sheet -->
 
-For a reference bundle, LGE does not copy the screen. It draws the image again from the bundle's own files by running `lungfish-cli bundle export-graphic` behind an Operations Panel row, so the picture stays sharp and its provenance records how it was made. Any other view, such as a results table, is captured from the screen as it looks.
+For a reference bundle, LGE does not copy the screen. It draws the image again from the bundle's own files by running `lungfish-cli bundle export-graphic` behind an Operations Panel row, so the picture stays sharp and its provenance records how it was made. Any other view, such as a classification result, is captured from the screen as it looks.
 
 ## Searching the project
 
@@ -506,7 +508,7 @@ Three small windows in this chapter have settings of their own. They are the Dem
 
 **Save to.** Chooses the folder that each demo project downloads into, as a folder named for the project that ends in `.lungfish`. The default is `~/Documents/LGE Demo Projects`, the folder that the On the command line blocks of this manual name in their first line when they work inside a demo project. Click **Change…** to pick another folder when your Documents folder is short of space or synced to a cloud service, and **Use Default** to go back. On the command line this is `--dest`.
 
-**Scope.** Chooses how much of the view the image holds. The default is **Tracks**, which leaves out the coordinate ruler, or **Full Viewer Pane** for a view that offers only that, such as a results table. Choose **Ruler and Tracks** when a reader of the figure needs the coordinates, or **Selected Region**, which appears only after you select a region yourself, to draw only that stretch. On the command line this is `--include-ruler`.
+**Scope.** Chooses how much of the view the image holds. The default is **Tracks**, which leaves out the coordinate ruler, or **Full Viewer Pane** for a view that offers only that, such as a classification result. Choose **Ruler and Tracks** when a reader of the figure needs the coordinates, or **Selected Region**, which appears only after you select a region yourself, to draw only that stretch. On the command line this is `--include-ruler`.
 
 **Format.** Chooses the image file type, where PDF is a vector format, drawn from shapes so it stays sharp at any size, and PNG, JPEG, and TIFF are bitmaps made of pixels. **Image (PNG)…** starts on PNG and offers all four, while **Image (PDF)…** offers PDF alone. Choose PDF for a figure in a paper or a poster and PNG for a slide or a web page. On the command line this is `--output-format`.
 
