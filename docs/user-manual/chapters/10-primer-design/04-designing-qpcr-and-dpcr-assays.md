@@ -22,9 +22,9 @@ shots:
   - id: qpcr-primer3-probe-dialog
     caption: "The PCR Primer Design dialog on Primer3 with Assay set to qPCR · internal hydrolysis probe, showing the probe melting temperature, length and GC fields and the probe Tm offset field beneath them."
   - id: qpcr-varvamp-overview
-    caption: "The Overview tab of the Mamu-A1 001 qPCR varVAMP analysis, headed by the count of 5 reported qPCR assays and showing each assay in its unpooled lane with forward primers, reverse primers and purple probes."
+    caption: "The Overview of the Mamu-A1 001 qPCR varVAMP analysis, headed by the count of 5 reported qPCR assays and showing each assay in its unpooled lane with forward primers, reverse primers and purple probes."
   - id: qpcr-varvamp-offtarget-warning
-    caption: "The Overview card of the varVAMP qPCR analysis run against the exclusion set, showing an orange warning for each of the five assays, from varVAMP_0 to varVAMP_4, that it could produce off-targets."
+    caption: "The Overview of the varVAMP qPCR analysis run against the exclusion set, showing an orange warning for each of the five assays, from varVAMP_0 to varVAMP_4, that it could produce off-targets."
   - id: qpcr-discriminating-sites
     caption: "The four-row lineage alignment with each row name prefixed Target and the orange discriminating-sites legend in the viewport's toolbar, beside the Inspector's Discriminating Sites section, whose summary lines give 4 targets, 18 exclusions and 11 discriminating columns above its site table."
   - id: qpcr-primer3-fixed-oligo
@@ -253,7 +253,7 @@ Not one of the five assays is shown to be specific to the lineage, and the table
 | varVAMP_3 | 17 of 18 | 4 of 18 | 15 of 18 |
 | varVAMP_4 | 11 of 18 | 2 of 18 | 17 of 18 |
 
-A perfect-match count is the strictest test and not the whole one, because a primer still starts a copy across a mismatch that sits away from its 3′ end. So a low count such as varVAMP_0's 0 and 1 of 18 for its primers does not clear an assay, and its probe matches 11. Where the mismatches fall matters more than how many. varVAMP_1's forward primer `TAACCCCACAGTTCCTCCTCT` is the most discriminating oligo in the set, and against most exclusion sequences its three or four mismatches sit 17, 19 and 20 bases from the 3′ end, at the 5′ end where they are usually tolerated. On eight of them, including both *A7* alleles, there is also a mismatch one base from the 3′ end, which does discriminate and sets this oligo apart. Against *A1\*041* the only mismatch is the 5′-most base, so that lineage would amplify almost as well as *\*001*. So varVAMP_1 partly discriminates, and an assay whose two primers both bind a non-target sequence can amplify it.
+A perfect-match count is the strictest test and not the whole one, because a primer still starts a copy across a mismatch that sits away from its 3′ end. So a low count such as varVAMP_0's 0 and 1 of 18 for its primers does not clear an assay, and its probe matches 11. Where the mismatches fall matters more than how many. varVAMP_1's forward primer `TAACCCCACAGTTCCTCCTCT` is the most discriminating oligo in the set, and against most exclusion sequences its three or four mismatches sit 17, 19 and 20 bases from the 3′ end, at the 5′ end where they are usually tolerated. On eight of them, including both *A7* alleles, there is also a mismatch one base from the 3′ end, which does discriminate. Against *A1\*041* the only mismatch is the 5′-most base, so that lineage would amplify almost as well as *\*001*. So varVAMP_1 partly discriminates, and an assay whose two primers both bind a non-target sequence can amplify it.
 
 varVAMP's own screen reaches the same verdict independently. The procedure's run screened against the eighteen exclusion sequences and returned the same five assays a run without the screen returns, each marked as producing off-target amplicons, products from a sequence you did not mean to amplify, and its **Overview** shows five warnings of this form.
 
@@ -296,7 +296,7 @@ The section then shows summary lines, here 4 targets with `LR699574.1` as the te
 To read the base under an oligo's 3′ end, use the site table this way.
 
 1. Find the oligo's 3′-terminal position on row 1, which is the higher of a forward primer's two end positions and the lower of a reverse primer's. A varVAMP position counts along its consensus, so subtract 16 first.
-2. Find the table row whose **Template** equals that position. With the default settings, no row means that at least one exclusion sequence carries the target's base, a gap or an ambiguity code there, so the oligo has no clear mismatch at its last base against that sequence.
+2. Find the table row whose **Template** equals that position. With the default settings, no row means that the column is not one where all the targets carry one base and every exclusion sequence carries another. For an oligo that matches all four targets with a plain base at its 3′ end, the cause is an exclusion sequence that carries the target's base, a gap or an ambiguity code there, so the oligo has no clear mismatch at its last base against that sequence.
 3. Read **Differing**, which is 18 for every row under the default **Exclusions that must differ**, and the **Exclusions** cell, which lists each exclusion sequence as its name, a colon and the base it carries there.
 
 The exclusion sequences came from a file, so the viewport still draws only the alignment's four rows, each prefixed `Target ·`. The legend in the toolbar above them names the exclusions instead, reading `Discriminating sites: 11 columns · Target rows 4 · Exclusion sequences 18 from mamu-class-i-exclusion`.
@@ -321,7 +321,7 @@ That is the first surprise. A reader told to look in exons 2 and 3 finds very li
 
 ### Why the exon cluster cannot carry a primer 3′ end
 
-The cluster at 911 to 1057 looks like the obvious place to design, and it is not. To see why, repeat steps 1 to 3 of [Design with the Primer3 probe and dye presets](#design-with-the-primer3-probe-and-dye-presets) with the probe preset and the name `Mamu-A1 001 qPCR forward 990`. Then anchor a forward primer's 3′ end on the cluster by typing 990 into **Forward 3′ end** in the "Keep these oligos (design the rest around them)" group under **Advanced settings**, and Primer3 reports this.
+The cluster at 911 to 1057 looks like the obvious place to design, and it is not. To see why, repeat steps 1 to 3 of [Design with the Primer3 probe and dye presets](#design-with-the-primer3-probe-and-dye-presets) with the probe preset and the name `Mamu-A1 001 qPCR forward 990`, but before you click **Run** in step 3, anchor a forward primer's 3′ end on the cluster by typing 990 into **Forward 3′ end** in the "Keep these oligos (design the rest around them)" group under **Advanced settings**. Primer3 then reports this.
 
 ```text
 Left primer: considered 7, too many Ns 2, GC content failed 5, ok 0
@@ -329,7 +329,7 @@ Left primer: considered 7, too many Ns 2, GC content failed 5, ok 0
 
 Only seven candidates exist, since the anchor fixes one end and only the length varies, and every one fails the GC window. Forced primers ending on these columns run 63 to 77 percent GC, because MHC class I exons are GC-rich. Widen the GC maximum to 75 percent and the next rule appears, a failed GC clamp, because position 990 carries an A and the qPCR preset requires a G or C at the 3′ end. A primer 3′ end anchored on a discriminating A or T can never satisfy a GC clamp, so those two settings exclude each other, and the clamp has to go to 0. With the clamp at 0 the remaining candidates still fail the preset's limit of 2 G or C bases among the last five, then its 62 °C melting-temperature ceiling, and once both are lifted they fail the self-complementarity limit, which caps how strongly a primer pairs with itself, so a site this GC-rich asks more of a primer than the preset allows. A probe covering both 990 and 1008 is no better, since every window spanning them runs 70 to 80 percent GC and contains `GGGG`, the run the probe's poly-X cap of 3 exists to prevent.
 
-So the usable cluster is the one from 1851 to 1907, at the end of exon 4 and the start of intron 4, and the per-oligo explanation lines are what identified each blocking rule. Without them the pair line reads "considered 0, ok 0" and says nothing.
+So the usable cluster is the one from 1851 to 1907, at the end of exon 4 and the start of intron 4, and the per-oligo explanation lines are what identified most of the blocking rules. Without them the pair line reads "considered 0, ok 0" and says nothing.
 
 ### Anchor a primer's 3′ end on a discriminating column
 
@@ -342,9 +342,9 @@ Reverse primer, as ordered   5′ AGGTCTCTAGAAAGGCTCCA 3′
 
 To write the primer, read the template from 1,926 back to 1,907 and swap each base for its partner, A for T and C for G, so the last base written, at the primer's 3′ end, is the A that pairs with the T at 1,907. Typing the sequence fixes all twenty bases. A position box such as **Reverse 3′ end** fixes only the last base's place and leaves the length to Primer3, as for the forward 990 anchor, so it could return a different oligo from the one tested below.
 
-Two preset rules had to be widened for this primer, each named by an explanation line rather than guessed. Its melting temperature is 57.1 °C, below the preset's 58 °C floor, so **Minimum** under "Primer melting temperature (°C)" goes to 56. Its 3′ end carries three G or C bases among the last five against the preset's limit of 2, so **3′-end G/C max (last 5 nt)**, under "Assay rules (blank keeps Primer3's default)", goes to 4, one above its three. Two more fields change. **GC clamp (nt)**, in that row, goes to 0 because the primer ends in A, the reason given above, and **Maximum GC (%)**, below the melting temperatures, goes to 70 so that GC-rich forward primers stay in play, though the best pair's primers, at 55.0 and 50.0 percent, would pass without it.
+Two preset rules had to be widened for this primer. Its melting temperature is 57.1 °C, below the preset's 58 °C floor, so **Minimum** under "Primer melting temperature (°C)" goes to 56. Its 3′ end carries three G or C bases among the last five against the preset's limit of 2, so **3′-end G/C max (last 5 nt)**, under "Assay rules (blank keeps Primer3's default)", goes to 4, one above its three. Two more fields change. **GC clamp (nt)**, in that row, goes to 0 because the primer ends in A, the reason given above, and **Maximum GC (%)**, below the melting temperatures, goes to 70 so that GC-rich forward primers stay in play, though the best pair's primers, at 55.0 and 50.0 percent, would pass without it.
 
-Type that sequence into **Reverse primer (as ordered)** in the same group, set those four fields, name the run `Mamu-A1 001 qPCR anchored`, and run the probe preset again with row 1 as the template and the conserved-sites switch on, as before. Primer3 honors the fixed oligo and designs the rest around it, and its explanation lines confirm it.
+Type that sequence into **Reverse primer (as ordered)** in the "Keep these oligos (design the rest around them)" group, set those four fields, name the run `Mamu-A1 001 qPCR anchored`, and run the probe preset again with row 1 as the template and the conserved-sites switch on, as before. Primer3 honors the fixed oligo and designs the rest around it, and its explanation lines confirm it.
 
 ```text
 Right primer: considered 1, ok 1
