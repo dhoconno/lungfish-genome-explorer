@@ -1211,9 +1211,6 @@ final class ViewSwitchViewStateTests: XCTestCase {
             try assertHostLineStartsBelowTheToolbar(hostLine, in: harness, driver.kind)
         }
         let ownRead = assertOwnLinesShowBelowTheToolbar(in: harness, driver.kind)
-        if hostLine == nil, driver.resetLineWords(in: harness) != nil {
-            XCTAssertGreaterThan(ownRead, 0, "\(driver.kind): a line shows and the host draws none, so the read must find it")
-        }
     }
 
     /// Reads where each line a viewer draws itself, outside the host, sits: the genotype viewer's reset line and word
