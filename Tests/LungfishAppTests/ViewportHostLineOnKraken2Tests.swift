@@ -147,4 +147,117 @@ final class ViewportHostLineOnKraken2Tests: XCTestCase {
         XCTAssertEqual(kept.maxY, visible.maxY, accuracy: 0.5, "the line keeps the safe-area top")
         XCTAssertEqual(inWindow(surfaceView).maxY, kept.minY, accuracy: 0.5, "Kraken2 starts at the line's bottom again")
     }
+
+    // MARK: - One order in every path: the line, then the strip, then the surface (VS-HOST-LINE continuation 1)
+
+    private func affectedRows() -> [AffectedResultRow] {
+        let rows = AffectedResults.rows(forAppVersion: "Lungfish 2026.10.28 (11807)", kind: .esViritu)
+        XCTAssertGreaterThan(rows.count, 0)
+        return rows
+    }
+
+    /// The active top constraints the container holds for `view`. A view in the stack has exactly one.
+    private func activeTops(of view: NSView, in container: NSView) -> [NSLayoutConstraint] {
+        container.constraints.filter { $0.isActive && $0.firstItem === view && $0.firstAttribute == .top }
+    }
+
+    /// The first show: the install draws the line, and the viewer places the strip after it.
+    private func showLineThenStrip(
+        _ viewer: ViewerViewController
+    ) throws -> (line: ViewMemoryResetLineView, strip: AffectedResultsStripView) {
+        viewer.surfaceHost.showResetLine(ViewMemoryWords.viewReset)
+        viewer.showAffectedResultsStrip(rows: affectedRows())
+        layOut(viewer)
+        let line = try XCTUnwrap(viewer.surfaceHost.resetLine)
+        let strip = try XCTUnwrap(AffectedResultsStrip.strip(in: viewer.view))
+        XCTAssertEqual(inWindow(line).maxY, window.contentLayoutRect.maxY, accuracy: 0.5, "the line is first")
+        XCTAssertEqual(inWindow(strip).maxY, inWindow(line).minY, accuracy: 0.5, "the strip starts at the line's bottom")
+        return (line, strip)
+    }
+
+    /// Finding 2. Reset View with the line and the strip up: the session's reset removes the line
+    /// (`removeResetLine`), the strip's top goes back to the safe-area top, where the line was, and Kraken2 stays
+    /// under the strip. Nothing goes above the container's edge.
+    func testResetViewWithTheStripUpPutsTheStripWhereTheLineWas() throws {
+        let (viewer, surfaceView, summaryBar) = try showKraken2()
+        let visible = window.contentLayoutRect
+        let (line, stripView) = try showLineThenStrip(viewer)
+
+        viewer.surfaceHost.removeResetLine()
+        layOut(viewer)
+
+        XCTAssertNil(line.superview, "the line is gone from the view tree")
+        let strip = inWindow(stripView)
+        XCTAssertEqual(strip.maxY, visible.maxY, accuracy: 0.5,
+                       "the strip starts at the safe-area top, where the line was, found \(strip.maxY) pt")
+        XCTAssertLessThanOrEqual(strip.maxY, inWindow(viewer.view).maxY + 0.5, "the strip stays inside the container")
+        XCTAssertEqual(inWindow(surfaceView).maxY, strip.minY, accuracy: 0.5, "Kraken2 stays under the strip")
+        XCTAssertLessThanOrEqual(inWindow(summaryBar).maxY, strip.minY + 0.5, "the strip covers no row of Kraken2")
+        XCTAssertEqual(activeTops(of: stripView, in: viewer.view).count, 1, "the strip has one top")
+        XCTAssertEqual(activeTops(of: surfaceView, in: viewer.view).count, 1, "Kraken2 has one top")
+    }
+
+    /// Finding 3. After Reset View removed the line, the strip goes for the same surface, as when the Inspector's
+    /// notice for this item comes with no rows. At f07e0a527 the strip's removal turns `surface.top == line.bottom`
+    /// back on (`ViewerViewController+AffectedResultsStrip.swift:108-110`) with the line out of the view tree, and
+    /// AppKit raises, which XCTest records as a caught exception. The surface goes back on the host's own pin.
+    func testTheStripsRemovalAfterTheLineWentPinsKraken2ToItsOwnPin() throws {
+        let (viewer, surfaceView, summaryBar) = try showKraken2()
+        let visible = window.contentLayoutRect
+        let (line, _) = try showLineThenStrip(viewer)
+        viewer.surfaceHost.removeResetLine()
+        XCTAssertNil(line.superview)
+
+        viewer.showAffectedResultsStrip(rows: [])
+        layOut(viewer)
+
+        XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view))
+        let tops = activeTops(of: surfaceView, in: viewer.view)
+        XCTAssertEqual(tops.count, 1, "Kraken2 has one top, on a view inside the tree")
+        let pin = try XCTUnwrap(viewer.surfaceHost.installedTop?.constraint)
+        XCTAssertTrue(tops.first === pin, "Kraken2 is back on the host's own pin")
+        XCTAssertEqual(inWindow(surfaceView).maxY, inWindow(viewer.view).maxY, accuracy: 0.5,
+                       "Kraken2 starts at the container's edge")
+        XCTAssertEqual(inWindow(summaryBar).maxY, visible.maxY, accuracy: 0.5, "and pads its own band again")
+    }
+
+    /// Finding 1. A late-apply line on a result that already shows the strip: a pending adopter's handle draws its
+    /// line after the install, through `showResetLine`. The line takes the top of what stands above the surface, so
+    /// the order is the first show's: the line, then the strip, then Kraken2, with no overlap. Then the strip goes
+    /// while the line stays, and then the line goes.
+    func testALateLineOnAResultThatShowsTheStripStacksAboveTheStrip() throws {
+        let (viewer, surfaceView, summaryBar) = try showKraken2()
+        let visible = window.contentLayoutRect
+        viewer.showAffectedResultsStrip(rows: affectedRows())
+        layOut(viewer)
+        let stripView = try XCTUnwrap(AffectedResultsStrip.strip(in: viewer.view))
+        let stripHeight = inWindow(stripView).height
+
+        viewer.surfaceHost.showResetLine(ViewMemoryWords.viewReset)
+        layOut(viewer)
+
+        let lineView = try XCTUnwrap(viewer.surfaceHost.resetLine)
+        let line = inWindow(lineView)
+        let strip = inWindow(stripView)
+        XCTAssertEqual(line.maxY, visible.maxY, accuracy: 0.5, "the line starts at the safe-area top")
+        XCTAssertEqual(strip.maxY, line.minY, accuracy: 0.5,
+                       "the strip \(strip) starts at the line's bottom, under the line \(line)")
+        XCTAssertLessThanOrEqual(line.intersection(strip).height, 0.5, "the line and the strip do not cover each other")
+        XCTAssertEqual(strip.height, stripHeight, accuracy: 0.5, "the strip keeps its own height")
+        XCTAssertEqual(inWindow(surfaceView).maxY, strip.minY, accuracy: 0.5, "Kraken2 starts at the strip's bottom")
+        XCTAssertEqual(activeTops(of: surfaceView, in: viewer.view).count, 1, "Kraken2 has one top")
+
+        viewer.showAffectedResultsStrip(rows: [])
+        layOut(viewer)
+        XCTAssertNil(AffectedResultsStrip.strip(in: viewer.view))
+        XCTAssertEqual(inWindow(lineView).maxY, visible.maxY, accuracy: 0.5, "the line keeps the safe-area top")
+        XCTAssertEqual(inWindow(surfaceView).maxY, inWindow(lineView).minY, accuracy: 0.5,
+                       "Kraken2 starts at the line's bottom once the strip goes")
+
+        viewer.surfaceHost.removeResetLine()
+        layOut(viewer)
+        XCTAssertEqual(inWindow(surfaceView).maxY, inWindow(viewer.view).maxY, accuracy: 0.5,
+                       "Kraken2 is back on its own pin")
+        XCTAssertEqual(inWindow(summaryBar).maxY, visible.maxY, accuracy: 0.5)
+    }
 }
