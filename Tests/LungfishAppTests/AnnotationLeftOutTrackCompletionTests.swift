@@ -96,6 +96,77 @@ final class AnnotationLeftOutTrackCompletionTests: XCTestCase {
         XCTAssertEqual(damaged.alert, "Exported 2 file(s) with 3 sequence(s) to Exports. " + words)
     }
 
+    // MARK: - Row 2, the batch loop (ANNOT-EXPORT-3 review SF-1)
+
+    private enum BatchStubFailure: Error, Equatable { case exportFailed }
+
+    /// The names of the bundles a stub export was asked for, in order.
+    private actor ExportedBundles {
+        private(set) var names: [String] = []
+        func record(_ name: String) { names.append(name) }
+    }
+
+    /// The loop pairs each file's left-out tracks with that file's own name, so a name cannot meet another bundle's
+    /// tracks, and a bundle with no target has no entry. A stub stands for `convert`, so an edit that goes back to the
+    /// count-only call or drops `outcome.leftOutTracks` fails here, where the words tests alone would not.
+    func testBatchLoopKeepsEachFilesLeftOutTracksWithItsOwnFileName() async throws {
+        let folder = URL(fileURLWithPath: "/tmp/batch-loop/out", isDirectory: true)
+        let a = URL(fileURLWithPath: "/tmp/batch-loop/a.lungfishref", isDirectory: true)
+        let b = URL(fileURLWithPath: "/tmp/batch-loop/b.lungfishref", isDirectory: true)
+        let c = URL(fileURLWithPath: "/tmp/batch-loop/c.lungfishref", isDirectory: true)
+        let targets = [a: folder.appendingPathComponent("a.gb"), b: folder.appendingPathComponent("b.gb")]
+        let missing = self.missing
+        let noProgress: @Sendable (Int, URL, URL) async -> Void = { _, _, _ in }
+        let stub: @Sendable (URL, URL) async throws -> SequenceExportRoute.Outcome = { bundleURL, _ in
+            bundleURL == b
+                ? SequenceExportRoute.Outcome(count: 2, leftOutTracks: missing)
+                : SequenceExportRoute.Outcome(count: 1, leftOutTracks: [])
+        }
+
+        let done = try await AppDelegate.exportBatchNamingLeftOutTracks(
+            bundleURLs: [a, b, c], targets: targets, beforeEach: noProgress, export: stub
+        )
+
+        XCTAssertEqual(done.count, 3)
+        XCTAssertEqual(done.leftOut.map { $0.file }, ["a.gb", "b.gb"], "c has no target, so it has no entry")
+        XCTAssertEqual(done.leftOut.map { $0.tracks }, [[], missing])
+        let words = try XCTUnwrap(AppDelegate.batchSequenceExportLeftOutWords(done.leftOut))
+        XCTAssertTrue(words.contains("two-parent c (b.gb)"), words)
+        XCTAssertFalse(words.contains("(a.gb)"), words)
+    }
+
+    /// A bundle that fails ends the batch: the call throws, and no bundle after it is exported.
+    func testBatchLoopStopsAtTheFirstFailedBundle() async {
+        let folder = URL(fileURLWithPath: "/tmp/batch-loop/out", isDirectory: true)
+        let a = URL(fileURLWithPath: "/tmp/batch-loop/a.lungfishref", isDirectory: true)
+        let b = URL(fileURLWithPath: "/tmp/batch-loop/b.lungfishref", isDirectory: true)
+        let c = URL(fileURLWithPath: "/tmp/batch-loop/c.lungfishref", isDirectory: true)
+        let targets = [
+            a: folder.appendingPathComponent("a.gb"),
+            b: folder.appendingPathComponent("b.gb"),
+            c: folder.appendingPathComponent("c.gb"),
+        ]
+        let seen = ExportedBundles()
+        let noProgress: @Sendable (Int, URL, URL) async -> Void = { _, _, _ in }
+        let failing: @Sendable (URL, URL) async throws -> SequenceExportRoute.Outcome = { bundleURL, _ in
+            await seen.record(bundleURL.lastPathComponent)
+            if bundleURL == b { throw BatchStubFailure.exportFailed }
+            return SequenceExportRoute.Outcome(count: 1, leftOutTracks: [])
+        }
+
+        do {
+            _ = try await AppDelegate.exportBatchNamingLeftOutTracks(
+                bundleURLs: [a, b, c], targets: targets, beforeEach: noProgress, export: failing
+            )
+            XCTFail("the batch should end with the error of b")
+        } catch {
+            XCTAssertEqual(error as? BatchStubFailure, BatchStubFailure.exportFailed)
+        }
+
+        let exported = await seen.names
+        XCTAssertEqual(exported, ["a.lungfishref", "b.lungfishref"], "c was never exported")
+    }
+
     // MARK: - Row 1, the sidebar GFF3 export's alert (SWIFT and ARCH review SF-2 a)
 
     func testSidebarGFF3ExportCompletionWordsNameTheLeftOutTracksAndKeepTheHealthyWords() {
