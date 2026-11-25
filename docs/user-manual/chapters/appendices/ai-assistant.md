@@ -48,7 +48,7 @@ Nothing else in this manual depends on this appendix, and no analysis in LGE nee
 
 You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows. The examples use the Genes and Sequences demo project, which **Help > Demo Projects…** downloads, as [Demo projects](../01-foundations/06-the-lungfish-project.md#demo-projects) explains. Its `NG_000007.3` reference bundle holds the human beta-globin (HBB) region with its genes drawn as features.
 
-The Assistant tab appears only while the viewport shows a reference bundle or another sequence view such as a multiple sequence alignment. Reads, mapping results under `Analyses/`, assemblies, classifier results, genotype results, and primer analyses open an Inspector without it.
+The Assistant tab shows in the Inspector's tab row only for sequence views such as a multiple sequence alignment. A reference bundle opened from `Reference Sequences/` lists no Assistant tab, though **View > AI Assistant** still opens the assistant pane there. Reads, mapping results under `Analyses/`, assemblies, classifier results, genotype results, and primer analyses open an Inspector without it.
 
 You also need an account and an API key from Anthropic, OpenAI, or Google Gemini, made on the provider's own website.
 
@@ -74,11 +74,11 @@ Turn on **Enable AI-powered search** at the top of the tab. This one switch turn
 
 ### Choose a default provider and enter its key
 
-Choose a company from the **Default provider** picker, whose options read "Anthropic Claude", "OpenAI", and "Google Gemini". Find that company's section and paste the whole key, including its first characters, into its **API Key** field. The gray placeholder text shows how each company's keys begin, `sk-ant-...` for Anthropic, `sk-...` for OpenAI, and `AIza...` for Google Gemini. LGE checks a key only if it begins that way and holds at least 20 characters.
+Choose a company from the **Default provider** picker, whose options read "Anthropic Claude", "OpenAI", and "Google Gemini". Find that company's section and paste the whole key, including its first characters, into its **API Key** field. The gray placeholder text shows how each company's keys begin, `sk-ant-...` for Anthropic, `sk-...` for OpenAI, and `AIza...` for Google Gemini. LGE checks a key only if it begins that way and holds at least 20 characters, except an OpenAI key while the Azure toggle is on, which is checked from 8 characters with any beginning.
 
 LGE writes the key into the macOS [Keychain](../../GLOSSARY.md#keychain), the system store that holds passwords under the protection of your login, and never into your project folder. There is no Save button. The key saves as you paste or type it, and "Saving API key changes to Keychain…" appears under the form while it is written.
 
-If the Keychain refuses the change, the form shows "Could not save API key changes to Keychain." and "Retry before using the new credentials." with a **Retry Saving Keys** button, which tries the write again. The check does not start until the save succeeds. If LGE cannot read the Keychain when the tab opens, the same place shows the error text macOS gave. If Retry fails again, ask whoever manages your Mac.
+If the Keychain refuses the change, the form shows "Could not save API key changes to Keychain." and "Retry before using the new credentials." with a **Retry Saving Keys** button, which tries the write again. The check does not start until the save succeeds. If LGE cannot read the Keychain when the tab opens, the same place shows "Failed to retrieve secret from Keychain". If Retry fails again, ask whoever manages your Mac.
 
 An icon to the left of each key field reports what LGE knows about that key.
 
@@ -89,11 +89,11 @@ An icon to the left of each key field reports what LGE knows about that key.
 | Checkmark in a filled circle | The provider accepted the key, with the caption "Key is valid and ready for AI queries." |
 | Cross in a filled circle | The check failed, with a caption that opens with the words "Validation failed" and names the reason. |
 
-A key counts as saved when "Saving API key changes to Keychain…" has gone, and as checked when the checkmark shows. The check starts by itself about half a second after you stop typing. Wait for the checkmark before you close Settings, because closing sooner keeps the key but cancels the check. LGE checks a key only when you change it, so a key you reopen later shows the hourglass until you edit it, which does not mean it is wrong.
+A key counts as saved when "Saving API key changes to Keychain…" has gone and no "Could not save" message has replaced it, and as checked when the checkmark shows. The check starts by itself about half a second after you stop typing. Wait for the checkmark before you close Settings, because closing sooner keeps the key but cancels the check. LGE checks a key only when you change it, so a key you reopen later shows the hourglass until you edit it, which does not mean it is wrong.
 
 If the hourglass stays with "Key entered", the key is too short or lacks its first characters, so paste it again whole. If it stays with "Validating API key and quota..." for long, check your internet connection and retype the key's last character, which restarts the check.
 
-A mistyped or revoked key gets the cross, with "Validation failed" followed by "API key is not configured. Please add your API key in Settings > AI Services." LGE uses that wording for every key a provider refuses, so make a new key and paste it whole. A Gemini key without access may instead get "HTTP error 403" and Google's own words.
+A mistyped or revoked key gets the cross, with "Validation failed" followed by "API key is not configured. Please add your API key in Settings > AI Services." LGE uses that wording when the provider answers that the key is not accepted, so make a new key and paste it whole. Any other refusal shows "HTTP error" and a status number, such as 403 for a Gemini key without access, followed by the provider's own words.
 
 A used-up account also gets the cross. When OpenAI credits run out, an Anthropic spend limit is reached, or a Gemini daily quota (a cap on how much your key may use) is used, the caption goes on with "AI provider quota exceeded" and the provider's own words. That is a billing limit rather than a wrong key, so add credits or raise the limit on the provider's website.
 
@@ -103,9 +103,9 @@ One provider is enough. If you fill in more than one, LGE tries your default fir
 
 ### Open the Assistant tab
 
-In the [sidebar](../../GLOSSARY.md#sidebar), the list of folders and results at the left of the window, click the reference bundle that holds your variant tracks under `Reference Sequences/`. For the demo, click `NG_000007.3`. Your variant rows then sit on the **Variants** tab of the table drawer, as [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md#open-the-variants-tab) shows. A mapping result under `Analyses/` opens a mapping view, whose Inspector has no Assistant tab.
+In the [sidebar](../../GLOSSARY.md#sidebar), the list of folders and results at the left of the window, click the reference bundle that holds your variant tracks under `Reference Sequences/`. For the demo, click `NG_000007.3`. Your variant rows then sit on the **Variants** tab of the table drawer, as [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md#open-the-variants-tab) shows. A reference bundle and a mapping result under `Analyses/` each open a viewport whose Inspector lists no Assistant tab.
 
-Choose **View > AI Assistant** (Cmd-Opt-A). The Inspector opens on its **Assistant** tab. The header carries the title, the status line of small gray text, a **Data sent…** button, and a **Clear** button.
+Choose **View > AI Assistant** (Cmd-Opt-A). The Inspector shows the assistant pane, although its tab row lists no Assistant tab for a reference bundle, and the welcome message there reads "No genome bundle is currently loaded." The header carries the title, the status line of small gray text, a **Data sent…** button, and a **Clear** button.
 
 The tab greets you with a welcome message and suggested questions written for what is loaded. With a reference sequence open they include "Data overview", "Explore current view", "Search for a gene", "Navigate to a gene", "Disease gene check", "Find related research", and "Chromosome guide". With a variant track, "Variant statistics", "Variants in this region", and "Variants in a gene" join them. The research button searches PubMed, the free index of biomedical papers. Click a button to send its question.
 
