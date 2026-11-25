@@ -766,7 +766,7 @@ lungfish-cli import nvd <input-path> [--output-dir <output-dir>] [--name <name>]
 
 ### `import cz-id`
 
-Imports a CZ ID taxon report, given as a taxon report TSV, a ZIP archive, or an extracted export folder, into a project as `Classifications/<sample>.lungfishtax`. It reads files you already downloaded and never contacts CZ ID. Explained in [Importing CZ ID Results](../06-classification/08-importing-cz-id-results.md).
+Imports a CZ ID taxon report, given as a taxon report in CSV or TSV form, a ZIP archive, or an extracted export folder, into a project as `Classifications/<sample>.lungfishtax`. It reads files you already downloaded and never contacts CZ ID. Explained in [Importing CZ ID Results](../06-classification/08-importing-cz-id-results.md).
 
 ```text
 lungfish-cli import cz-id [<options>] <input-path> --project <project> --sample-name <sample-name>
@@ -776,7 +776,7 @@ lungfish-cli import cz-id [<options>] <input-path> --project <project> --sample-
 
 | Argument or flag | What it does |
 |---|---|
-| `<input-path>` | Path to a CZ-ID taxon report TSV, ZIP archive, or extracted export folder. |
+| `<input-path>` | Path to a CZ-ID taxon report (CSV or TSV), ZIP archive, or extracted export folder. |
 | `--project <project>` | LGE project directory to import into. |
 | `--sample-name <sample-name>` | Sample name for the imported `.lungfishtax` bundle. |
 | `--metadata <metadata>` | Optional CZ-ID metadata sidecar path to record in provenance. |
@@ -1656,14 +1656,14 @@ Merges overlapping mates of an interleaved paired-end file into single reads wit
 lungfish-cli fastq merge <input> [--min-overlap <min-overlap>] [--strict] [--count-duplicates] --output <output> [--force] [--compress]
 ```
 
-The input must be interleaved. `--count-duplicates`, which the window always passes, collapses identical output sequences, merged and unmerged, into records named with `size=N`. Without it the output holds the merged reads first, then the unmerged mates.
+The input must be interleaved. `--count-duplicates`, which the window never passes, collapses identical sequences, merged and unmerged, into one record each, named `u<number>;size=<reads>`. The written scores are Q40 placeholders, not measured, and reads that did not merge lose their mate pairing. Without it the output holds the merged reads first, then the unmerged mates.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input>` | Input interleaved FASTQ file or `.lungfishfastq` bundle. |
 | `--min-overlap <min-overlap>` | Minimum overlap. The default is `12`. |
 | `--strict` | Use strict merge mode. |
-| `--count-duplicates` | Collapse identical output sequences after merge and encode support as size=N. |
+| `--count-duplicates` | Collapse identical sequences, merged and unmerged alike, into one record each, named `u<number>;size=<reads>`. The written scores are Q40 placeholders, not measured, and reads that did not merge lose their mate pairing. |
 | `--compress` | Compress output with gzip. |
 
 ### `fastq repair`
@@ -1997,7 +1997,7 @@ There are three engines. `cutadapt` is a fuzzy adapter matcher that allows error
 
 Before it writes sample files, the run checks how many reads would match the kit's barcodes by chance. When that check cannot judge the kit, because the barcodes are only a few bases long or because cutadapt searches them anywhere in the read, as it does for the Fluidigm Access Array kit, the run is refused. With `--engine exact-bare` the run is also refused when the read names carry the kit's barcodes, which that engine would find in the read sequences only by chance. `--keep-unchecked-samples` makes the sample files anyway, so check each sample against your sample sheet. For Fluidigm barcodes in nanopore reads use [`fastq ont-fluidigm-samples`](#fastq-ont-fluidigm-samples), and for reads whose index is in their names use `--engine header-index`.
 
-The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. The list still names `idt-ud-indexes`, IDT for Illumina UD Indexes, but every route refuses that kit until its barcode table is checked, so give its barcodes in your own barcode file instead. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. A header line may name the columns instead, so a file headed `id,sequence,sample_name` carries sample names in its third column and the per-barcode bundles are named after them. The long-read kits, meaning the Oxford Nanopore native, rapid, PCR, and 16S barcoding kits and the PacBio kits, are searched as the platform's whole adapter and barcode construct at both ends of each read in both orientations, and a read is assigned only when both ends carry the same barcode. `--location` and the two `--max-distance` flags do not apply to those kits, and the command prints a note on standard error and ignores them. A read with a barcode at one end only joins the unassigned reads, which `--discard-unassigned` drops. For those kits the trim removes the construct at the start of each read, and the copy at its far end stays. `--no-trim` keeps every read whole in every bundle, virtual bundles included. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. Interleaved pairs are demultiplexed by fragment with either engine. Both mates go to the barcode their calls agree on, or to the barcode of the one mate that carries one, and a pair whose mates carry different barcodes goes to the unassigned bundle whole, as the input held it. Merged and single reads keep their own call. For paired input the summary on standard error adds a line such as `Mate pairs: 15 (4 with both mates called alike, 7 placed by their one called mate, 2 sent to unassigned because their mates disagree)`, and `demux-manifest.json` records the counts under `mateCalls`. A run writes into a hidden `.lungfish-demux-incomplete-` folder inside the output folder and moves its bundles into place, the manifest last, only when it finishes, so a run that fails or is cancelled leaves no barcode bundle behind. A run that is killed can leave the hidden folder. `--replace` makes every check before it touches the earlier output, and refuses with exit status 4 when the output folder holds the input or anything else the run reads. It then sets the earlier output aside, removes it once the new bundles are in place, and puts it back if the run fails. The global `--threads` sets the cutadapt thread count, and the default here is 4. The command runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
+The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. The list still names `idt-ud-indexes`, IDT for Illumina UD Indexes, but every route refuses that kit until its barcode table is checked, so give its barcodes in your own barcode file instead. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. A header line may name the columns instead, so a file headed `id,sequence,sample_name` carries sample names in its third column and the per-barcode bundles are named after them. The long-read kits, meaning the built-in Oxford Nanopore native, rapid, PCR, and 16S barcoding kits, the Fluidigm Access Array kit, and M13 Universal Primers, are searched as the platform's whole adapter and barcode construct at both ends of each read in both orientations. When the kit puts barcodes at both ends, as the native kits do, both ends must carry the same barcode, and otherwise one barcode at either end is enough. The PacBio Sequel kits get no such search. `--location` and the two `--max-distance` flags do not apply to those kits, and the command prints a note on standard error and ignores them. With a kit that puts barcodes at both ends, a read with a barcode at one end only joins the unassigned reads, which `--discard-unassigned` drops. For those kits the trim removes the construct at the start of each read, and the copy at its far end stays. `--no-trim` keeps every read whole in every bundle, virtual bundles included. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. Interleaved pairs are demultiplexed by fragment with either engine. Both mates go to the barcode their calls agree on, or to the barcode of the one mate that carries one, and a pair whose mates carry different barcodes goes to the unassigned bundle whole, as the input held it. Merged and single reads keep their own call. For paired input the summary on standard error adds a line such as `Mate pairs: 15 (4 with both mates called alike, 7 placed by their one called mate, 2 sent to unassigned because their mates disagree)`, and `demux-manifest.json` records the counts under `mateCalls`. A run writes into a hidden `.lungfish-demux-incomplete-` folder inside the output folder and moves its bundles into place, the manifest last, only when it finishes, so a run that fails or is cancelled leaves no barcode bundle behind. A run that is killed can leave the hidden folder. `--replace` makes every check before it touches the earlier output, and refuses with exit status 4 when the output folder holds the input or anything else the run reads. It then sets the earlier output aside, removes it once the new bundles are in place, and puts it back if the run fails. The global `--threads` sets the cutadapt thread count, and the default here is 4. The command runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
 
 | Argument or flag | What it does |
 |---|---|
@@ -2009,6 +2009,7 @@ The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `n
 | `--max-distance-3prime <max-distance-3prime>` | Cutadapt max bases from 3' terminus where barcodes may end. The default is `0`. |
 | `--error-rate <error-rate>` | Cutadapt maximum error rate for barcode matching. The default is `0.15`. |
 | `--overlap <overlap>` | Cutadapt minimum overlap length. The default is `3`. |
+| `--no-indels` | Disallow indels in barcode matching (read-base search only). |
 | `--engine <engine>` | Demultiplexing engine, one of `cutadapt`, `exact-bare`, or `header-index`. Left out, the read names decide, as the note above says. |
 | `--no-trim` | Cutadapt only. Keep barcode sequences in output reads (exact-bare always preserves reads). |
 | `--discard-unassigned` | Discard reads that do not match any barcode. |
@@ -2036,7 +2037,7 @@ lungfish-cli fastq scout <input> --kit <kit> --output <output> [--read-limit <re
 | `--error-rate <error-rate>` | Override barcode matching error rate. |
 | `--overlap <overlap>` | Override minimum barcode overlap. |
 | `--source-platform <source-platform>` | Source platform, one of `illumina`, `ont`, `pacbio`, `element`, `ultima`, or `mgi`. |
-| `--no-indels` | Disallow indels in barcode matching. |
+| `--no-indels` | Disallow indels in barcode matching (read-base search only). |
 
 ### `fastq import-ont`
 
@@ -3206,7 +3207,7 @@ lungfish-cli cz-id import <input-path> [--output-dir <output-dir>]
 
 | Argument or flag | What it does |
 |---|---|
-| `<input-path>` | Path to a CZ-ID taxon report TSV, ZIP archive, or extracted export folder. |
+| `<input-path>` | Path to a CZ-ID taxon report (CSV or TSV), ZIP archive, or extracted export folder. |
 | `-o, --output-dir <output-dir>` | Output folder for the converted result. The default is `./cz-id-` followed by the sample name. |
 
 ### `cz-id summary`
@@ -3221,7 +3222,7 @@ It leaves out the root row and ranks taxa by NT reads. With `--format tsv` the c
 
 | Argument or flag | What it does |
 |---|---|
-| `<input-path>` | Path to a CZ-ID taxon report TSV. |
+| `<input-path>` | Path to a CZ-ID taxon report (CSV or TSV). |
 | `--top <top>` | Number of top taxa to display. The default is `20`. |
 
 ### `build-db kraken2`
