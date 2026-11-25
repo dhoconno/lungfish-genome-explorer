@@ -179,4 +179,17 @@ final class UnlistedFeatureTypeExportTests: XCTestCase {
         XCTAssertEqual(annotation.type, .misc_feature)
         XCTAssertEqual(annotation.qualifiers[GenBankReader.rawFeatureTypeQualifierKey]?.values, ["misc_RNA"])
     }
+
+    /// An annotation that `GenBankReader` made from the key misc_RNA is `.misc_feature` with the key in the raw type
+    /// qualifier. GFF3 column 3 writes the key and no raw type attribute follows.
+    func testAGenBankReadMiscRNAWritesItsKeyInGFF3Column3() async throws {
+        let annotation = SequenceAnnotation(
+            type: .misc_feature, name: "HBBP1", chromosome: "chrT",
+            intervals: [AnnotationInterval(start: 0, end: 50)], strand: .forward,
+            qualifiers: [GenBankReader.rawFeatureTypeQualifierKey: AnnotationQualifier("misc_RNA")]
+        )
+        let columns = try await gff3Columns(of: [annotation])
+        XCTAssertEqual(columns.map { $0[2] }, ["misc_RNA"])
+        XCTAssertFalse((columns.first?.last ?? "").contains(GenBankReader.rawFeatureTypeQualifierKey))
+    }
 }
