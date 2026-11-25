@@ -329,12 +329,15 @@ extension AnnotationDatabase {
             let strand: String
             let id: String?
             let parentID: String?
+            /// GTF only: the sequence and `transcript_id` that join a line with no ID or Parent to its transcript.
+            let transcriptKey: String?
             let name: String
             let attributes: [String: String]
         }
 
         var allFeatures: [ParsedFeature] = []
         var childrenByParent: [String: [Int]] = [:]
+        var childrenByTranscript: [String: [Int]] = [:]
 
         for try await line in gffURL.lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -361,6 +364,19 @@ extension AnnotationDatabase {
             }
             let name = displayName(from: attrs, fallback: fields[2])
 
+            // A GTF line has no ID or Parent. Its `transcript_id` joins an exon or CDS line that has no Parent and a
+            // transcript line that has no ID, on one sequence (BIO-GTF-SPLICE-17).
+            var transcriptKey: String?
+            if let transcriptID = attrs["transcript_id"], !transcriptID.isEmpty {
+                let isChild = exonTypes.contains(fields[2]) || cdsTypes.contains(fields[2])
+                let joins = isChild
+                    ? attrs["Parent"] == nil
+                    : (transcriptTypes.contains(fields[2]) && attrs["ID"] == nil)
+                if joins {
+                    transcriptKey = "\(fields[0])\u{1F}\(transcriptID)"
+                }
+            }
+
             let feature = ParsedFeature(
                 seqid: fields[0],
                 featureType: fields[2],
@@ -369,6 +385,7 @@ extension AnnotationDatabase {
                 strand: strand,
                 id: attrs["ID"],
                 parentID: attrs["Parent"],
+                transcriptKey: transcriptKey,
                 name: name,
                 attributes: attrs
             )
@@ -381,6 +398,8 @@ extension AnnotationDatabase {
                 for parentID in parentStr.split(separator: ",").map(String.init) {
                     childrenByParent[parentID, default: []].append(index)
                 }
+            } else if let transcriptKey, exonTypes.contains(fields[2]) || cdsTypes.contains(fields[2]) {
+                childrenByTranscript[transcriptKey, default: []].append(index)
             }
         }
 
@@ -399,6 +418,14 @@ extension AnnotationDatabase {
                 for (index, feature) in allFeatures.enumerated() {
                     if let id = feature.id {
                         featuresByID[id, default: []].append(index)
+                    }
+                }
+
+                // GTF CDS lines have no ID. Those of one transcript on one strand are the intervals of one CDS.
+                var cdsByTranscript: [String: [Int]] = [:]
+                for (index, feature) in allFeatures.enumerated() where feature.featureType == "CDS" && feature.id == nil {
+                    if let transcriptKey = feature.transcriptKey {
+                        cdsByTranscript["\(transcriptKey)\u{1F}\(feature.strand)", default: []].append(index)
                     }
                 }
 
@@ -426,11 +453,23 @@ extension AnnotationDatabase {
                         name: String, type: String, seqid: String, start: Int, end: Int, strand: String,
                         attrString: String?, blockSizes: String?, blockStarts: String?
                     ) -> SHA256.Digest {
-                        let fields = [
-                            name, type, seqid, String(start), String(end), strand,
-                            attrString ?? "", blockSizes ?? "", blockStarts ?? "",
-                        ]
+                        let fields = [name, type, seqid, String(start), String(end), strand, attrString ?? "", blockSizes ?? "", blockStarts ?? ""]
                         return SHA256.hash(data: Data(fields.joined(separator: "\u{1F}").utf8))
+                    }
+
+                    /// The CDS lines that are intervals of one CDS with `feature`, with the key that names the group, or nil
+                    /// for a line that stands alone. GFF3 lines of one CDS share an ID. GTF lines have none, so the lines of
+                    /// one transcript on one strand are the group (BIO-GTF-SPLICE-17).
+                    func cdsMergeGroup(of feature: ParsedFeature) -> (key: String, siblings: [Int])? {
+                        guard feature.featureType == "CDS" else { return nil }
+                        if let featureID = feature.id {
+                            guard let siblings = featuresByID[featureID], siblings.count > 1 else { return nil }
+                            return ("id\u{1F}\(featureID)", siblings)
+                        }
+                        guard let transcriptKey = feature.transcriptKey,
+                              let siblings = cdsByTranscript["\(transcriptKey)\u{1F}\(feature.strand)"],
+                              siblings.count > 1 else { return nil }
+                        return ("transcript\u{1F}\(transcriptKey)\u{1F}\(feature.strand)", siblings)
                     }
 
                     /// GFF3 type validation here is intentionally syntactic, not ontology-enforcing.
@@ -506,18 +545,14 @@ extension AnnotationDatabase {
 
                         let geneName = geneName(from: feature.attributes)
 
-                        // ── Same-ID merging: CDS features sharing a GFF3 ID are intervals of one CDS ──
-                        if let featureID = feature.id,
-                           let siblings = featuresByID[featureID],
-                           siblings.count > 1,
-                           feature.featureType == "CDS",
-                           !transcriptTypes.contains(feature.featureType) {
+                        // ── Same-ID merging: CDS features sharing a GFF3 ID, or a GTF transcript and strand, are intervals of one CDS ──
+                        if let group = cdsMergeGroup(of: feature) {
 
-                            // Already merged this ID? Skip.
-                            guard processedIDs.insert(featureID).inserted else { continue }
+                            // Already merged this group? Skip.
+                            guard processedIDs.insert(group.key).inserted else { continue }
 
-                            // Merge all same-ID features into a single BED12 entry
-                            let siblingFeatures = siblings.map { allFeatures[$0] }
+                            // Merge all the group's features into a single BED12 entry
+                            let siblingFeatures = group.siblings.map { allFeatures[$0] }
 
                             // Compute merged span (0-based)
                             let allStarts = siblingFeatures.map { $0.start - 1 }
@@ -619,8 +654,8 @@ extension AnnotationDatabase {
                         var blockStartsStr: String? = nil
 
                         if transcriptTypes.contains(feature.featureType),
-                           let featureID = feature.id,
-                           let childIndices = childrenByParent[featureID] {
+                           let childIndices = feature.id.flatMap({ childrenByParent[$0] })
+                               ?? feature.transcriptKey.flatMap({ childrenByTranscript[$0] }) {
 
                             var exonIntervals: [(start: Int, end: Int)] = []
                             var cdsIntervals: [(start: Int, end: Int)] = []
