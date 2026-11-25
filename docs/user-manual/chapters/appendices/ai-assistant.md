@@ -28,7 +28,7 @@ lead_approved: false
 
 The [AI Assistant](../../GLOSSARY.md#ai-assistant) is a chat tab in Lungfish Genome Explorer (LGE) that answers questions about the dataset you have open. It lives in the [Inspector](../../GLOSSARY.md#inspector), the pane on the right of the project window. You type a plain question such as "what is in this bundle?" and read the reply in the tab.
 
-The assistant gathers the state of the active [viewport](../../GLOSSARY.md#viewport), the large display in the middle of the window. That state is the loaded [bundle](../../GLOSSARY.md#bundle), the organism, the region on screen, and any rows you selected in the Variants or Samples tables. The rows appear on the **Variants** tab of the [table drawer](../../GLOSSARY.md#table-drawer), which [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md#what-it-is) covers. Gathering that state is what lets an answer refer to what is in front of you.
+The assistant gathers the state of the active [viewport](../../GLOSSARY.md#viewport), the large display in the middle of the window. That state is the loaded [bundle](../../GLOSSARY.md#bundle), the organism, the region on screen, and the rows now shown in the Variants or Samples tables, of which the first few are named. The rows appear on the **Variants** tab of the [table drawer](../../GLOSSARY.md#table-drawer), which [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md#what-it-is) covers. Gathering that state is what lets an answer refer to what is in front of you.
 
 This is a bring-your-own-key feature. LGE includes no language model and runs none. You hold an account with a company that serves a large language model, a program trained on text that writes text in reply, and you give LGE the [API key](../../GLOSSARY.md#api-key) for that account. An API key is a long secret string that identifies your account to a service, the way a password identifies you to a website. Every question travels to that company under your key, is billed to your account, and is answered by their model rather than by anything on your Mac.
 
@@ -68,7 +68,7 @@ Turn on **Enable AI-powered search** at the top of the tab. It is off on a new i
 
 Choose a company from the **Default provider** picker, whose options read "Anthropic Claude", "OpenAI", and "Google Gemini". Find the section for that company further down the tab and type or paste your key into its **API Key** field. The grey placeholder text shows the shape each company's keys take, `sk-ant-...` for Anthropic, `sk-...` for OpenAI, and `AIza...` for Google Gemini, and the prefix is already part of the key the provider gives you.
 
-Type the key only into that field. LGE writes it into the macOS [Keychain](../../GLOSSARY.md#keychain), the system store that holds passwords under the protection of your login, and never into your project folder, so a colleague who receives your project does not receive your key. The key saves as you type, and "Saving API key changes to Keychain…" appears under the form while it is written. If the Keychain refuses the change, a red message and a **Retry Saving Keys** button appear there instead.
+Type the key only into that field. LGE writes it into the macOS [Keychain](../../GLOSSARY.md#keychain), the system store that holds passwords under the protection of your login, and never into your project folder, so a colleague who receives your project does not receive your key. The key saves as you type, and "Saving API key changes to Keychain…" appears under the form while it is written. If the Keychain refuses the change, a message in the app's muted copper color and a **Retry Saving Keys** button appear there instead.
 
 An indicator to the left of each key field reports what LGE knows about that key, and it is your only confirmation.
 
@@ -77,9 +77,9 @@ An indicator to the left of each key field reports what LGE knows about that key
 | Grey minus sign | The field is empty. |
 | Orange hourglass | A key is entered but not yet checked, with the caption "Key entered. Enter a full key to validate automatically.", or is being checked, with the caption "Validating API key and quota...". |
 | Green checkmark | The provider accepted the key, with the caption "Key is valid and ready for AI queries." |
-| Red cross | The check failed, with a caption that opens with the words "Validation failed" and names the reason. |
+| Copper-colored cross | The check failed, with a caption that opens with the words "Validation failed" and names the reason. |
 
-A used-up account also gets the red cross. When OpenAI credits run out, an Anthropic spend limit is reached, or a Gemini daily quota is used, the caption goes on from "Validation failed" with "AI provider quota exceeded" and then the provider's own words. That is a billing limit rather than a wrong key, so add credits or raise the limit on the provider's website.
+A used-up account also gets the copper-colored cross. When OpenAI credits run out, an Anthropic spend limit is reached, or a Gemini daily quota is used, the caption goes on from "Validation failed" with "AI provider quota exceeded" and then the provider's own words. That is a billing limit rather than a wrong key, so add credits or raise the limit on the provider's website.
 
 You may fill in more than one provider. LGE tries your default first and falls back to the others when it cannot answer, which [Settings](#settings) explains.
 
@@ -103,7 +103,7 @@ Click the field at the bottom of the tab, which reads "Ask about your genome dat
 
 For the `NG_000007.3` record, try "Which genes does this record hold, and where does HBB start and end?" The record's own feature table answers it, so you can check the reply against the ruler. In a view that holds a variant track, "What are the variants I have selected?" works once you have clicked a row in the Variants tab.
 
-The reply arrives as a message with a copy button. This appendix quotes no reply, because the text comes from a model outside LGE and differs between providers, models, and two runs of the same question. Ask one question at a time. A second question sent while one is in flight gets "Please wait for the current request to complete."
+The reply arrives as a message with a copy button. This appendix quotes no reply, because the text comes from a model outside LGE and differs between providers, models, and two runs of the same question. Ask one question at a time. While a question is in flight the field and the send button are switched off, so a second question cannot be sent until the reply arrives.
 
 ### Clear the conversation when you change datasets
 
@@ -143,7 +143,7 @@ The assistant can run these lookups:
 
 - Search genes and variants, and report the details of one named gene.
 - Report variant statistics, and read the selected or visible rows of the Variants and Samples tables.
-- Report what the viewport is showing, and list the chromosomes or [contigs](../../GLOSSARY.md#contig) in the loaded reference with their sizes.
+- Report what the viewport is showing, and list the names of the first 30 chromosomes or [contigs](../../GLOSSARY.md#contig) in the loaded reference, with a count of any further ones.
 - Search PubMed for papers. The search terms go to NCBI, which the **Data sent…** popover does not list.
 - Move the view to a gene or to a region you name, the only change it can make anywhere in LGE.
 
