@@ -207,4 +207,27 @@ final class GTFSpliceImportTests: XCTestCase {
         XCTAssertEqual(cds.blockSizes, "50,40")
         XCTAssertEqual(try extract(cds, genome: Self.plusGenome).proteinSequence, Self.protein29 + "*")
     }
+
+    /// GTF lines with no `transcript_id` join nothing and stay their own rows: a GTF with `gene_id` only, and one stray
+    /// exon in a file whose other lines carry `transcript_id` (BIO-GTF-SPLICE-17 item 5).
+    func testGTFLinesWithoutATranscriptIDStayTheirOwnRows() async throws {
+        let geneOnly = try await importRows([
+            Self.gtfLine("gene", 51, 260, strand: "+", transcript: nil),
+            Self.gtfLine("exon", 51, 110, strand: "+", transcript: nil),
+            Self.gtfLine("CDS", 61, 110, strand: "+", phase: "0", transcript: nil),
+            Self.gtfLine("exon", 201, 260, strand: "+", transcript: nil),
+            Self.gtfLine("CDS", 201, 237, strand: "+", phase: "1", transcript: nil),
+        ], file: "gene-only.gtf")
+        XCTAssertEqual(geneOnly.count, 5, "no line is joined or dropped")
+        XCTAssertEqual(geneOnly.filter { $0.type == "CDS" }.count, 2, "CDS lines with no transcript_id are not merged")
+        XCTAssertTrue(geneOnly.allSatisfy { $0.blockCount == nil }, "no row gains blocks")
+
+        let mixed = try await importRows(
+            Self.plusGTF + [Self.gtfLine("exon", 121, 130, strand: "+", transcript: nil)], file: "mixed.gtf")
+        XCTAssertEqual(mixed.count, 8, "the seven rows of the plus-strand file and the stray exon")
+        let transcript = try XCTUnwrap(mixed.first { $0.type == "transcript" })
+        XCTAssertEqual(transcript.blockSizes, "60,60", "the stray exon does not join T1")
+        XCTAssertEqual(transcript.blockStarts, "0,150")
+        XCTAssertEqual(mixed.filter { $0.type == "CDS" }.count, 1)
+    }
 }
