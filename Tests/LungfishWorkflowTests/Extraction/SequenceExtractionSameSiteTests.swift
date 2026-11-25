@@ -82,28 +82,30 @@ final class SequenceExtractionSameSiteTests: XCTestCase {
     }
 
     /// Two source rows that agree on name, type, chromosome, start, end and strand and differ in `attributes` both reach
-    /// the new bundle, whichever of them the source query returns first, and the track counts both (BIO-EXTRACT-DROPS-17
-    /// items 3 and 4).
-    func testTwoFeaturesAtOneSiteAreBothCopiedWhicheverComesFirst() async throws {
+    /// the new bundle, and the track counts both (BIO-EXTRACT-DROPS-17 items 3 and 4). Each source order is its own test
+    /// method below, so a run that loses a row in one order only names that order.
+    private func assertBothTwinsAreCopied(label: String, attributesInOrder: [String]) async throws {
         try await requireTools()
-        let orders: [(label: String, attributes: [String])] = [
-            ("acetylation-first", [Self.acetylation, Self.glycation]),
-            ("glycation-first", [Self.glycation, Self.acetylation]),
-        ]
-        for order in orders {
-            let source = try makeSourceDatabase(attributesInOrder: order.attributes, name: order.label)
-            XCTAssertEqual(
-                try AnnotationDatabase(url: source).queryByRegion(chromosome: "chr1", start: 0, end: 120).count, 2,
-                "\(order.label): the source holds both rows")
+        let source = try makeSourceDatabase(attributesInOrder: attributesInOrder, name: label)
+        XCTAssertEqual(
+            try AnnotationDatabase(url: source).queryByRegion(chromosome: "chr1", start: 0, end: 120).count, 2,
+            "\(label): the source holds both rows")
+        let extracted = try await extractWholeContig(from: source, name: label)
+        XCTAssertEqual(extracted.records.count, 2, "\(label): both rows reach the new bundle")
+        XCTAssertEqual(
+            Set(extracted.records.compactMap(\.attributes)), [Self.acetylation, Self.glycation],
+            "\(label): both attribute strings are kept")
+        XCTAssertEqual(extracted.featureCount, 2, "\(label): the track counts both rows")
+    }
 
-            let extracted = try await extractWholeContig(from: source, name: order.label)
+    func testTwoFeaturesAtOneSiteAreBothCopiedAcetylationFirst() async throws {
+        try await assertBothTwinsAreCopied(
+            label: "acetylation-first", attributesInOrder: [Self.acetylation, Self.glycation])
+    }
 
-            XCTAssertEqual(extracted.records.count, 2, "\(order.label): both rows reach the new bundle")
-            XCTAssertEqual(
-                Set(extracted.records.compactMap(\.attributes)), [Self.acetylation, Self.glycation],
-                "\(order.label): both attribute strings are kept")
-            XCTAssertEqual(extracted.featureCount, 2, "\(order.label): the track counts both rows")
-        }
+    func testTwoFeaturesAtOneSiteAreBothCopiedGlycationFirst() async throws {
+        try await assertBothTwinsAreCopied(
+            label: "glycation-first", attributesInOrder: [Self.glycation, Self.acetylation])
     }
 
     /// A row that comes back under two query chromosomes (a chromosome and its alias) is one feature and is copied once,
