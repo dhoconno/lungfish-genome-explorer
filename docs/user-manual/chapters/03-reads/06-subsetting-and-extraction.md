@@ -251,4 +251,4 @@ To pull reads from an explicit list of read names rather than a pattern, use `lu
 
 ## Next
 
-Continue to [Oxford Nanopore Runs](07-ont-runs.md) for importing a nanopore run. To align a subset you made here, select it in [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) as you would any other bundle. The steps of [the order of read preparation](01-importing-fastq.md#the-order-of-read-preparation) are now all covered, and the last two chapters of the part handle nanopore runs and reshaping reads.
+Continue to [Oxford Nanopore Runs](07-ont-runs.md) for importing a nanopore run. To align a subset you made here, select it in [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md) as you would any other bundle. The steps of [the order of read preparation](01-importing-fastq.md#the-order-of-read-preparation) are now all covered, and the remaining chapters of the part handle nanopore runs, reshaping reads, and [demultiplexing by barcode](09-demultiplexing-barcodes.md).
