@@ -65,24 +65,24 @@ extension AppDelegate {
                     await appPerformOnMainRunLoop {
                         OperationCenter.shared.log(id: opID, level: .info, message: "Writing \(format.displayName) export to \(outputURL.path)")
                     }
-                    let count = try await staged.run { inputs in
-                        try await self?.performSequenceExport(
+                    let outcome = try await staged.run { inputs in
+                        try await self?.performSequenceExportNamingLeftOutTracks(
                             inputs: inputs,
                             outputURL: outputURL,
                             format: format,
                             compression: compression
-                        ) ?? 0
+                        ) ?? SequenceExportRoute.Outcome(count: 0, leftOutTracks: [])
                     }
+                    let words = AppDelegate.sequenceExportCompletionWords(
+                        count: outcome.count, fileName: outputURL.lastPathComponent, leftOut: outcome.leftOutTracks
+                    )
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            guard OperationCenter.shared.complete(
-                                id: opID,
-                                detail: "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)"
-                            ) else { return }
+                            guard OperationCenter.shared.complete(id: opID, detail: words) else { return }
                             let alert = NSAlert()
                             alert.messageText = "Export Complete"
-                            alert.informativeText = "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)."
+                            alert.informativeText = outcome.leftOutTracks.isEmpty ? words + "." : words
                             alert.alertStyle = .informational
                             alert.addButton(withTitle: "OK")
                             alert.addButton(withTitle: "Show in Finder")
@@ -125,11 +125,24 @@ extension AppDelegate {
         format: SequenceExportFormat,
         compression: SequenceExportCompression
     ) async throws -> Int {
+        try await performSequenceExportNamingLeftOutTracks(
+            inputs: inputs, outputURL: outputURL, format: format, compression: compression
+        ).count
+    }
+
+    /// Runs the export as ``performSequenceExport(inputs:outputURL:format:compression:)`` does, and returns the
+    /// annotation tracks the command left out with the count (ANNOT-EXPORT-MISSING-TRACK, row 2).
+    nonisolated func performSequenceExportNamingLeftOutTracks(
+        inputs: [URL],
+        outputURL: URL,
+        format: SequenceExportFormat,
+        compression: SequenceExportCompression
+    ) async throws -> SequenceExportRoute.Outcome {
         try FileManager.default.createDirectory(
             at: outputURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        return try await SequenceExportRoute.run(
+        return try await SequenceExportRoute.runNamingLeftOutTracks(
             arguments: SequenceExportRoute.arguments(
                 inputs: inputs,
                 outputURL: outputURL,
@@ -138,6 +151,15 @@ extension AppDelegate {
             ),
             outputURL: outputURL
         )
+    }
+
+    /// The words the export ends on: the count and the file, then the annotation tracks the command left out.
+    nonisolated static func sequenceExportCompletionWords(
+        count: Int,
+        fileName: String,
+        leftOut: [AnnotationDatabase.LeftOutTrack]
+    ) -> String {
+        AnnotationDatabase.LeftOutWords.message("Exported \(count) sequence(s) to \(fileName)", leftOut: leftOut, notIn: "file")
     }
 
     nonisolated static func batchSequenceExportTargets(

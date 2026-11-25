@@ -339,7 +339,8 @@ struct ConvertCommand: AsyncParsableCommand {
                 sequenceCount: sequences.count,
                 annotationCount: includeAnnotations ? annotations.count : 0,
                 inputFiles: inputs.count > 1 ? inputs : nil,
-                compression: compress?.rawValue
+                compression: compress?.rawValue,
+                leftOutTracks: leftOut.isEmpty ? nil : leftOut
             )
             let handler = JSONOutputHandler()
             handler.writeData(result, label: nil)
@@ -586,6 +587,9 @@ struct ConvertResult: Codable {
     var inputFiles: [String]? = nil
     /// The compressor of the output, when `--compress` was given.
     var compression: String? = nil
+    /// The annotation tracks whose databases could not be read, left out of the output, in the manifest's order. The
+    /// app's export reads this to name them in its completion (ANNOT-EXPORT-MISSING-TRACK).
+    var leftOutTracks: [AnnotationDatabase.LeftOutTrack]? = nil
 }
 
 /// The compressors `convert --compress` offers.

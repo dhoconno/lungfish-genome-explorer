@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishKit
 import LungfishWorkflow
 
@@ -56,11 +57,23 @@ enum SequenceExportRoute {
         return arguments + ["--force", "--format", "json", "--quiet"]
     }
 
+    /// What a run of the command reported: the count of sequences it wrote, and the annotation tracks it left out
+    /// because their databases could not be read, as `convert --format json` names them.
+    struct Outcome: Equatable {
+        let count: Int
+        let leftOutTracks: [AnnotationDatabase.LeftOutTrack]
+    }
+
     /// Runs `arguments` and returns the count of sequences the command wrote.
     ///
     /// - Throws: `CancellationError` once a cancel of the calling task has stopped the command,
     ///   ``RouteError`` when the command fails, with what it printed on standard error.
     static func run(arguments: [String], outputURL: URL) async throws -> Int {
+        try await runNamingLeftOutTracks(arguments: arguments, outputURL: outputURL).count
+    }
+
+    /// Runs `arguments` as ``run(arguments:outputURL:)`` does, and returns the left-out tracks with the count.
+    static func runNamingLeftOutTracks(arguments: [String], outputURL: URL) async throws -> Outcome {
         guard let cli = LungfishCLIRunner.findCLI() else { throw LungfishCLIRunner.RunError.cliNotFound }
         let spec = CLIProcessLauncher.spec(
             executableURL: cli,
@@ -72,10 +85,10 @@ enum SequenceExportRoute {
         let outcome = await CLIProcessLauncher.run(spec, cancellation: CLIRunCancellation())
         switch outcome {
         case .exited(let exit) where exit.succeeded:
-            return try count(in: exit.stdout)
+            return try outcome(in: exit.stdout)
         case .cancelled(let exit?) where exit.succeeded:
             // A command that exits 0 had published before the cancel reached it.
-            return try count(in: exit.stdout)
+            return try outcome(in: exit.stdout)
         case .exited(let exit):
             removeStages(beside: outputURL)
             let detail = exit.failureDetail.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,14 +149,17 @@ enum SequenceExportRoute {
         return String(words)
     }
 
-    /// The `sequenceCount` of the JSON result `convert --format json` prints.
-    private static func count(in standardOutput: String) throws -> Int {
-        struct Summary: Decodable { let sequenceCount: Int }
+    /// The `sequenceCount` and the `leftOutTracks` of the JSON result `convert --format json` prints.
+    static func outcome(in standardOutput: String) throws -> Outcome {
+        struct Summary: Decodable {
+            let sequenceCount: Int
+            let leftOutTracks: [AnnotationDatabase.LeftOutTrack]?
+        }
         let text = standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let data = text.data(using: .utf8), let summary = try? JSONDecoder().decode(Summary.self, from: data) else {
             throw RouteError(detail: "The export finished without reporting how many sequences it wrote.")
         }
-        return summary.sequenceCount
+        return Outcome(count: summary.sequenceCount, leftOutTracks: summary.leftOutTracks ?? [])
     }
 
     /// Removes the hidden stage files and folders of `convert` that a stopped run left beside `outputURL`.
