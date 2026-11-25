@@ -9,9 +9,9 @@ tags: [genotyping, mhc, amplicon, miseq, ont, macaque, haplotype, savont]
 tools: [minimap2, samtools, bbmerge, savont]
 parameters_refs: [genotype.miseq-amplicon, genotype.full-length-ont]
 entry_points:
-  - "Tools > Genotyping > MiSeq Amplicon MHC Genotyping..."
-  - "Tools > Genotyping > Full-Length ONT MHC Genotyping..."
-  - "Tools > Genotyping > MHC Haplotype Definitions..."
+  - "Tools > Genotyping > MiSeq Amplicon MHC Genotyping…"
+  - "Tools > Genotyping > Full-Length ONT MHC Genotyping…"
+  - "Tools > Genotyping > MHC Haplotype Definitions…"
   - "CLI: lungfish-cli fastq genotype-cohort"
   - "CLI: lungfish-cli fastq genotype"
   - "CLI: lungfish-cli fastq full-length-ont-mhc-genotype"

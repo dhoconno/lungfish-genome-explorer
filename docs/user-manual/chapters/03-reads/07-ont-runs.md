@@ -9,9 +9,9 @@ tags: [reads, nanopore, ont, long-read, barcoded, demultiplex, fluidigm]
 tools: [cutadapt]
 parameters_refs: [import.ont-run, fastq.demultiplex-barcodes, fastq.ont-fluidigm-sample-split]
 entry_points:
-  - "File > Import Center... (Cmd-Shift-I) > Sequencing Reads > ONT Run Folder"
-  - "Tools > Demultiplexing > Demultiplex Barcodes..."
-  - "Tools > Demultiplexing > ONT Fluidigm Sample Split..."
+  - "File > Import Center… (Cmd-Shift-I) > Sequencing Reads > ONT Run Folder"
+  - "Tools > Demultiplexing > Demultiplex Barcodes…"
+  - "Tools > Demultiplexing > ONT Fluidigm Sample Split…"
   - "CLI: lungfish-cli fastq import-ont"
   - "CLI: lungfish-cli fastq demultiplex, lungfish-cli fastq scout, lungfish-cli fastq ont-fluidigm-samples"
 shots:

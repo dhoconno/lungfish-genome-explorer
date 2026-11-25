@@ -10,10 +10,10 @@ tools: [samtools]
 parameters_refs: [bam.read-display, bam.extract-reads-in-region]
 entry_points:
   - "Click a mapping result under Analyses in the sidebar"
-  - "Sequence > Go to Location... (Cmd-L)"
+  - "Sequence > Go to Location… (Cmd-L)"
   - "Inspector > View Settings > Alignment and Reads tabs"
-  - "Right-click a selection in the alignment track > Extract Reads in Selected Region..."
-  - "File > Export > Image (PNG)... or Image (PDF)..."
+  - "Right-click a selection in the alignment track > Extract Reads in Selected Region…"
+  - "File > Export > Image (PNG)… or Image (PDF)…"
   - "CLI: lungfish-cli extract reads --by-region"
 shots:
   - id: bam-viewport-overview

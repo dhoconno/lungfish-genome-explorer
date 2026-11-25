@@ -9,8 +9,8 @@ tags: [genotyping, mhc, immunogenetics, amplicon, macaque, rhesus]
 tools: []
 parameters_refs: []
 entry_points:
-  - "Tools > Genotyping > MiSeq Amplicon MHC Genotyping..."
-  - "Tools > Genotyping > Full-Length ONT MHC Genotyping..."
+  - "Tools > Genotyping > MiSeq Amplicon MHC Genotyping…"
+  - "Tools > Genotyping > Full-Length ONT MHC Genotyping…"
 shots:
   - id: genotyping-submenu
     caption: "The Tools menu open on its Genotyping submenu, showing MiSeq Amplicon MHC Genotyping…, then Enable Full-Length ONT MHC Genotyping… for the workflow that is not yet switched on, a separator, and MHC Haplotype Definitions…."

@@ -9,7 +9,7 @@ tags: [classification, freyja, wastewater, lineage, provenance, command-line]
 tools: [freyja, ivar, minimap2, samtools]
 parameters_refs: [workflow.freyja-demix]
 entry_points:
-  - "Tools > Plugin Manager... to install the Wastewater Surveillance pack"
+  - "Tools > Plugin Manager… to install the Wastewater Surveillance pack"
   - "CLI: lungfish-cli freyja demix --variants <variants> --depths <depths> --output-dir <dir>"
 shots: []
 illustrations:
