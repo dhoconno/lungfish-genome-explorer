@@ -33,7 +33,7 @@ Three facts decide whether a shortcut does anything at all, and reading them fir
 
 A shortcut acts on the window that has focus. Focus means the window or pane you clicked most recently, so clicking a sequence display and then pressing an arrow key moves that display rather than the sidebar beside it. Every table below states the window or pane that must have focus before its rows work.
 
-A greyed menu item is disabled, and its shortcut does nothing until the item is enabled. Nothing happens and no message appears. LGE greys items out on purpose whenever the command has nothing to act on, so the four zoom commands are disabled until a sequence or an alignment is on screen and **Cancel All Operations** is disabled until something is running.
+A grayed menu item is disabled, and its shortcut does nothing until the item is enabled. Nothing happens and no message appears. LGE greys items out on purpose whenever the command has nothing to act on, so the four zoom commands are disabled until a sequence or an alignment is on screen and **Cancel All Operations** is disabled until something is running.
 
 One part of the Tools menu is gated further. A specialized workflow that is switched off, such as 12S Amplicon Matching until you first turn it on, reads Enable before its name, as in **Enable 12S Amplicon Matching…**. Choosing that item asks whether to open the [Workflow Library](../../GLOSSARY.md#workflow-library), where you turn the workflow on, rather than starting the tool, as [Turning on a specialized workflow](../01-foundations/07-plugin-packs.md#turning-on-a-specialized-workflow) shows.
 
@@ -103,7 +103,7 @@ In a genotype result window, Undo and Redo also take back and reapply the three 
 
 The Find submenu at the bottom of the Edit menu holds three more, all of them standard. **Find…** is Cmd-F, **Find Next** is Cmd-G, and **Find Previous** is Cmd-Shift-G. **Delete** sits just above Select All with no shortcut.
 
-**Find…** does not search the bases or the annotations. It moves the cursor into the filter box of the window in front. That is the quick filter in a genotype result window, the **Filter organisms** field in a TaxTriage result window, and the table's own search field in a result table that has one. With the focus anywhere else, such as the sequence display, it usually reaches the search field at the top of the sidebar. In the genotype window and in those tables, **Find Next** and **Find Previous** are greyed out. To find a gene, use **Go to Gene…** in the Sequence menu.
+**Find…** does not search the bases or the annotations. It moves the cursor into the filter box of the window in front. That is the quick filter in a genotype result window, the **Filter organisms** field in a TaxTriage result window, and the table's own search field in a result table that has one. With the focus anywhere else, such as the sequence display, it usually reaches the search field at the top of the sidebar. In the genotype window and in those tables, **Find Next** and **Find Previous** are grayed out. To find a gene, use **Go to Gene…** in the Sequence menu.
 
 ## View menu
 
@@ -138,7 +138,7 @@ Four commands open the Inspector, and they differ in what they show.
 
 The Sidebar, Inspector, Drawer and Distance Matrix rows change their own titles as you use them. When the panel is showing, the menu reads **Hide Sidebar**, **Hide Inspector**, **Hide Drawer** or **Hide Distance Matrix** instead, and the same shortcut does the hiding. The shortcut never changes.
 
-The four zoom commands act on the viewport. All four are greyed out whenever nothing zoomable is on screen, meaning no sequence display and no multiple sequence alignment, such as while a read bundle or a classifier result is selected. In the taxonomy sunburst, **Zoom to Fit** returns to the full chart, as [Inside a classifier result window](#inside-a-classifier-result-window) describes.
+The four zoom commands act on the viewport. All four are grayed out whenever nothing zoomable is on screen, meaning no sequence display and no multiple sequence alignment, such as while a read bundle or a classifier result is selected. In the taxonomy sunburst, **Zoom to Fit** returns to the full chart, as [Inside a classifier result window](#inside-a-classifier-result-window) describes.
 
 | Action | Shortcut | Origin |
 |---|---|---|
@@ -147,7 +147,7 @@ The four zoom commands act on the viewport. All four are greyed out whenever not
 | Zoom to Fit | Cmd-0 | LGE's own |
 | Zoom Reset (10kb) | Cmd-1 | LGE's own |
 
-**Zoom Reset (10kb)** sets the view to a 10,000 base window centred on the middle of the view you have now, which is a working scale for reading genes rather than whole chromosomes.
+**Zoom Reset (10kb)** sets the view to a 10,000 base window centered on the middle of the view you have now, which is a working scale for reading genes rather than whole chromosomes.
 
 The **Content Text Size** submenu is a different thing entirely and is the answer when the app's own interface text is too small to read comfortably. It changes the size of LGE's labels, tables, and panel text across the whole application, and it leaves the scientific viewport's own zoom alone.
 
@@ -174,7 +174,7 @@ The taxonomy table is the tree of organism names a [classifier](../../GLOSSARY.m
 
 ## Sequence menu
 
-Commands that act on the sequence currently on screen. All six need a sequence viewer open and in front, and all six are greyed out when none is. **Copy Visible Region as FASTA** and **Extract Visible Region…** always take the region the viewport is showing, whatever you have selected inside it. To copy only the selected bases, use Cmd-C, as the Edit menu section shows.
+Commands that act on the sequence currently on screen. All six need a sequence viewer open and in front, and all six are grayed out when none is. **Copy Visible Region as FASTA** and **Extract Visible Region…** always take the region the viewport is showing, whatever you have selected inside it. To copy only the selected bases, use Cmd-C, as the Edit menu section shows.
 
 | Action | Shortcut | Origin |
 |---|---|---|
@@ -189,7 +189,7 @@ These are LGE's own bindings and they do not match what other sequence viewers u
 
 **Go to Location…** accepts a plain coordinate such as `32000000`, or a range written as chromosome, colon, start, hyphen, end. Type `chr6:32000000-32100000` to land on the human MHC region, where `chr6` stands for the sequence name your own file uses, which may differ.
 
-**Go to Gene…** opens a small sheet with one box, hinted `e.g., BRCA1 or TP53`, and **Go** and **Cancel** buttons. Type a name and press Return. LGE reads gene names from the bundle's [GFF](../../GLOSSARY.md#gff) or GenBank annotation and answers **No Annotations** when the open file has none. The match ignores capital letters and accepts part of a name, so `tp5` can reach `TP53`. No list appears. With several matches LGE goes to one, preferring a name that matches in full and then a feature of type `gene`, on the sequence you are viewing first. This is a simplified account, so type more of the name when it lands on the wrong gene. If nothing matches, LGE answers **Gene Not Found**. [Go to a position](../02-sequences/01-importing-and-viewing.md#go-to-a-position) shows it on a record. Go to Gene takes Cmd-Opt-G rather than Cmd-G because **Find Next** already uses Cmd-G, and two commands cannot share the same keys.
+**Go to Gene…** opens a small sheet with one box, hinted `e.g., BRCA1 or TP53`, and **Go** and **Cancel** buttons. Type a name and press Return. LGE reads gene names from the bundle's [GFF](../../GLOSSARY.md#gff) or GenBank annotation and finds nothing when the open file has none. The match ignores capital letters and accepts part of a name, so `tp5` can reach `TP53`. No list appears. With several matches LGE goes to one, preferring a name that matches in full and then a feature of type `gene`, on the sequence you are viewing first. This is a simplified account, so type more of the name when it lands on the wrong gene. If nothing matches, LGE answers **Gene Not Found**. [Go to a position](../02-sequences/01-importing-and-viewing.md#go-to-a-position) shows it on a record. Go to Gene takes Cmd-Opt-G rather than Cmd-G because **Find Next** already uses Cmd-G, and two commands cannot share the same keys.
 
 **Copy Visible Region as FASTA** puts [FASTA](../../GLOSSARY.md#fasta) text on the clipboard. **Extract Visible Region…** opens a dialog and saves a new bundle into the project's `Extractions/` folder. **Add Annotation…**, **Edit Annotation…**, **Delete Annotation**, and **Find ORFs…**, which finds open reading frames, sit at the bottom of the menu with no shortcuts. The two annotation editing commands act on the annotation selected in the annotation table below the sequence.
 
@@ -212,7 +212,7 @@ Commands that act on whatever you have selected in the sidebar, a result table, 
 | Genotype Call > Clear Review | Cmd-Opt-R | LGE's own |
 | Show in Inspector | Cmd-Opt-S | LGE's own |
 
-The **Sidebar Item** submenu holds the sidebar's right-click commands, among them **Open**, **Open Bundle**, **Show in Finder**, **Copy Name**, and **Copy Path**. It works while the sidebar list has focus, so click a sidebar row first. Its items are greyed out whenever they do not apply to the selected rows, so **Open Bundle** stays disabled on a folder. Cmd-Shift-N New Folder, Cmd-D Duplicate, and Cmd-Delete Move to Trash carry the meanings Finder gives them. Cmd-Delete moves the selected rows to the Trash, and inside a text field it keeps its usual meaning of deleting to the start of the line, because the sidebar command is disabled while a text field has focus. **Select Siblings** selects every item beside the selected one in the same folder, which is the quick way to pick every barcode of a run. **Copy Name** shows no shortcut here, because Cmd-C, which is **Edit > Copy**, already runs it while the sidebar list has focus.
+The **Sidebar Item** submenu holds the sidebar's right-click commands, among them **Open**, **Open Bundle**, **Show in Finder**, **Copy Name**, and **Copy Path**. It works while the sidebar list has focus, so click a sidebar row first. Its items are grayed out whenever they do not apply to the selected rows, so **Open Bundle** stays disabled on a folder. Cmd-Shift-N New Folder, Cmd-D Duplicate, and Cmd-Delete Move to Trash carry the meanings Finder gives them. Cmd-Delete moves the selected rows to the Trash, and inside a text field it keeps its usual meaning of deleting to the start of the line, because the sidebar command is disabled while a text field has focus. **Select Siblings** selects every item beside the selected one in the same folder, which is the quick way to pick every barcode of a run. **Copy Name** shows no shortcut here, because Cmd-C, which is **Edit > Copy**, already runs it while the sidebar list has focus.
 
 The **Table Row** submenu works while a result table has focus, such as the taxonomy table of a classifier result or the annotation table below a sequence. It holds the commands those tables offer on a right-click, from **Open Row**, **Extract Reads…** and **Verify with BLAST…** to the copy commands and the NCBI and PubMed links, and each table enables only the ones it supports.
 
@@ -245,9 +245,9 @@ This row works whenever a project window is in front.
 | Selected Operation, View Log | Cmd-Opt-L | LGE's own |
 | Selected Operation, Reveal Output Files | Cmd-Opt-O | LGE's own |
 
-The [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) lists every operation you started. **Clear Completed** and **Cancel All Operations** sit below it without shortcuts, and **Cancel All Operations** stays greyed out until something cancellable is actually running.
+The [Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) lists every operation you started. **Clear Completed** and **Cancel All Operations** sit below it without shortcuts, and **Cancel All Operations** stays grayed out until something cancellable is actually running.
 
-The **Selected Operation** submenu carries the same commands as the panel's right-click menu, from **Remove Partial Output…** to **Clear Selected Operation**. Its items work only while the Operations window is in front and a row is selected, and each one is greyed out when it does not apply to that row, so **View Log** stays disabled until the operation has written a log line. Three of them have shortcuts, and the rest are chosen from the menu.
+The **Selected Operation** submenu carries the same commands as the panel's right-click menu, from **Remove Partial Output…** to **Clear Selected Operation**. Its items work only while the Operations window is in front and a row is selected, and each one is grayed out when it does not apply to that row, so **View Log** stays disabled until the operation has written a log line. Three of them have shortcuts, and the rest are chosen from the menu.
 
 ## Window menu
 
@@ -258,7 +258,7 @@ Both rows act on the front window.
 | Minimize | Cmd-M | Standard macOS |
 | New Window for Current Project | Cmd-Opt-N | LGE's own |
 
-**New Window for Current Project** opens a second window onto the same project so you can keep two views side by side, and it is greyed out until a project is open. **Zoom** and **Bring All to Front** have no shortcuts, and neither has **Set Size…**, which LGE adds to the **Move & Resize** submenu macOS puts in this menu, for typing an exact window size.
+**New Window for Current Project** opens a second window onto the same project so you can keep two views side by side, and it is grayed out until a project is open. **Zoom** and **Bring All to Front** have no shortcuts, and neither has **Set Size…**, which LGE adds to the **Move & Resize** submenu macOS puts in this menu, for typing an exact window size.
 
 ## Help menu
 
@@ -310,11 +310,11 @@ The distance matrix on the Distances tab under the alignment has keys of its own
 
 The genotype result window shows the alleles LGE [called](../../GLOSSARY.md#call) for each sample. It opens when you click a genotype result bundle in the sidebar, as [Read the matrix](../09-genotyping/03-reading-the-genotype-comparison.md#read-the-matrix) shows. Cmd-F, which is **Edit > Find…**, moves the cursor into its quick filter search field, and with that field focused, Escape clears it.
 
-The four commands in **Selection > Genotype Sample** work once a sample is selected in the window's Review [lens](../../GLOSSARY.md#lens), or a call is selected in a [MiSeq](../../GLOSSARY.md#miseq) result, and stay greyed out otherwise. Cmd-R marks the sample reviewed, Cmd-K marks it confirmed, Cmd-Shift-F flags it for review, and Cmd-Shift-O opens its Sample Detail sheet.
+The four commands in **Selection > Genotype Sample** work once a sample is selected in the window's Review [lens](../../GLOSSARY.md#lens), or a call is selected in a [MiSeq](../../GLOSSARY.md#miseq) result, and stay grayed out otherwise. Cmd-R marks the sample reviewed, Cmd-K marks it confirmed, Cmd-Shift-F flags it for review, and Cmd-Shift-O opens its Sample Detail sheet.
 
 Cmd-Z undoes the last of those status changes and Cmd-Shift-Z redoes it, and the Edit menu names the command, as in **Undo Mark Sample Confirmed**. Undo puts back the status the sample had before, or no status at all. Each change, an Undo included, adds a row to the Audit Timeline in the Inspector that shows the status before and after it, and an Undo that leaves the sample with no status reads Clear status there. The Undo history ends when the viewport shows something else or reloads the result, for example after another run changes the project, so a change made before then can no longer be undone.
 
-The comparison matrix inside that window, where each cell is one allele in one sample, has three review commands that hold Cmd and Opt together. They live in **Selection > Genotype Call**, and they work only while the matrix has keyboard focus and a selection, so click a cell first. Cmd-Opt-P marks the selected cell a false positive, which records that you believe its reads came from something other than the allele the row names. Cmd-Opt-X marks it a false negative, which records that you believe the sample carries the allele though the cell is blank. Cmd-Opt-R clears the review mark. The marks apply to every selected cell, and Shift-click extends a selection, as [Annotate what you find](../09-genotyping/03-reading-the-genotype-comparison.md#annotate-what-you-find) explains. Cmd-R and Cmd-Opt-R do different jobs, since Cmd-R marks a whole sample reviewed and Cmd-Opt-R clears the mark of a call. **Edit Comment…** and **Remove Comments** sit in the same Genotype Call menu with no shortcut, because Cmd-Opt-M belongs to macOS as Minimize All. None of the five can be undone with Cmd-Z, so take a mark back with Clear Review and a comment with Remove Comments. All five also appear on the matrix's right-click menu. VoiceOver lists the commands that apply to a row, such as Select Supported Cells (≥ 1 read), Mark False Positive, Add Comment…, Hide Selected Row, and Show Only Selected Row, as actions on that row, and the **Columns** pull-down lists its items as actions on the button.
+The comparison matrix inside that window, where each cell is one allele in one sample, has three review commands that hold Cmd and Opt together. They live in **Selection > Genotype Call**, and they work only while the matrix has keyboard focus and a selection, so click a cell first. Cmd-Opt-P marks the selected cell a false positive, which records that you believe its reads came from something other than the allele the row names. Cmd-Opt-X marks it a false negative, which records that you believe the sample carries the allele though the cell is blank. Cmd-Opt-R clears the review mark. The marks apply to every selected cell when all of them are cells with reads (false positive) or all are cells with no reads (false negative), and Shift-click extends a selection, as [Annotate what you find](../09-genotyping/03-reading-the-genotype-comparison.md#annotate-what-you-find) explains. Cmd-R and Cmd-Opt-R do different jobs, since Cmd-R marks a whole sample reviewed and Cmd-Opt-R clears the mark of a call. **Edit Comment…** and **Remove Comments** sit in the same Genotype Call menu with no shortcut, because Cmd-Opt-M belongs to macOS as Minimize All. None of the five can be undone with Cmd-Z, so take a mark back with Clear Review and a comment with Remove Comments. All five also appear on the matrix's right-click menu. VoiceOver lists the commands that apply to a row, such as Select Supported Cells (≥ 1 read), Mark False Positive, Add Comment…, Hide Selected Row, and Show Only Selected Row, as actions on that row, and the **Columns** pull-down lists its items as actions on the button.
 
 The known-allele overview, which draws a reference allele's gene, CDS, and exon blocks, is reachable from the keyboard. Tab moves into a lane that has blocks, and the Left Arrow and Right Arrow keys move between its blocks and show each block's details. Return or Space highlights the focused block, and Escape clears the highlight. VoiceOver reads each block as a button, and pressing a block highlights it, and a **Clear Highlight** action appears while it is highlighted.
 
@@ -326,9 +326,9 @@ In the taxonomy table, with a row selected, **Selection > Table Row** holds **Ex
 
 Every result table in a classifier window answers **Selection > Table Row**. Click a row first, because the items work only while the table has focus. That covers the EsViritu detection list, the NVD contig list, the NAO-MGS and TaxTriage taxon tables, the 12S target and unresolved tables, the tree node table, and the BLAST results table that opens below any of them. Each table enables only the commands it supports, so **Copy Name** works in all of them, **Extract Reads…** in the classifier tables, and **Verify with BLAST…** wherever a row can be checked against NCBI. In NAO-MGS that item opens the read count popover, in place of the fixed 20, 50, and all-reads choices the right-click menu once listed. The same commands are VoiceOver actions on every row, under the same names.
 
-The EsViritu, NVD, and BLAST results tables are outlines, so **View > Expand All** (Cmd-Shift-Right Arrow) and **View > Collapse All** (Cmd-Shift-Left Arrow) work in them while they have focus. The NAO-MGS and TaxTriage tables are flat lists, so those two items stay greyed out there. In NAO-MGS, each accession button in the detail pane also offers **Copy Accession** as a VoiceOver action.
+The EsViritu, NVD, and BLAST results tables are outlines, so **View > Expand All** (Cmd-Shift-Right Arrow) and **View > Collapse All** (Cmd-Shift-Left Arrow) work in them while they have focus. The NAO-MGS and TaxTriage tables are flat lists, so those two items stay grayed out there. In NAO-MGS, each accession button in the detail pane also offers **Copy Accession** as a VoiceOver action.
 
-The menus that open from a button have VoiceOver actions too. The BLAST table lists **Show** or **Hide** for each optional column on its header, and the 12S window does the same for the imported metadata columns on its **Sample Columns** button, with **Import Metadata…** beside them. The 12S Export button lists its three formats. **File > Export > 12S Result…** has no shortcut, shows the same three formats as a sheet on the result window, with buttons named **Export CSV**, **Export TSV**, and **Export Excel Workbook**, and stays greyed out until a 12S result is in front.
+The menus that open from a button have VoiceOver actions too. The BLAST table lists **Show** or **Hide** for each optional column on its header, and the 12S window does the same for the imported metadata columns on its **Sample Columns** button, with **Import Metadata…** beside them. The 12S Export button lists its three formats. **File > Export > 12S Result…** has no shortcut, shows the same three formats as a sheet on the result window, with buttons named **Export CSV**, **Export TSV**, and **Export Excel Workbook**, and stays grayed out until a 12S result is in front.
 
 ## Inside the RNA-seq results
 
@@ -361,6 +361,7 @@ No two menu-bar shortcuts share a key combination.
 ## Mouse and trackpad
 
 Shortcuts are not the only way to drive LGE. Scrolling moves the viewport along the sequence, pinching on a trackpad zooms the sequence, MSA, and classifier read viewports, holding Cmd or Opt while scrolling zooms the sequence viewport, and right-clicking almost anything in the sidebar or a result table opens a context menu of the operations that apply to it.
+
 ## Memorizing combinations
 
 A few patterns repeat, and knowing them beats memorizing every row one at a time. This section uses combination and [chord](../../GLOSSARY.md#chord) for the same thing, a set of keys pressed together.
