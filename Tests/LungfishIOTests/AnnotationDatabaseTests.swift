@@ -1447,10 +1447,12 @@ final class AnnotationDatabaseTests: XCTestCase {
     func testCreateFromGFF3Deduplication() async throws {
         let lines = [
             gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, attributes: "ID=g1;Name=dup"),
-            gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, attributes: "ID=g2;Name=dup"),
+            gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, attributes: "ID=g1;Name=dup"),
         ]
         let (_, count) = try await createAndOpenDBFromGFF3(lines: lines)
-        XCTAssertEqual(count, 1, "Duplicate name|type|chrom|start|end should be deduplicated")
+        // A line written twice agrees with itself on every stored field. Two IDs would be two features
+        // (BIO-GFF3-IMPORT-DEDUP-17, pinned in GFF3SameSiteImportTests).
+        XCTAssertEqual(count, 1, "Two lines that agree on every stored field are one feature")
     }
 
     // MARK: - Tests: createFromGFF3 Chromosome Clipping

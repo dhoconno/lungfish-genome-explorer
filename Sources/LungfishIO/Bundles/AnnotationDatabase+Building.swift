@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import CryptoKit
 import Foundation
 import LungfishCore
 import SQLite3
@@ -414,8 +415,23 @@ extension AnnotationDatabase {
                     defer { sqlite3_finalize(insertStmt) }
 
                     var insertCount = 0
-                    var seenKeys = Set<String>()
+                    var seenRows = Set<SHA256.Digest>()
                     var processedIDs = Set<String>()
+
+                    /// The key a row is kept once under: every field it stores, the strand and the attribute string
+                    /// (which holds ID and Parent) included, so that only lines that agree on all of them collapse
+                    /// (BIO-GFF3-IMPORT-DEDUP-17). A digest, so that a whole-genome file does not hold each attribute
+                    /// string a second time.
+                    func rowKey(
+                        name: String, type: String, seqid: String, start: Int, end: Int, strand: String,
+                        attrString: String?, blockSizes: String?, blockStarts: String?
+                    ) -> SHA256.Digest {
+                        let fields = [
+                            name, type, seqid, String(start), String(end), strand,
+                            attrString ?? "", blockSizes ?? "", blockStarts ?? "",
+                        ]
+                        return SHA256.hash(data: Data(fields.joined(separator: "\u{1F}").utf8))
+                    }
 
                     /// GFF3 type validation here is intentionally syntactic, not ontology-enforcing.
                     /// Column 3 should be a Sequence Ontology term, but scientific review files
@@ -564,8 +580,12 @@ extension AnnotationDatabase {
                             let attrString = serializeAttributes(mergedAttributes)
 
                             // Deduplicate (using merged coordinates)
-                            let key = "\(feature.name)|\(feature.featureType)|\(feature.seqid)|\(mergedStart)|\(mergedEnd)"
-                            guard seenKeys.insert(key).inserted else { continue }
+                            let key = rowKey(
+                                name: feature.name, type: feature.featureType, seqid: feature.seqid,
+                                start: mergedStart, end: mergedEnd, strand: feature.strand, attrString: attrString,
+                                blockSizes: blockSizesStr, blockStarts: blockStartsStr
+                            )
+                            guard seenRows.insert(key).inserted else { continue }
 
                             try insertRecord(
                                 name: feature.name, type: feature.featureType, seqid: feature.seqid,
@@ -637,8 +657,12 @@ extension AnnotationDatabase {
                         }
 
                         // Deduplicate
-                        let key = "\(feature.name)|\(feature.featureType)|\(feature.seqid)|\(chromStart)|\(chromEnd)"
-                        guard seenKeys.insert(key).inserted else { continue }
+                        let key = rowKey(
+                            name: feature.name, type: feature.featureType, seqid: feature.seqid,
+                            start: chromStart, end: chromEnd, strand: feature.strand, attrString: attrString,
+                            blockSizes: blockSizesStr, blockStarts: blockStartsStr
+                        )
+                        guard seenRows.insert(key).inserted else { continue }
 
                         try insertRecord(
                             name: feature.name, type: feature.featureType, seqid: feature.seqid,
