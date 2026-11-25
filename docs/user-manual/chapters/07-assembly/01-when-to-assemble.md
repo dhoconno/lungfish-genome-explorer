@@ -9,11 +9,11 @@ tags: [assembly, spades, megahit, skesa, flye, hifiasm, de-novo]
 tools: []
 parameters_refs: []
 entry_points:
-  - "Tools > Assembly > SPAdes..."
-  - "Tools > Assembly > MEGAHIT..."
-  - "Tools > Assembly > SKESA..."
-  - "Tools > Assembly > Flye..."
-  - "Tools > Assembly > Hifiasm..."
+  - "Tools > Assembly > SPAdes…"
+  - "Tools > Assembly > MEGAHIT…"
+  - "Tools > Assembly > SKESA…"
+  - "Tools > Assembly > Flye…"
+  - "Tools > Assembly > Hifiasm…"
 shots:
   - id: assembly-submenu
     caption: "The Tools menu open on its Assembly submenu, showing the five assemblers as separate items, SPAdes…, MEGAHIT…, SKESA…, Flye…, and Hifiasm…"
