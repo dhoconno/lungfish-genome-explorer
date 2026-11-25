@@ -47,7 +47,7 @@ Designing such an assay means choosing two [primers](../../GLOSSARY.md#primer) a
 
 <!-- ILLUSTRATION: probe-geometry -->
 
-Lungfish Genome Explorer (LGE) designs these assays two ways. Primer3 has two qPCR presets, one for an [intercalating dye](../../GLOSSARY.md#intercalating-dye) and one for a [hydrolysis probe](../../GLOSSARY.md#hydrolysis-probe), and designs on a single template. varVAMP has a qPCR mode that designs primers and a probe together from a [consensus sequence](../../GLOSSARY.md#consensus-sequence) of an [alignment](../../GLOSSARY.md#msa), related sequences lined up so that matching positions share a column, so one assay can cover several related sequences. Neither is a dPCR optimizer, because a dPCR assay uses the same primers and probe, and the dialog says so.
+Lungfish Genome Explorer (LGE) designs these assays two ways. Primer3 has two qPCR presets, one for an [intercalating dye](../../GLOSSARY.md#intercalating-dye) and one for a [hydrolysis probe](../../GLOSSARY.md#hydrolysis-probe), and designs on a single template. varVAMP has a qPCR mode that designs primers and a probe together from a [consensus sequence](../../GLOSSARY.md#consensus-sequence) of an [alignment](../../GLOSSARY.md#msa), related sequences lined up so that matching positions share a column, so one assay can cover several related sequences. Neither is a dPCR optimizer, because a dPCR assay uses the same primers and probe, and the varVAMP dialog says so.
 
 This chapter designs a detection assay, tests it against the sequences it must not detect, and finds that it detects the whole gene family. Then it finds the columns that do separate the target, and designs an assay around one of them. Read the second half closely, because it is what makes an assay detect one lineage and not its relatives.
 
@@ -91,7 +91,7 @@ Open the Primer Design demo project, as [Demo projects](../01-foundations/06-the
 
 Install the Multiple Sequence Alignment and PCR Primer Design [plugin packs](../../GLOSSARY.md#plugin-pack) from **Tools > Plugin Manager…**, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
 
-The designs need an alignment, because the four alleles differ in length. Select `mamu-a1-001-lineage` in the [sidebar](../../GLOSSARY.md#sidebar) and align it with [MAFFT](../../GLOSSARY.md#mafft), an alignment program, from **Tools > Alignment & Phylogenetics > MAFFT…** at its default settings. The result is a 2,960-column alignment of 4 rows under `Analyses/Multiple Sequence Alignments/`, with `LR699574.1` as row 1. Coordinates in this chapter are counted from 1 along that row with both end bases included, and its exon 2 runs from 205 to 474, exon 3 from 718 to 993, exon 4 from 1,590 to 1,865 and exon 5 from 1,968 to 2,084.
+The designs need an alignment, because the four alleles differ in length. Select `mamu-a1-001-lineage` in the [sidebar](../../GLOSSARY.md#sidebar) and align it with [MAFFT](../../GLOSSARY.md#mafft), an alignment program, from **Tools > Alignment & Phylogenetics > MAFFT…** at its default settings. The result is a 2,960-column alignment of 4 rows under `Analyses/Multiple Sequence Alignments/`, with `LR699574.1` as row 1. Coordinates in this chapter are counted from 1 along that row with both end bases included, and its exon 2 runs from 205 to 474, exon 3 from 718 to 993, exon 4 from 1,590 to 1,865 and exon 5 from 1,968 to 2,084. The one exception is the varVAMP assay table under Reading the results, which counts along varVAMP's consensus, so each number there sits 16 above the same base in row 1.
 
 On the demo run the varVAMP design took about three minutes, nearly half of it for the screen against the exclusion set. Each Primer3 run finished in well under a minute.
 
@@ -197,7 +197,7 @@ The demo run returned five assays on the four-allele alignment, and LGE marks th
 
 Read the two right-hand numbers the way varVAMP means them. The penalty adds up how far the assay's oligos sit from the optimum length, melting temperature and GC content, plus a charge for ambiguity codes and for sequences that mismatch near a 3′ end, so it is a distance from your settings and not a prediction of performance. Values this low mean every oligo is close to its optimum, and the spread here, 2.2 to 4.6, is narrow enough that the choice between assays should rest on specificity instead. The ΔG is the folding free energy of the amplicon at the lower of its two primer melting temperatures, and every value here is above the −3 cutoff, with varVAMP_1 at −0.3 barely folding at all, which is what you want from an 83-base product.
 
-The Results tab lists the oligos of each assay with their lengths and melting temperatures. Click varVAMP_0 to see the shape a hydrolysis-probe assay should have.
+The Results tab lists the oligos of each assay with their lengths and GC content, and the melting temperatures below come from varVAMP's own table of oligos. Click varVAMP_0 to see the shape a hydrolysis-probe assay should have.
 
 | Role | Sequence | Length | Tm |
 |---|---|---|---|
@@ -207,15 +207,15 @@ The Results tab lists the oligos of each assay with their lengths and melting te
 
 The two primers sit within 0.1 °C of each other, so one annealing temperature suits both, and the probe sits about 7 °C above them, so it is bound before the polymerase arrives. The `K` in the probe stands for G or T, so the probe is ordered as a mixture of two sequences, each at half the concentration, and the Results tab marks it in orange as an ambiguous base whose synthesis you should check with your supplier.
 
-The Primer3 probe analysis reads differently, because Primer3 returns ranked alternatives rather than independent assays. Its top three pairs on the demo run all sit in exon 5 and the [intron](../../GLOSSARY.md#intron) before it.
+The Primer3 probe analysis reads differently, because Primer3 returns ranked alternatives rather than independent assays. Its top three pairs on the demo run all sit in exon 5 and the first bases of the [intron](../../GLOSSARY.md#intron) after it.
 
 | Forward | Probe | Reverse | Product |
 |---|---|---|---|
 | TCATTGCTGGCCTGGTTCTC, 2004 to 2023, Tm 60.3 | TGGAGCTGTGGTCACTGGAGCTGTGGTTGC, 2026 to 2055, Tm 67.0 | GCTCTTCCTCCTCCACATCAC, 2060 to 2080, Tm 60.1 | 77 bp |
 | TCATTGCTGGCCTGGTTCTC, 2004 to 2023, Tm 60.3 | TGGAGCTGTGGTCACTGGAGCTGTGGTTGC, 2026 to 2055, Tm 67.0 | CCTTCCTCACCTGAGCTCTTC, 2074 to 2094, Tm 59.8 | 91 bp |
-| GGTGGTGATGGGACCTGATC, 2286 to 2305, Tm 59.8 | AGGGCAGTTGGTCCAGGATCCACACCTGCT, 2357 to 2386, Tm 67.4 | GCGGGATCAGGAAACATGAAG, 2389 to 2409, Tm 59.3 | 124 bp |
+| TCATTGCTGGCCTGGTTCTC, 2004 to 2023, Tm 60.3 | TGGAGCTGTGGTCACTGGAGCTGTGGTTGC, 2026 to 2055, Tm 67.0 | GAGCTCTTCCTCCTCCACATC, 2062 to 2082, Tm 59.6 | 79 bp |
 
-Every probe sits 6.7 to 7.6 °C above its primers across the five pairs, which is the offset rule working, and none begins with a G. A probe works on either strand, so a G-rich probe can often be ordered as its [reverse complement](../../GLOSSARY.md#reverse-complement), the other strand's sequence, which is C-rich and usually the better choice, as long as the reverse complement does not start with G.
+Every probe sits 6.7 to 7.7 °C above its primers across the five pairs, which is the offset rule working, and none begins with a G. A probe works on either strand, so a G-rich probe can often be ordered as its [reverse complement](../../GLOSSARY.md#reverse-complement), the other strand's sequence, which is C-rich and usually the better choice, as long as the reverse complement does not start with G.
 
 The **Primer3 explanation** disclosure at the foot of the Results tab holds Primer3's own tally, one line per oligo role and one for the pairs. For the probe run the pair line ends "no internal oligo 31, ok 7", and "no internal oligo" counts pairs that were fine as primers but had no acceptable probe site between them, which is the extra demand a probe places on the sequence. The probe line shows what a GC-rich target does to a probe search, with 18,937 candidates considered, 8,839 falling below the raised 67 °C floor and 5,875 failing the no-G rule at the 5′ end, leaving 656.
 
@@ -229,9 +229,9 @@ Right primer: considered 9049, too many Ns 497, GC content failed 6408, GC clamp
 Pair: considered 660, unacceptable product size 660, ok 0
 ```
 
-The pair line alone would mislead. It reports "unacceptable product size" for all 660, because Primer3 builds pairs only from primers that already passed every single-primer rule and reports the first pair test that fails, which is product size. The real limit is in the left-primer line. Of 1,547 candidate forward primers in exon 2, 1,453 failed the 40 to 60 percent GC window, leaving 2, and two acceptable forward primers 1,500 bases from the nearest acceptable reverse primer cannot make a 70 to 150 base product. Whenever a run reports "ok 0", read the single-oligo lines first.
+The pair line alone would mislead. It reports "unacceptable product size" for all 660, because Primer3 builds pairs only from primers that already passed every single-primer rule and reports the first pair test that fails, which is product size. The real limit is in the left-primer line. Of 1,547 candidate forward primers upstream of the target, 1,453 failed the 40 to 60 percent GC window, leaving 2, and every pair those two could form with an acceptable reverse primer is longer than 150 bases. Whenever a run reports "ok 0", read the single-oligo lines first.
 
-Two responses are open. Move the target, which keeps the preset intact but may give up the variable sites you need, or relax the GC maximum to about 65 or 70 percent and the melting-temperature maximum by a degree or two, then confirm efficiency with a standard curve. For a lineage assay the variable exons are the only place discrimination is possible, so relaxing is often the right choice, and the rest of this chapter takes that route.
+Two responses are open. Move the target, which keeps the preset intact but may give up the variable sites you need, or relax the GC maximum to about 65 or 70 percent and the melting-temperature maximum by a degree or two, then confirm efficiency with a standard curve. For a lineage assay the variable exons are the first place to look for discrimination, so relaxing is often the right choice, and the rest of this chapter takes that route.
 
 ### When a qPCR amplicon is too long
 
@@ -321,7 +321,7 @@ The cluster at 911 to 1057 looks like the obvious place to design, and it is not
 Left primer: considered 7, too many Ns 2, GC content failed 5, ok 0
 ```
 
-Only seven candidates exist, since the anchor fixes one end and only the length varies, and every one fails the GC window. Forced primers ending on these columns run 65 to 77 percent GC, because MHC class I exons are GC-rich. Widen the GC maximum to 75 percent and the next rule appears, a failed GC clamp, because position 990 carries an A and the qPCR preset requires a G or C at the 3′ end. A primer 3′ end anchored on a discriminating A or T can never satisfy a GC clamp, so those two settings exclude each other, and the clamp has to go to 0. With the clamp at 0 the remaining candidates still fail on hairpin stability and self-complementarity, which are properties of this GC-rich sequence rather than of the preset. A probe covering both 990 and 1008 is no better, since every window spanning them runs 72 to 80 percent GC and contains `GGGG`, the run the probe's poly-X cap of 3 exists to prevent.
+Only seven candidates exist, since the anchor fixes one end and only the length varies, and every one fails the GC window. Forced primers ending on these columns run 63 to 77 percent GC, because MHC class I exons are GC-rich. Widen the GC maximum to 75 percent and the next rule appears, a failed GC clamp, because position 990 carries an A and the qPCR preset requires a G or C at the 3′ end. A primer 3′ end anchored on a discriminating A or T can never satisfy a GC clamp, so those two settings exclude each other, and the clamp has to go to 0. With the clamp at 0 the remaining candidates still fail the preset's limit of 2 G or C bases among the last five, then its 62 °C melting-temperature ceiling, and once both are lifted they fail the self-complementarity limit, so a site this GC-rich asks more of a primer than the preset allows. A probe covering both 990 and 1008 is no better, since every window spanning them runs 70 to 80 percent GC and contains `GGGG`, the run the probe's poly-X cap of 3 exists to prevent.
 
 So the usable cluster is the one from 1851 to 1907, at the end of exon 4 and the start of intron 4, and the per-oligo explanation lines are what identified each blocking rule. Without them the pair line reads "considered 0, ok 0" and says nothing.
 
@@ -333,7 +333,7 @@ Type that sequence into **Reverse primer (as ordered)** in the same group, set t
 
 ```text
 Right primer: considered 1, ok 1
-Pair: considered 2634, unacceptable product size 2519, tm diff too large 110, ok 5
+Pair: considered 2151, unacceptable product size 2036, tm diff too large 110, ok 5
 ```
 
 <!-- SHOT: qpcr-primer3-fixed-oligo -->
@@ -346,9 +346,9 @@ The best of the five pairs is a 136 bp assay.
 | Probe | TGTGCAGCATGAGGGTCTGCCCAAGCCC | 1822 to 1849 | 67.8 °C | 64.3% |
 | Reverse, as ordered | AGGTCTCTAGAAAGGCTCCA | 1907 to 1926 | 57.1 °C | 50.0% |
 
-Now test it the same way as the first design. All four target alleles match every oligo perfectly, so coverage is complete. The forward primer matches 3 of the 18 exclusion sequences perfectly and the probe matches 4, but the anchored reverse primer matches none of them, against 10 of 18 for the unanchored reverse primer Primer3 chose when left to itself. Better still, its mismatch sits at the 3′-terminal base in all eighteen, seventeen of which carry a C and one an A where the targets carry T, which is where a mismatch most strongly blocks extension. One exclusion sequence had matched both primers of the free design perfectly and would have amplified, and it now carries two mismatches in the reverse primer.
+Now test it the same way as the first design. All four target alleles match every oligo perfectly, so coverage is complete. The forward primer matches 3 of the 18 exclusion sequences perfectly and the probe matches 4, but the anchored reverse primer matches none of them, against 10 of 18 for the unanchored reverse primer Primer3 chose when left to itself. Better still, its mismatch sits at the 3′-terminal base in all eighteen, seventeen of which carry a C and one an A where the targets carry T, which is where a mismatch most strongly blocks extension. Six exclusion sequences had matched both primers of the free design's first pair perfectly and would have amplified, and each now carries two or three mismatches in the reverse primer.
 
-The probe's Tm is 9.98 °C above the higher primer, well clear of the 5 °C floor, and its longest run of one base is 3, so the poly-X cap kept `GGGG` out of a 64 percent GC probe. What this assay does not have is a discriminating probe. The region cannot supply one without the GC and G-run problems described above, so the reverse primer carries the discrimination alone. That is honest rather than ideal, and it is why the bench test matters.
+The probe's Tm is 9.98 °C above the higher primer, well clear of the 5 °C floor, and its longest run of one base is 3, so the poly-X cap kept `GGGG` out of a 64 percent GC probe. What this assay does not have is a discriminating probe. No probe can cover position 1851 or 1860, because every 20 to 30 base window over either holds a run of four C or four G, which the probe's poly-X cap of 3 forbids, so the reverse primer carries the discrimination alone. That is honest rather than ideal, and it is why the bench test matters.
 
 ### What to do next
 

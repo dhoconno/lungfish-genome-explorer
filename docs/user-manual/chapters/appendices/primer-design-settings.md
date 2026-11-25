@@ -224,7 +224,7 @@ Olivar and varVAMP can check their candidates against sequences the assay must n
 
 The "Use an existing BLAST database instead" disclosure holds **Local nucleotide BLAST database prefix** for a database you built outside LGE, typed as the path of its files without their extensions, and LGE copies those component files into the analysis. The two routes are mutually exclusive. On the command line this is `--blast-database`.
 
-In a PCR or tiled design a screen steers the design as well as checking it. Olivar steers primers away from regions that match the screening sequences, and varVAMP in single and tiled mode penalizes candidates that bind them. In a qPCR design the screen only checks, so varVAMP keeps the assays it would pick with no screen and adds a warning to each one that could amplify a screening sequence, as [Testing the lineage assay for specificity](../10-primer-design/04-designing-qpcr-and-dpcr-assays.md#testing-the-lineage-assay-for-specificity) shows.
+In a single-amplicon or tiled design a screen steers the design as well as checking it. Olivar steers primers away from regions that match the screening sequences, and varVAMP in single and tiled mode penalizes candidates that could amplify them. In a qPCR design the screen only checks, so varVAMP keeps the assays it would pick with no screen and adds a warning to each one that could amplify a screening sequence, as [Testing the lineage assay for specificity](../10-primer-design/04-designing-qpcr-and-dpcr-assays.md#testing-the-lineage-assay-for-specificity) shows.
 
 ## Next
 
