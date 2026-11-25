@@ -65,12 +65,12 @@ Run MEGAHIT on those reads as [Short-Read Assembly (SPAdes, MEGAHIT, SKESA)](02-
 
 <!-- SHOT: create-bundle-action-bar -->
 
-Right-clicking a selected row opens the same actions. The menu lists **Extract Sequence…**, **BLAST Contig…**, **Copy FASTA**, **Export FASTA…**, and **Extract to New Bundle…**, the menu's name for Create Bundle, with **Run Operation…** below a separator. **Extract Sequence…** opens a dialog and is the one route that names a bundle before it is made. Its **Destination** control offers **Save as Bundle**, **Save to File…**, **Copy to Clipboard**, and **Share…**, and its **Name** field arrives filled from the selection. It takes whole contigs, with no start or end position. No action changes the source assembly, and each leaves this behind.
+Right-clicking a selected row opens the same actions. The menu lists **Extract Sequence…**, **BLAST Contig…**, **Copy FASTA**, **Export FASTA…**, and **Extract to New Bundle…**, the menu's name for Create Bundle, with **Run Operation…** below a separator. **Extract Sequence…** opens a dialog and is the one route that names a bundle before it is made. Its **Destination** control offers **Save as Bundle**, **Save to File…**, **Copy to Clipboard**, and **Share…**, and its **Name** field arrives filled from the selection. It takes whole contigs, with no start or end position. No action changes the contigs in the source assembly, and each leaves this behind.
 
 | Action | What it leaves | Where |
 |---|---|---|
 | **Create Bundle**, **Extract to New Bundle…**, or **Save as Bundle** | One reference bundle of every selected contig | `Reference Sequences/` |
-| **Export FASTA** or **Save to File…** | One FASTA file | The folder you pick |
+| **Export FASTA** or **Save to File…** | One FASTA file with a record of how it was made beside it, a hidden `.lungfish-export-inputs` folder of the staged input, and an `Export FASTA` row in the Operations Panel | The folder you pick |
 | **Copy FASTA** or **Copy to Clipboard** | FASTA text and no file | The clipboard |
 | **Share…** | A temporary FASTA file for the macOS Share menu | Wherever you share it |
 | **BLAST Contig…** | A saved search and an Operations Panel row | `blast-verifications/` in the assembly's run folder |
@@ -106,7 +106,7 @@ Open the new bundle and check that it holds the sequences you meant to pick, at 
 
 Select the bundle and open the [Inspector](../../GLOSSARY.md#inspector), the pane on the right of the window, with **View > Show Inspector** (Cmd-Opt-I) if it is hidden. It shows a **Derived Subset** block with **Assembler**, **Source Assembly**, **Selected Contigs**, **Contigs**, **Total Length**, and **GC Content** rows. The window may hand the extraction only the contigs file, and then **Assembler** reads `Unknown`, which is not an error. The command below, given the run folder, records `MEGAHIT 1.2.9`.
 
-Renaming the derived bundle is safe. Right-click it in the sidebar and choose **Rename…**. Moving, renaming, or copying the source assembly is safe too, since the bundle holds its own copy of the sequence, and extracting again from the new location refreshes the bundle's record of where it came from.
+Renaming the derived bundle is safe. Right-click it in the sidebar and choose **Rename…**. Moving, renaming, or copying the source assembly is safe too, since the bundle holds its own copy of the sequence, and extracting again from the new location makes a new bundle whose record names the new place, while the old bundle keeps its old record.
 
 If extraction fails, LGE shows an alert headed "Reference Bundle Creation Failed" with the underlying message. An assembly outside any project cannot be extracted from the window, since there is no `Reference Sequences/` folder to write to, so move it into a project first.
 
