@@ -34,7 +34,7 @@ extension AffectedResults {
                 + "every codon and amino-acid change.",
             whatToDo: "Open the reference, import any annotations that are missing, then make this result again with "
                 + "this version, which names any track it leaves out.",
-            fixCommit: "d9b3e2f2a" // landing: replace with the landed hash of d9b3e2f2a, the head of lane ANNOT-EXPORT
+            fixCommit: "6b31ac82f"
         ),
         // fa1506511 (2026-02-17) keyed copied rows on name, type, chromosome, start, end and strand (BIO-EXTRACT-DROPS-17).
         AffectedResultRow(
@@ -42,7 +42,7 @@ extension AffectedResults {
             sentence: "The version that made this bundle could leave out an annotation that shared its name, type and "
                 + "exact position with another, such as two modification sites on one codon.",
             whatToDo: "Extract the region again with this version, which keeps every annotation.",
-            fixCommit: "d9b3e2f2a" // landing: replace with the landed hash of the lane commit that fixes EXTRACT-SAME-SITE-DEDUP
+            fixCommit: "9048ba543"
         ),
         // 4b37d5d59 (2026-02-07) keyed GFF3 and GTF rows on name, type, seqid, start and end (BIO-GFF3-IMPORT-DEDUP-17,
         // BIO-GTF-ROWS-USE-17).
@@ -53,7 +53,7 @@ extension AffectedResults {
                 + "left them out too.",
             whatToDo: "Import the GFF3 or GTF file again with this version, which keeps every feature, then remove the "
                 + "old track.",
-            fixCommit: "d9b3e2f2a" // landing: replace with the landed hash of the lane commit that fixes ANNOT-IMPORT-SAME-SITE-DEDUP
+            fixCommit: "476f8fa47"
         ),
         // A GTF transcript had no blocks and each GTF CDS line was its own row (BIO-GTF-SPLICE-17). The stored rows keep every
         // line, so the row names only the bundles an extraction wrote. Old tracks get words at the point of use.
@@ -64,7 +64,7 @@ extension AffectedResults {
                 + "the CDS.",
             whatToDo: "Attach the GTF file again with this version, which joins each transcript's exons, then extract "
                 + "the feature again.",
-            fixCommit: "d9b3e2f2a" // landing: replace with the landed hash of the lane commit that fixes GTF-SPLICE
+            fixCommit: "0c7f35452"
         ),
     ]
 

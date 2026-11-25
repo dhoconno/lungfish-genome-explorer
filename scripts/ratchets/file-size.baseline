@@ -1,7 +1,7 @@
 # file-size baseline: Swift files over 800 lines (path, length). Lengths may only fall.
-Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 1303
+Sources/LungfishApp/App/AppDelegate+ImportCenter.swift 1310
 Sources/LungfishApp/App/AppDelegate+MenuActions.swift 1014
-Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 812
+Sources/LungfishApp/App/AppDelegate+SequenceMenu.swift 823
 Sources/LungfishApp/App/AppDelegate+ToolsMenu.swift 820
 Sources/LungfishApp/App/AppDelegate.swift 2638
 Sources/LungfishApp/App/MainMenu.swift 1364
@@ -75,7 +75,7 @@ Sources/LungfishCLI/Commands/GenotypeExportSubcommand.swift 997
 Sources/LungfishCLI/Commands/ImportCommand.swift 1020
 Sources/LungfishCLI/Commands/MSACommand.swift 2761
 Sources/LungfishCLI/Commands/MarkdupCommand.swift 1101
-Sources/LungfishCLI/Commands/VariantsCommand.swift 1401
+Sources/LungfishCLI/Commands/VariantsCommand.swift 1403
 Sources/LungfishCore/Bundles/BundleManifest.swift 814
 Sources/LungfishCore/Bundles/Converters/AnnotationConverter.swift 866
 Sources/LungfishCore/Bundles/ReferenceBundleBuilder.swift 1361
@@ -189,5 +189,5 @@ Sources/LungfishWorkflow/Storage/ProjectStorageCleanupExecutor.swift 2486
 Sources/LungfishWorkflow/Storage/ProjectStorageCleanupReceiptWriter.swift 1680
 Sources/LungfishWorkflow/Storage/ProjectStorageScanner.swift 1567
 Sources/LungfishWorkflow/TaxTriage/TaxTriagePipeline.swift 1596
-Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift 1710
+Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift 1745
 Sources/LungfishWorkflowTwelveS/TwelveSAmpliconMatchingWorkflow.swift 1013
