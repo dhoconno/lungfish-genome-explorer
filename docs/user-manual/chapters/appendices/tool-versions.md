@@ -23,15 +23,15 @@ lead_approved: false
 
 ## What it is
 
-Lungfish Genome Explorer (LGE) runs outside programs to do the computing, such as minimap2 for mapping and Kraken 2 for classification. This appendix covers the pinned version of every tool, pipeline, and database one release of LGE installs, and nothing else. Five tables follow, for the tools every copy of LGE has, the tools that arrive with a plugin pack, the tools of a run on a Linux machine, two whole pipelines, and the reference databases.
+Lungfish Genome Explorer (LGE) runs outside programs to do the computing, such as minimap2 for mapping and Kraken 2 for classification. This appendix covers every tool, pipeline, and database that one release of LGE pins to an exact version, and nothing else. Five tables follow, for the tools every copy of LGE has, the tools that arrive with a plugin pack, the tools of a run on a Linux machine, two whole pipelines, and the reference databases.
 
-The tables say what the release this manual describes pins, the release named on the manual's home page. Your own machine can hold an older installed version, because a pack downloaded months ago does not update itself. A methods section should be written from the run's own record. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
+The tables say what the newest release this manual describes pins, read from that release's tool lock. Your own machine can hold an older installed version, because a pack downloaded months ago does not update itself. A methods section should be written from the run's own record. LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
 
 Two windows show what your own machine has. The About window, at **Lungfish Genome Explorer > About Lungfish Genome Explorer**, prints the app version, the dependency set, and the tool versions. The Plugin Manager's Installed tab, at **Tools > Plugin Manager…** (Cmd-Shift-B), lists the exact packages inside each tool's environment, the private folder that holds it.
 
 Almost every number on this page is read out of one file, LGE's [tool lock manifest](../../GLOSSARY.md#tool-lock-manifest), which names one exact version of every outside program LGE depends on, so two people installing the same release get the same programs. It lives inside the app at `Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/ManagedTools/third-party-tools-lock.json`, and in a source checkout at `Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json`. Two files beside it supply the rest. `third-party-tools-lock.linux-64.json` pins the tools of a Linux run, and `bundled-payloads.json` lists the programs that ship inside the app itself. You do not need to open any of them, since the tables here are their contents.
 
-A version fixed this way is [pinned](../../GLOSSARY.md#pinned), locked to one exact number. The whole pinned collection is called the [dependency set](../../GLOSSARY.md#dependency-set). This appendix reflects dependency set `2026.2`, frozen on 2026-08-18. Name the dependency set beside the app version in a methods section, as in this sentence, with `<version>` replaced by the release your About window shows.
+A version fixed this way is [pinned](../../GLOSSARY.md#pinned), locked to one exact number. The whole pinned collection is called the [dependency set](../../GLOSSARY.md#dependency-set). This appendix reflects dependency set `2026.2`, dated 2026-08-18. Later releases added tools to this set without renaming it, so an older copy that reports 2026.2 can lack a tool listed here. Name the dependency set beside the app version in a methods section, as in this sentence, with `<version>` replaced by the release your About window shows.
 
 ```
 Analyses were run in Lungfish Genome Explorer <version> (dependency set 2026.2),
@@ -85,7 +85,7 @@ The lock records some licenses loosely, which is why the bcftools cell reads a b
 
 The table prints the lock's own identifiers, so `bbtools` here is `BBTools` elsewhere. Either spelling identifies the tool, and a methods section reads better with the tool's own published capitalization, `BBTools`, beside the version from this table.
 
-Four rows do work you may not associate with a named tool. pysam is the Python library that reads the BAM files, the files of aligned reads, behind a viewport's coverage and depth readouts, and openpyxl writes the genotyping workbooks. zstd and xz unpack and write `.zst` and `.xz` compressed files, so importing one needs no other software on the Mac. micromamba installed every other tool on this page.
+Five rows do work you may not associate with a named tool. pysam is the Python library that reads the BAM files, the files of aligned reads, inside the amplicon genotyping pipeline, where a small script uses it to filter the aligned reads, and openpyxl writes the genotyping workbooks. zstd unpacks and writes `.zst` compressed files and xz unpacks `.xz` files, so importing either kind, or exporting a `.zst` file, needs no other software on the Mac. micromamba installed every other tool on this page.
 
 The app also carries a Linux kernel boot image, version 6.12.28, and a matching start-up file system for Apple's own container system, Apple Containerization, which `bundled-payloads.json` lists. `lungfish-cli debug container` reports Apple Containerization as not used by pipelines, so no result in this manual depends on them.
 
@@ -129,11 +129,11 @@ None of these tools is on a machine that has not installed its pack. The lock pi
 | `single-cell` | leidenalg | 0.12.0 | `sc-embed` | GPL-3.0-or-later | `python` |
 | `single-cell` | umap-learn | 0.6.0 | `sc-embed` | BSD-3-Clause | `python` |
 
-A LoFreq provenance record can carry an error message where the version belongs, a known defect listed in [Known defects in this release](troubleshooting.md#known-defects-in-this-release), so take LoFreq's version from this table.
+LoFreq rejects the usual `--version` flag, so LGE asks it with the `version` subcommand, and a LoFreq provenance record names the version rather than an error message.
 
-The Bracken row needs care. The only conda build of Bracken for Apple Silicon Macs lacks Bracken's main program, so LGE builds Bracken from the upstream release 3.1 source code instead of installing it from conda. The lock file also carries a version field of 1.0.0 for Bracken, but that is only a fallback pin, and a fresh install never uses it. The `bracken` script in release 3.1 still reports its own version as 3.0.1, so Bracken's version flag and your provenance record both say 3.0.1. Write Bracken 3.1 in a methods section and add that it reports itself as 3.0.1, so a reader can match your text to your provenance record.
+The Bracken row needs care. The only conda build of Bracken for Apple Silicon Macs lacks Bracken's main program, so LGE builds Bracken from the upstream release 3.1 source code instead of installing it from conda. The lock file also carries a version field of 1.0.0 for Bracken, but that is only a fallback pin, and a fresh install never uses it. The `bracken` script in release 3.1 still reports its own version as 3.0.1, so Bracken's own version flag says 3.0.1. LGE never asks the program, because it records the 3.1 source build it installed, so your provenance record says 3.1. Write Bracken 3.1 in a methods section and add that its version flag prints 3.0.1, so a reader who runs it can see why.
 
-Five environments install from an exact list of packages kept inside LGE, so every Mac receives the same builds. They are Olivar, varVAMP, EsViritu, and the one `sc-embed` environment that the four Single-Cell Analysis tools share. That shared environment is why those four rows name `sc-embed` rather than the tool.
+Five environments install from an exact list of packages kept inside LGE, so every Mac receives the same builds. They are PrimalScheme3, Olivar, varVAMP, EsViritu, and the one `sc-embed` environment that the four Single-Cell Analysis tools share. That shared environment is why those four rows name `sc-embed` rather than the tool.
 
 Two entries name the pack rather than the tool in their Environment column. GATK4 installs into an environment called `gatk-core` and WhatsHap into one called `phasing`, so a provenance record naming either environment is naming the pack. The GATK Core pack holds GATK4 4.6.2.0 alone. The Plugin Manager estimates it at about 600 MB, but the installed pack takes about 900 MB, so allow about 1 GB of disk for it. The primalscheme3 version carries the suffix `+lge.5`, which marks a build LGE maintains on top of PrimalScheme 3.3.0, so copy it whole.
 
@@ -214,7 +214,7 @@ The last two rows are reference data rather than searchable databases in the usu
 
 Two checks are worth running before you quote a number from this page in a paper.
 
-First, confirm your own copy reports this dependency set. Open **Lungfish Genome Explorer > About Lungfish Genome Explorer** and read the line beginning "Dependency set". This check needs no terminal. If your installed release is not the one the manual's home page names, the numbers here may not be the numbers you ran, so take the versions from your run's provenance record instead.
+First, confirm your own copy reports this dependency set. Open **Lungfish Genome Explorer > About Lungfish Genome Explorer** and read the line beginning "Dependency set". This check needs no terminal. If your copy reports a different dependency set, or is older than the newest release this manual describes, the numbers here may not be the numbers you ran, so take the versions from your run's provenance record instead.
 
 Second, confirm the machine has the pinned versions installed. The window route is the Plugin Manager's **Check for Tool Updates…** button, which either reports that the tools are up to date or opens the Update Tools sheet with what has drifted from what your copy expects. The command-line form is `lungfish-cli tools update --plan`, which prints the outstanding work without doing any of it and exits with [exit status](../../GLOSSARY.md#exit-status) 10 when work is pending and 0 when the machine matches the lock.
 
@@ -222,7 +222,7 @@ The lock also carries a list of retired environments, removed from the pinned se
 
 ## On the command line
 
-The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it. It uses the same storage folder as the app it ships inside, so the versions it reports describe the tools that app installed.
+The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it. It uses the same storage folder as the app it ships inside, and it reads the tool lock inside that app, so the versions it prints are the ones that release pins, not a list of what your Mac holds.
 
 ```bash
 lungfish-cli version --tools
@@ -253,8 +253,8 @@ Use this appendix for release notes, for planning, and for a methods section wri
 
 When the sidecar and this page disagree, the sidecar is right about your analysis, and the disagreement is telling you the machine was not up to date. The Plugin Manager's **Check for Tool Updates…** button, or `lungfish-cli tools update --plan`, tells you by how much.
 
-For the reference list of a paper, cite the [Tool Bibliography](bibliography.md) rather than this appendix. It carries the published reference for each tool, which is what a reference list needs, and this page carries the version number that goes beside it.
+For the reference list of a paper, cite the [Tool Bibliography](bibliography.md) rather than this appendix. It carries the published reference for the tools it lists, which is what a reference list needs, and this page carries the version number that goes beside it.
 
 ## Next
 
-The next appendix is [Running in CI](06-running-in-ci.md), which installs these pinned versions on a build machine. The [Tool Bibliography](bibliography.md) gives the citation for every tool named here, and shows the three routes to the list of tools one run actually used. It is built from the same lock file, so the two agree on every version.
+The next appendix is [Running in CI](06-running-in-ci.md), which installs these pinned versions on a build machine. The [Tool Bibliography](bibliography.md) gives the citation for the tools it lists and shows the three routes to the list of tools one run actually used. It carries no version numbers of its own, so this page is where a version is looked up.
