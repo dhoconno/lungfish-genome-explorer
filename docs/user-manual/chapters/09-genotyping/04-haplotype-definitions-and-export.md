@@ -77,7 +77,7 @@ The Genotype Matrix - Filtered worksheet holds only what the window shows when y
 
 ### Choose Export to Excel
 
-Open the [Inspector](../../GLOSSARY.md#inspector)'s Bundle tab, the first of its four tabs, find its **Excel** section, which starts expanded, and click **Export to Excel…**.
+Open the [Inspector](../../GLOSSARY.md#inspector)'s Bundle tab, the first of its five tabs, find its **Excel** section, which starts expanded, and click **Export to Excel…**.
 
 <!-- SHOT: genotype-inspector-export -->
 
@@ -214,7 +214,7 @@ Change `PROJECT` and `RESULT` to your own project and result, whose name is the 
 
 One default differs from the window. The window's Percent Basis starts on Source Locus, which the command line spells `viewed-locus`, but `export-pivot-xlsx` starts on `sample-retained`. Pass `--percent-basis viewed-locus` to match the window, as above. The basis matters only with `--min-percent`, so with none, as here, it changes only what Export Metadata records.
 
-`genotype export-manual-definitions` writes the haplotype assignments typed in by hand as a JSON file with its provenance record, a record of your assignments and not a definition set like the ones above. In the app, open the **Audit** lens, which only a full-length ONT result with haplotype calls has, find its **Manual Haplotyping** section, which appears once the result holds assignments typed by hand, and click **Export Manual Definitions…**. This is not the **Haplotype Assignments** card of [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md#read-one-samples-evidence), where you type assignments on a genotype-only result. The app runs the command behind an Operations Panel row. It reads the assignments from the `selection.json` file the app writes beside the output, not from the bundle, so it repeats an export the app began rather than starting one.
+`genotype export-manual-definitions` writes the haplotype assignments typed in by hand as a JSON file with its provenance record, a record of your assignments and not a definition set like the ones above. In the app, open the **Audit** lens of a full-length ONT result with haplotype calls, find its **Manual Haplotyping** section, which appears once the result holds assignments typed by hand, and click **Export Manual Definitions…**. A MiSeq result with haplotype calls, such as the demo, offers no Audit lens, so it has no such button. This is not the **Haplotype Assignments** card of [Reading the Genotype Comparison](03-reading-the-genotype-comparison.md#read-one-samples-evidence), where you type assignments on a genotype-only result. The app runs the command behind an Operations Panel row. It reads the assignments from the `selection.json` file the app writes beside the output, not from the bundle, so it repeats an export the app began rather than starting one.
 
 Definition sets have a command group of their own, `lungfish-cli haplotypes`, with eleven commands. `haplotypes list` prints a JSON entry for each set, and its `definitionID` is the id that `haplotypes export` takes, `mhc-simulated-mcm-teaching` on the demo, as the last two commands of the block show. The table gives each command's purpose, and the CLI Reference lists the flags of every command.
 
