@@ -457,16 +457,26 @@ extension AnnotationDatabase {
                         return SHA256.hash(data: Data(fields.joined(separator: "\u{1F}").utf8))
                     }
 
-                    /// The CDS lines that are intervals of one CDS with `feature`, with the key that names the group, or nil
-                    /// for a line that stands alone. GFF3 lines of one CDS share an ID. GTF lines have none, so the lines of
+                    /// The lines that are parts of one feature with `feature`, with the key that names the group, or nil for
+                    /// a line that stands alone. GFF3 lines of one discontinuous feature share an ID and agree on type,
+                    /// seqid and strand, whatever the type is: a spliced mRNA, misc_RNA or misc_feature as Export
+                    /// Annotations as GFF3 writes it, a CDS, a match. Lines with one ID that differ in type, seqid or
+                    /// strand are not one feature (EXPORT-REOPEN-MULTIPART). GTF lines have no ID, so the CDS lines of
                     /// one transcript on one strand are the group (BIO-GTF-SPLICE-17).
-                    func cdsMergeGroup(of feature: ParsedFeature) -> (key: String, siblings: [Int])? {
-                        guard feature.featureType == "CDS" else { return nil }
+                    func multiPartGroup(of feature: ParsedFeature) -> (key: String, siblings: [Int])? {
                         if let featureID = feature.id {
-                            guard let siblings = featuresByID[featureID], siblings.count > 1 else { return nil }
-                            return ("id\u{1F}\(featureID)", siblings)
+                            guard let sharing = featuresByID[featureID], sharing.count > 1 else { return nil }
+                            let siblings = sharing.filter { index in
+                                let other = allFeatures[index]
+                                return other.featureType == feature.featureType
+                                    && other.seqid == feature.seqid && other.strand == feature.strand
+                            }
+                            guard siblings.count > 1 else { return nil }
+                            let key = [featureID, feature.featureType, feature.seqid, feature.strand].joined(separator: "\u{1F}")
+                            return ("id\u{1F}\(key)", siblings)
                         }
-                        guard let transcriptKey = feature.transcriptKey,
+                        guard feature.featureType == "CDS",
+                              let transcriptKey = feature.transcriptKey,
                               let siblings = cdsByTranscript["\(transcriptKey)\u{1F}\(feature.strand)"],
                               siblings.count > 1 else { return nil }
                         return ("transcript\u{1F}\(transcriptKey)\u{1F}\(feature.strand)", siblings)
@@ -545,8 +555,8 @@ extension AnnotationDatabase {
 
                         let geneName = geneName(from: feature.attributes)
 
-                        // ── Same-ID merging: CDS features sharing a GFF3 ID, or a GTF transcript and strand, are intervals of one CDS ──
-                        if let group = cdsMergeGroup(of: feature) {
+                        // ── Same-ID merging: lines of one feature (one GFF3 ID, type, seqid and strand), or the CDS lines of a GTF transcript and strand, are the intervals of one row ──
+                        if let group = multiPartGroup(of: feature) {
 
                             // Already merged this group? Skip.
                             guard processedIDs.insert(group.key).inserted else { continue }
@@ -566,10 +576,16 @@ extension AnnotationDatabase {
                                 mergedEnd = max(mergedStart, min(mergedEnd, Int(chromSize)))
                             }
 
-                            // Build BED12 blocks from sorted intervals
-                            let sortedIntervals = zip(allStarts, allEnds)
+                            // Build BED12 blocks from sorted intervals. A line that repeats an interval of its group is the
+                            // same part written twice, so the two give one block.
+                            var sortedIntervals: [(start: Int, end: Int)] = []
+                            let orderedIntervals = zip(allStarts, allEnds)
                                 .map { (start: $0, end: $1) }
-                                .sorted { $0.start < $1.start }
+                                .sorted { ($0.start, $0.end) < ($1.start, $1.end) }
+                            for interval in orderedIntervals {
+                                if let last = sortedIntervals.last, last.start == interval.start, last.end == interval.end { continue }
+                                sortedIntervals.append(interval)
+                            }
 
                             var clippedBlocks: [(size: Int, start: Int)] = []
                             for interval in sortedIntervals {
@@ -609,7 +625,8 @@ extension AnnotationDatabase {
                                 total + (interval.end - interval.start)
                                     - max(0, min(interval.end, mergedEnd) - max(interval.start, mergedStart))
                             }
-                            if let phase = cdsPhase(fivePrime.attributes, losing: lost) {
+                            // Only a CDS has a phase, so a row of any other type keeps the attributes of its first line.
+                            if feature.featureType == "CDS", let phase = cdsPhase(fivePrime.attributes, losing: lost) {
                                 mergedAttributes[GFF3ExportIdentifiers.cdsPhaseKey] = String(phase)
                             }
                             let attrString = serializeAttributes(mergedAttributes)
