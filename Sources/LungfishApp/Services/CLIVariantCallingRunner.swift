@@ -23,6 +23,9 @@ struct CLIVariantCallingResult: Sendable, Equatable {
     let vcfPath: String?
     let tbiPath: String?
     let provenancePath: String?
+    /// Words the run reports about itself, such as codon merging being off because an annotation database could not
+    /// be read, which the row's completion shows (ANNOT-EXPORT-MISSING-TRACK).
+    var notes: [String] = []
 }
 
 enum CLIVariantCallingRunnerError: Error, LocalizedError, Equatable {
@@ -226,15 +229,18 @@ struct CLIVariantCallingRunner {
     /// by role. A version 1 CLI writes no artifacts, so each file falls back to
     /// its place in `outputs`, `[databasePath, vcfPath, tbiPath]`, which a
     /// version 2 CLI keeps too, as `docs/formats/cli-events.md` requires.
-    private static func parseCompletion(
+    static func parseCompletion(
         outputs: [String],
         message: String?,
         artifacts: [CLIEventArtifact]
     ) -> CLIVariantCallingResult {
         var trackID: String?
         var trackName: String?
+        var notes: [String] = []
         if let message {
-            for token in Self.tokenize(message) {
+            let split = ViralVariantCallingPipelineResult.splitNotes(fromCompletionMessage: message)
+            notes = split.notes
+            for token in Self.tokenize(split.message) {
                 let parts = token.split(separator: "=", maxSplits: 1)
                 guard parts.count == 2 else { continue }
                 let value = String(parts[1])
@@ -257,7 +263,8 @@ struct CLIVariantCallingRunner {
             databasePath: typed(CLIEventArtifact.Role.variantsDatabase)?.path ?? positional(0),
             vcfPath: typed(CLIEventArtifact.Role.variants)?.path ?? positional(1),
             tbiPath: typed(CLIEventArtifact.Role.variantsIndex)?.path ?? positional(2),
-            provenancePath: typed(CLIEventArtifact.Role.variants)?.provenancePath
+            provenancePath: typed(CLIEventArtifact.Role.variants)?.provenancePath,
+            notes: notes
         )
     }
 

@@ -41,3 +41,36 @@ public struct ViralVariantCallingPipelineResult: Sendable, Equatable {
         self.provenanceSteps = provenanceSteps
     }
 }
+
+extension ViralVariantCallingPipelineResult {
+    /// The marker a completion message carries the run's notes after: ` notes=` and then a JSON array of strings.
+    /// The app reads the notes back with ``splitNotes(fromCompletionMessage:)`` (ANNOT-EXPORT-MISSING-TRACK, row 5).
+    public static let completionNotesMarker = " notes="
+
+    /// The text to append to a completion message so that it carries `notes`, or an empty string when there are none.
+    public static func completionSuffix(notes: [String]) -> String {
+        guard !notes.isEmpty, let data = try? JSONEncoder().encode(notes) else { return "" }
+        return completionNotesMarker + String(decoding: data, as: UTF8.self)
+    }
+
+    /// `message` without the notes it carries, and the notes. A message with no notes comes back whole.
+    public static func splitNotes(fromCompletionMessage message: String) -> (message: String, notes: [String]) {
+        guard let marker = message.range(of: completionNotesMarker + "[", options: .backwards) else { return (message, []) }
+        let encoded = message[message.index(marker.lowerBound, offsetBy: completionNotesMarker.count)...]
+        guard let notes = try? JSONDecoder().decode([String].self, from: Data(encoded.utf8)) else { return (message, []) }
+        return (String(message[..<marker.lowerBound]), notes)
+    }
+
+    /// One standard error line per note.
+    public static func standardErrorLines(notes: [String]) -> [String] {
+        notes.map { "warning: " + $0 }
+    }
+
+    /// Writes the run's notes to standard error, one line each, and returns the result.
+    public func writingNotesToStandardError() -> ViralVariantCallingPipelineResult {
+        for line in Self.standardErrorLines(notes: notes) {
+            FileHandle.standardError.write(Data((line + "\n").utf8))
+        }
+        return self
+    }
+}

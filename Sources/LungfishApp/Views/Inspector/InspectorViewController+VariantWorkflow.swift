@@ -246,7 +246,9 @@ extension InspectorViewController {
 
     /// The detail the row ends on after a successful run.
     static func variantCallingCompletionDetail(for result: CLIVariantCallingResult) -> String {
-        result.trackName.map { "Created variant track \($0)" } ?? "Variant calling complete"
+        let detail = result.trackName.map { "Created variant track \($0)" } ?? "Variant calling complete"
+        // The run's own words follow, such as codon merging being off because an annotation database could not be read.
+        return result.notes.isEmpty ? detail : ([detail + "."] + result.notes).joined(separator: " ")
     }
 
 }

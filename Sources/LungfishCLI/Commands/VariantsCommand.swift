@@ -118,6 +118,7 @@ struct VariantsCommand: AsyncParsableCommand {
         let databasePath: String?
         let importedVariantCount: Int?
         var provenancePath: String? = nil
+        var notes: [String]? = nil
     }
 
     private static func requiredTools(for caller: ViralVariantCaller) -> [NativeTool] {
@@ -1019,7 +1020,7 @@ extension VariantsCommand {
                 )
 
                 emitSimpleEvent(event: "stageStart", progress: 0.10, message: "Running caller workflow", caller: resolvedCaller.rawValue, emit: emitEvent)
-                let pipelineResult = try await runtime.runPipeline(request, preflight, context)
+                let pipelineResult = try await runtime.runPipeline(request, preflight, context).writingNotesToStandardError()
                 emitSimpleEvent(event: "stageComplete", progress: 0.70, message: "Caller workflow completed", caller: resolvedCaller.rawValue, emit: emitEvent)
 
                 emitSimpleEvent(event: "importStart", progress: 0.74, message: "Importing normalized variants into SQLite", caller: resolvedCaller.rawValue, emit: emitEvent)
@@ -1137,7 +1138,8 @@ extension VariantsCommand {
                         tbiPath: attachmentResult.finalTabixURL.path,
                         databasePath: attachmentResult.finalDatabaseURL.path,
                         importedVariantCount: attachmentResult.trackInfo.variantCount,
-                        provenancePath: attachmentResult.provenanceURL?.path
+                        provenancePath: attachmentResult.provenanceURL?.path,
+                        notes: pipelineResult.notes.isEmpty ? nil : pipelineResult.notes
                     )
                 )
                 return attachmentResult
@@ -1364,7 +1366,7 @@ extension VariantsCommand {
                 let outputs = [event.databasePath, event.vcfPath, event.tbiPath].compactMap { $0 }
                 let trackID = event.variantTrackID ?? ""
                 let trackName = event.variantTrackName ?? ""
-                return .complete(outputs: outputs, message: "trackID=\(trackID) trackName=\(trackName)")
+                return .complete(outputs: outputs, message: "trackID=\(trackID) trackName=\(trackName)" + ViralVariantCallingPipelineResult.completionSuffix(notes: event.notes ?? []))
             case "runFailed":
                 return .failed(message: event.message, detail: nil)
             default:
