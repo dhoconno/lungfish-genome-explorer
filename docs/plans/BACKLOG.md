@@ -14,7 +14,6 @@ Every S4 row moved out of both files at the Phase 5 tidy stays readable at `fb43
 
 | Id | Effect on results or users | Severity | Field | Source |
 |---|---|---|---|---|
-| VS-HOST-STRIP-RAISE | With the line and the affected-results strip up on a host surface (TaxTriage, NAO-MGS, NVD, Kraken2 or EsViritu with an affected record), View > Reset View removes the line, and the strip's later removal turns the surface's top back on against the removed line. AppKit raises "no common ancestor" (`remove(from:)`, `ViewerViewController+AffectedResultsStrip.swift:101-109` at H17), which can end the app and lose memory-only state. No build has the path: H17 has no caller of `ViewportHost.resetViewMemory()` (KI-4), and land-8 adds the first one together with this row's fix. | S1 | SWIFT | `SCR view-state/rulings/UX-HOST-LINE-F3.md`, `SCR view-state/lanes/VS-HOST-LINE/VS-HOST-LINE.md` Continuation 1, `ViewportHostLineOnKraken2Tests.swift` (the caught raise case) |
 
 ## Phase 5
 
