@@ -147,9 +147,12 @@ extension SequenceViewerView {
         let suggestedName = annotations.count == 1 ? annotations[0].name : "selected-annotations"
         let kept = extracted
         presentLeftOutAnnotations(leftOut, of: annotations.count) { [weak self] in
-            self?.viewController?.presentFASTASequenceExtractionDialog(records: records, suggestedName: suggestedName)
-            // The dialog is the window's sheet by now, so the words queue behind it and do not stop it from opening.
-            self?.presentGTFPartsNotJoinedWords(for: kept, route: .extraction)
+            // The words follow the person's choice in the dialog, so a Cancel shows none.
+            self?.viewController?.presentFASTASequenceExtractionDialog(
+                records: records,
+                suggestedName: suggestedName,
+                afterPrimary: { [weak self] in self?.presentGTFPartsNotJoinedWords(for: kept, route: .extraction) }
+            )
         }
     }
 

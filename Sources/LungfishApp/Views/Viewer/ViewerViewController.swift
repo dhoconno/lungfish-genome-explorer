@@ -1759,19 +1759,28 @@ public class ViewerViewController: NSViewController {
         DefaultSharingServicePresenter().present(items: [shareURL], relativeTo: view, preferredEdge: .minY)
     }
 
-    func presentFASTASequenceExtractionDialog(records: [String], suggestedName: String) {
+    /// Presents the Extract Sequence dialog for `records`. `afterPrimary` runs after the person's choice (Save, Create,
+    /// Copy or Share) has been started, and never after a Cancel.
+    func presentFASTASequenceExtractionDialog(
+        records: [String],
+        suggestedName: String,
+        afterPrimary: (() -> Void)? = nil
+    ) {
         if let fastaSequenceExtractionDialogPresenterForTesting {
-            fastaSequenceExtractionDialogPresenterForTesting(records, suggestedName, nil)
+            fastaSequenceExtractionDialogPresenterForTesting(records, suggestedName, afterPrimary)
             return
         }
-        presentFASTASequenceExtractionDialog(records: records, suggestedName: suggestedName, annotationsByRecord: [:])
+        presentFASTASequenceExtractionDialog(
+            records: records, suggestedName: suggestedName, annotationsByRecord: [:], afterPrimary: afterPrimary
+        )
     }
 
     func presentFASTASequenceExtractionDialog(
         records: [String],
         suggestedName: String,
         annotationsByRecord: [String: [SequenceAnnotation]],
-        sourceAlignmentBundleURL: URL? = nil
+        sourceAlignmentBundleURL: URL? = nil,
+        afterPrimary: (() -> Void)? = nil
     ) {
         guard !records.isEmpty, let window = view.window, window.attachedSheet == nil else { return }
 
@@ -1815,6 +1824,8 @@ public class ViewerViewController: NSViewController {
                 case .share:
                     self.shareFASTARecords(records, suggestedName: baseName)
                 }
+                // The person chose, so what waited for the choice runs now. A Cancel never gets here.
+                afterPrimary?()
             }
         )
 
