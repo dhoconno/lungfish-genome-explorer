@@ -17,7 +17,7 @@ entry_points:
   - "CLI: lungfish-cli fastq ont-fluidigm-samples"
 shots:
   - id: ont-import-configuration-sheet
-    caption: "The Import FASTQ sheet as it opens for the NRG1 run folder, with the summary reporting six barcode directories and the unclassified folder left out, Platform on Oxford Nanopore, no Pairing control, Quality Binning on Q5 steps (8-level), and the processing recipe checkbox off."
+    caption: "The Import FASTQ sheet as it opens for the NRG1 run folder, with the summary reporting six barcode directories and the unclassified folder left out, Platform on Unknown with the Not detected line under the summary, Pairing on Single-end, Quality Binning on Q5 steps (8-level), and the processing recipe checkbox off."
   - id: ont-barcode-sheet-controls
     caption: "The Import FASTQ sheet with Apply processing recipe after import ticked and Split by Fluidigm sample barcodes chosen, showing the Barcode Sheet popup and its Choose… button, the Demux Folder field reading ont-run, and Quality Binning grayed out on None (keep every score)."
   - id: sidebar-after-ont-import
@@ -97,7 +97,7 @@ This procedure imports the NRG1 run folder as one bundle per barcode folder.
 
 3. Click the `ont-run` folder once, so its name is highlighted, and click **Open**. The card takes the run folder MinKNOW wrote, or the `fastq_pass` folder inside it with the same result, or one barcode folder, which imports just that barcode.
 
-4. Read the **Import FASTQ** sheet. Its summary names the folder you chose and reads "Found 6 barcode directories." and "Without a processing recipe, the import leaves the unclassified folder out." **Platform** reads Oxford Nanopore, and the **Pairing** control is hidden, because nanopore reads are [single-end](../../GLOSSARY.md#single-end), with no mates.
+4. Read the **Import FASTQ** sheet. Its summary names the folder you chose and reads "Found 6 barcode directories." and "Without a processing recipe, the import leaves the unclassified folder out." **Platform** reads Unknown and the line under the summary says the read headers match no known platform form, because the NRG1 read names carry no nanopore tags, and **Pairing** reads Single-end. Leave both alone, since the import records Oxford Nanopore as each bundle's platform whatever the popup reads. A run whose reads carry MinKNOW's own header tags shows Oxford Nanopore here, and then the **Pairing** control is hidden, because nanopore reads are [single-end](../../GLOSSARY.md#single-end), with no mates.
 
     <!-- SHOT: ont-import-configuration-sheet -->
 
@@ -109,7 +109,7 @@ This procedure imports the NRG1 run folder as one bundle per barcode folder.
 
     <!-- SHOT: sidebar-after-ont-import -->
 
-To stop an import, cancel its row in the Operations Panel. The row then reads Cancelled, and the import leaves no bundle behind. A folder that holds no `fastq_pass` folder and no barcode folders, such as a folder of Illumina reads, is refused before the sheet opens, with an alert that says to choose the run folder MinKNOW wrote, its `fastq_pass` folder, or one barcode folder.
+To stop an import, cancel its row in the Operations Panel. The row then reads Cancelled, and the import leaves no bundle behind. A folder that is not a nanopore run, such as a folder of Illumina reads with no `fastq_pass` folder and no barcode folders, is refused before the sheet opens. The alert says the reads were not added and asks you to check that the folder is an ONT run folder, and **Show Details** in the alert adds that you should choose the run folder MinKNOW wrote, its `fastq_pass` folder, or one barcode folder.
 
 The importer leaves out the `unclassified` folder, because reads with no callable barcode belong to no sample. Here it holds 204 reads. The window has no control that brings them in, so that is a command-line job, worth doing only when you are working out why a barcode came back thin.
 
