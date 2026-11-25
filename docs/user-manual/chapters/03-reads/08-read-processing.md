@@ -9,25 +9,25 @@ tags: [reads, merge, repair, error-correct, reverse-complement, orient, translat
 tools: [bbmerge, repair.sh, tadpole, reformat, vsearch]
 parameters_refs: [fastq.merge-overlapping-pairs, fastq.repair-paired-end-files, fastq.reverse-complement, fastq.translate, fastq.orient-reads, fastq.correct-sequencing-errors]
 entry_points:
-  - "Tools > Read Processing > Merge Overlapping Pairs..."
-  - "Tools > Read Processing > Repair Paired-End Files..."
-  - "Tools > Read Processing > Reverse Complement All Sequences..."
-  - "Tools > Read Processing > Translate All Sequences..."
-  - "Tools > Read Processing > Orient Reads..."
-  - "Tools > Read Processing > Correct Sequencing Errors..."
+  - "Tools > Read Processing > Merge Overlapping Pairs…"
+  - "Tools > Read Processing > Repair Paired-End Files…"
+  - "Tools > Read Processing > Reverse Complement All Sequences…"
+  - "Tools > Read Processing > Translate All Sequences…"
+  - "Tools > Read Processing > Orient Reads…"
+  - "Tools > Read Processing > Correct Sequencing Errors…"
   - "CLI: lungfish-cli fastq merge, repair, reverse-complement, translate, orient, error-correct"
   - "CLI: lungfish-cli fastq interleave, deinterleave"
 shots:
   - id: read-processing-menu
     caption: "The Tools > Read Processing submenu open, showing its six operations."
   - id: merge-overlapping-pairs-pane
-    caption: "The Merge Overlapping Pairs pane of the FASTQ/FASTA Operations dialog, with the Strictness segments set to Normal and the Minimum Overlap field reading 12."
+    caption: "The Merge Overlapping Pairs pane of the FASTQ/FASTA Operations window, with Strictness on Normal and Minimum Overlap reading 12 under Primary settings."
   - id: orient-reads-pane
-    caption: "The Orient Reads pane, showing the Word Length field, the Database Mask segments, the Extra arguments field, and the reference chosen in the Inputs section."
+    caption: "The Orient Reads pane, with the reference chosen in the Inputs section and the Word Length field, the Database Mask segments, and the Extra arguments field under Primary settings."
   - id: sidebar-after-merge
     caption: "The sidebar after a merge run, showing the new bundle under Analyses."
 illustrations: []
-glossary_refs: [fastq, read, read-merging, insert-size, paired-end, interleaved-fastq, singleton-read, k-mer, phred-score, reverse-complement, reading-frame, codon, orient-reads, amplicon, shotgun, provenance, checksum, inspector, required-setup-pack, library-prep, depth, coverage-breadth, de-novo-assembly, bbmerge]
+glossary_refs: [fastq, fasta, read, mate, read-merging, insert-size, paired-end, interleaved-fastq, singleton-read, k-mer, phred-score, reverse-complement, reading-frame, codon, genetic-code, orient-reads, vsearch, amplicon, shotgun, provenance, inspector, required-setup-pack, library-prep, depth, de-novo-assembly, bbmerge]
 features_refs: [fastq.read-processing]
 fixtures_refs: [hg002-chr20, hg002-long-reads, human-mito]
 brand_reviewed: false
@@ -36,17 +36,17 @@ lead_approved: false
 
 ## What it is
 
-A [read](../../GLOSSARY.md#read) is the record a sequencer writes for one DNA fragment, its bases with a quality score for each base. [Phred scores](../../GLOSSARY.md#phred-score) are explained in [Quality Control for Reads](03-quality-control.md#q20-and-q30). The six operations under **Tools > Read Processing** in Lungfish Genome Explorer (LGE) rewrite or rearrange reads, and all but Orient Reads account for every read. [Trimming and Filtering Reads](04-trimming-and-filtering.md) does the opposite job and discards bases and reads that cannot be trusted. Read Processing changes the form of the reads instead, so that a later tool receives the reads the way it expects them.
+A [read](../../GLOSSARY.md#read) is the record a sequencer writes for one DNA fragment, its bases with a quality score for each base. [Phred scores](../../GLOSSARY.md#phred-score) are explained in [Quality Control for Reads](03-quality-control.md#q20-and-q30). The six operations under **Tools > Read Processing** in Lungfish Genome Explorer (LGE) rewrite or rearrange reads, and only Orient Reads drops reads as part of its job. [Trimming and Filtering Reads](04-trimming-and-filtering.md) does the opposite job and discards bases and reads that cannot be trusted. Read Processing changes the form of the reads instead, so that a later tool receives the reads the way it expects them.
 
-A [paired-end](../../GLOSSARY.md#paired-end) run gives two mates per DNA fragment, as [Importing Sequencing Reads](01-importing-fastq.md) explains. Two of the operations work on those pairs. Merge Overlapping Pairs performs [read merging](../../GLOSSARY.md#read-merging), joining the two mates of a fragment into one longer sequence where they overlap in the middle. Repair Paired-End Files puts mates back next to each other when an earlier program has pulled them out of step.
+A [paired-end](../../GLOSSARY.md#paired-end) run gives two [mates](../../GLOSSARY.md#mate) per DNA fragment, one read from each end, as [Importing Sequencing Reads](01-importing-fastq.md) explains. Two of the operations work on those pairs. Merge Overlapping Pairs performs [read merging](../../GLOSSARY.md#read-merging), joining the two mates of a fragment into one longer sequence where they overlap in the middle, and keeps the pairs that do not overlap as pairs. Repair Paired-End Files puts mates back next to each other when an earlier program has pulled them out of step.
 
 Two operations rewrite each read on its own. Reverse Complement All Sequences flips every read onto the opposite DNA strand, which means reversing the bases and swapping A with T and C with G. Translate All Sequences turns the bases into the protein they would encode. This chapter calls them Reverse Complement and Translate for short. The last two use outside information. [Orient Reads](../../GLOSSARY.md#orient-reads) compares each read with a reference sequence, flips the reads that came off the other strand, and drops any read it cannot place. Correct Sequencing Errors compares every read with the rest of the data set to repair bases that look like instrument mistakes.
 
 <!-- SHOT: read-processing-menu -->
 
-[FASTQ](../../GLOSSARY.md#fastq) is the read file format [Importing Sequencing Reads](01-importing-fastq.md) introduces. Five of the six operations write a new FASTQ file. Translate writes protein FASTA instead, the plain sequence format with no quality scores, here holding amino acid letters, because one amino acid comes from three bases and no single quality score describes three measurements honestly. No operation changes its input.
+[FASTQ](../../GLOSSARY.md#fastq) is the read file format [Importing Sequencing Reads](01-importing-fastq.md) introduces. Merge, Repair, and Correct Sequencing Errors read and write FASTQ. Reverse Complement and Orient Reads also accept [FASTA](../../GLOSSARY.md#fasta), the plain sequence format with no quality scores, and keep the format they are given, so FASTA stays FASTA and FASTQ keeps its quality scores. Translate always writes protein FASTA, here holding amino acid letters, because one amino acid comes from three bases and no single quality score describes three measurements honestly. When every selected item is FASTA, the dialog lists only the three operations that accept it. No operation changes its input.
 
-Two more utilities exist only on the command line. Interleave folds a separate R1 file and R2 file into one [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq), where the two mates of each fragment sit as neighbouring records, and Deinterleave splits such a file back into two. Given a file that holds merged single reads as well as pairs, Deinterleave matches mates by name and needs a third output, `--unpaired`, for the reads that have no mate. Importing a paired sample already stores it interleaved, so you never need either one inside the window.
+Two more utilities exist only on the command line. Interleave folds a separate R1 file and R2 file into one [interleaved FASTQ](../../GLOSSARY.md#interleaved-fastq), where the two mates of each fragment sit as neighboring records. It first checks that the two files hold the same number of reads with matching names, and it writes nothing when they do not. Deinterleave splits such a file back into two. Given a file that holds merged single reads as well as pairs, Deinterleave matches mates by name and needs a third output, `--unpaired`, for the reads that have no mate. Importing a paired sample already stores it interleaved, so you never need either one inside the window.
 
 So reach for this chapter when a later tool refuses your reads because of their form, and reach for the trimming chapter when it refuses them because of their quality.
 
@@ -56,23 +56,21 @@ The example in this chapter is a slice of human chromosome 20 from HG002, a huma
 
 That combination is the case merging was built for. [Library preparation](../../GLOSSARY.md#library-prep), the bench work that turns extracted DNA into something a sequencer can read, breaks the DNA at random into fragments a few hundred bases long. The sequencer then reads 250 bases inward from each end of a fragment, so the two mates point toward each other. The [insert size](../../GLOSSARY.md#insert-size) is the full length of the original fragment. When the insert is shorter than 500 bases, two 250-base reads must cover some of the same bases in the middle. On this fixture the average insert is about 371 bases, so the two reads together span 500 bases of a 371-base fragment and about 129 bases in the middle are read twice.
 
-The Merge Overlapping Pairs dialog is for two questions about a library. The first is how long its fragments were. Every pair that joins reports the length of its fragment, so a merge run is an estimate of the insert size before any mapping. The second is how many distinct fragment sequences the library holds. The dialog collapses identical sequences into one record with a count, which is what an amplicon tool needs to see how many reads carried each sequence. It is not a step for reads headed to a mapper, as [Choosing a tool](#choosing-a-tool) explains.
-
-Merging has two more benefits that the dialog's collapsed output gives up. The joined sequence is longer than either mate, which helps [de novo assembly](../../GLOSSARY.md#de-novo-assembly), where a program rebuilds a genome from overlapping reads without a reference. The middle of the joined sequence is also more accurate, because every base in the overlap was measured twice and the merger keeps the better-supported call. The fastp merge inside the VSP2 Target Enrichment and Wastewater metagenomics import recipes keeps real qualities and every read, and so does `lungfish-cli fastq merge` without `--count-duplicates`.
+Merge Overlapping Pairs serves two needs. The first is learning how long a library's fragments were. Every pair that joins reports the length of its fragment, so a merge run estimates the insert size before any mapping. The second is one longer read per fragment for a step that wants it. The joined sequence is longer than either mate, which helps [de novo assembly](../../GLOSSARY.md#de-novo-assembly), where a program rebuilds a genome from overlapping reads without a reference. The middle of the joined sequence is also more accurate, because every base in the overlap was measured twice and the merger keeps the better-supported call. Pairs that do not join stay in the result as pairs, so a merge loses no read. It is still not a step for reads headed to a mapper for variant calling, as [Choosing a tool](#choosing-a-tool) explains.
 
 The other five operations answer narrower questions. Correct Sequencing Errors is worth running before an assembly on deep data. Repair rescues a paired file whose mates fell out of step, which a program outside LGE can cause, or a command-line filter told `--pairing single` for paired reads. Reverse Complement, Orient Reads, and Translate exist because a later tool sometimes cares about strand or about protein, and a read as sequenced makes no promise about either.
 
 ## Choosing a tool
 
-Check whether your reads are paired and whether they are already merged, as [Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) describes. Merging is the one job in this chapter that LGE does with two programs, and whether to merge at all matters more than which program merges. The step that comes next decides it. Error correction always runs Tadpole and orientation always runs vsearch, so neither has a choice to make. Duplicate removal is compared in [Decontamination](05-decontamination.md#choosing-a-tool).
+Check whether your reads are paired and whether they are already merged, as [Know your reads before you choose a tool](../01-foundations/02-sequencing-reads.md#know-your-reads-before-you-choose-a-tool) describes. Merging is the one job in this chapter that LGE does with two programs, and whether to merge at all matters more than which program merges. The step that comes next decides it. Error correction always runs Tadpole and orientation always runs [vsearch](../../GLOSSARY.md#vsearch), so neither has a choice to make. Duplicate removal is compared in [Decontamination](05-decontamination.md#choosing-a-tool).
 
-**BBMerge** runs behind Merge Overlapping Pairs. It slides the second mate along the first until the shared bases line up, as the procedure below describes, and joins the pair only when it trusts the overlap. Its authors report that it joined pairs more accurately, with fewer false joins, than the other merging tools they tested. The dialog then always collapses the output. Every distinct sequence, merged or not, becomes one record renamed with its read count, such as `u000001;size=12`, and every quality score is replaced by `I`, the character for Q40. The count lets an amplicon tool see how many reads carried each sequence without storing every copy. The cost is that the output holds no pairs and its quality scores are invented, so never map it for variant calling.
+**BBMerge** runs behind Merge Overlapping Pairs. It slides the second mate along the first until the shared bases line up, as the procedure below describes, and joins the pair only when it trusts the overlap. Its authors report that it joined pairs more accurately, with fewer false joins, than the other merging tools they tested. The result holds one merged read for each joined pair, carrying the quality scores BBMerge computed for it, followed by the pairs it could not join, which keep their own names and measured scores.
 
-**fastp** merges pairs inside three import recipes, with settings the sheet does not let you change, and matters only for viral, wastewater, or amplicon libraries. The VSP2 Target Enrichment and Wastewater metagenomics recipes require 15 shared bases and keep the pairs that did not merge beside the merged reads. These two recipes are the only way the window makes a bundle that mixes merged reads with pairs, and only some mappers keep the leftover mates paired, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#choosing-a-tool) explains. The Illumina Amplicon Merge recipe requires 20 shared bases and keeps only the merged reads.
+**fastp** merges pairs inside three import recipes, with settings the sheet does not let you change, and matters only for viral, wastewater, or amplicon libraries. The VSP2 Target Enrichment and Wastewater metagenomics recipes require 15 shared bases and, like Merge Overlapping Pairs, keep the pairs that did not merge beside the merged reads. Only some mappers keep those leftover mates paired, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#choosing-a-tool) explains. The Illumina Amplicon Merge recipe requires 20 shared bases and keeps only the merged reads.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
-| BBMerge, Merge Overlapping Pairs | Counting distinct fragment sequences | You want each distinct fragment once, with its read count | The reads will be mapped or assembled, which need pairs, real qualities, and every copy |
+| BBMerge, Merge Overlapping Pairs | Joining overlapping mates in a bundle you already imported | You want insert sizes, or one longer read per fragment for assembly | The reads will be mapped for variant calling, which works from the pairs |
 | fastp merge, VSP2 or Wastewater recipe | Short-insert viral and wastewater libraries at import | You import those libraries with the matching recipe | You want to choose the merge settings yourself |
 | fastp merge, Illumina Amplicon Merge recipe | Amplicons read end to end for exact-match genotyping | You import MiSeq MHC amplicon pairs | Losing the pairs that did not merge would cost you data |
 | No merging | Mapping pairs directly | Shotgun human or macaque reads headed for variant calling | A later step needs one read per fragment |
@@ -97,16 +95,17 @@ BBMerge, repair.sh, and Tadpole, three programs from the BBTools suite, and vsea
 
 ## Procedure
 
-Every operation follows the same moves. Select the bundle in the sidebar, choose the operation from **Tools > Read Processing**, set the fields on the pane that opens, and click Run. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, and one window titled FASTQ/FASTA Operations serves all six operations. LGE saves each result as a full bundle holding its own copy of the reads.
+Every operation follows the same moves. Select the bundle in the sidebar, choose the operation from **Tools > Read Processing**, set the fields on the pane that opens, and click **Run**. The dialog follows the layout [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) describes, and one window titled FASTQ/FASTA Operations serves all six operations. The readiness line at the foot of the window, beside **Run**, says what the run still needs before it can start. LGE saves each result as a full bundle holding its own copy of the reads.
 
 ### Merging the overlapping pairs
 
-BBMerge takes each pair and slides the second mate, flipped onto the first mate's strand, along the first until the shared bases line up. When it finds an overlap it trusts, it writes one sequence that spans the whole fragment, and the length of that sequence is the fragment's insert size. When it finds none, it keeps both mates as they were. The insert sizes of the joined pairs are how bbmerge estimates the library's average insert, which [Reading the results](#reading-the-results) works through.
+BBMerge takes each pair and slides the second mate, flipped onto the first mate's strand, along the first until the shared bases line up. When it finds an overlap it trusts, it writes one sequence that spans the whole fragment, and the length of that sequence is the fragment's insert size. When it finds none, it keeps both mates as they were. The insert sizes of the joined pairs are how BBMerge estimates the library's average insert, which [Reading the results](#reading-the-results) works through.
 
 1. Click the `HG002.chr20.10.0-10.5Mb` bundle in the sidebar.
-2. Choose **Tools > Read Processing > Merge Overlapping Pairs...**.
-3. Leave **Strictness** on Normal and **Minimum Overlap** at 12. These are the defaults, and they produced the numbers in this chapter.
-4. Click Run.
+2. Choose **Tools > Read Processing > Merge Overlapping Pairs…**.
+3. Leave **Strictness** on Normal and **Minimum Overlap** at 12, both under Primary settings. These are the defaults, and they produced the numbers in this chapter.
+4. Leave **Output Strategy** on Per Input.
+5. Click **Run**.
 
 <!-- SHOT: merge-overlapping-pairs-pane -->
 
@@ -114,59 +113,59 @@ Watch the run in the [Operations Panel](../01-foundations/06-the-lungfish-projec
 
 <!-- SHOT: sidebar-after-merge -->
 
-A merge run from this dialog does more than merge, and the pane mentions it only in its Advanced Settings note. It collapses identical sequences in the output, merged reads and unmerged mates alike, into one record each. Every record is renamed `u` plus a serial number, with `;size=` and the number of reads behind it, and the records are sorted with the most common first. Every quality score is set to `I`, which decodes to Q40. The output therefore holds no pairs and no measured qualities, which is why [Choosing a tool](#choosing-a-tool) keeps it away from mapping. [Reading the results](#reading-the-results) shows what the collapse does to the record count.
+The result holds two kinds of read in one bundle. First come the merged reads, one for each joined pair, each carrying the quality scores BBMerge computed where the mates overlapped. After them come the pairs that did not join, with their own names and measured quality scores. A step you run on this bundle next works on both kinds. Orient Reads, for one, orients every read it is given, so it orients the leftover mates too, each one on its own, and drops any mate it cannot place, which leaves that mate's partner alone. To keep only the merged reads, split the result with `lungfish-cli fastq deinterleave`, which writes the reads that have no mate, the merged ones, to its `--unpaired` file. [Reading the results](#reading-the-results) shows what the merge does to the read count.
 
 ### Repairing paired-end files
 
-Repair is a rescue step, so run it only when a paired file is broken. Every operation in the window keeps pairs together, as [Which operations keep pairs](01-importing-fastq.md#which-operations-keep-pairs) sets out, so a broken file usually comes from a program outside LGE, or from a command-line filter told `--pairing single` for paired reads. In a healthy interleaved file the records run first mate, second mate, first mate, second mate, and each neighbouring pair belongs to one fragment. In a broken file one mate is missing, and every record after the gap sits beside the wrong partner. The usual symptoms are a later tool complaining that mates do not match, or an odd-numbered read count in a file that should hold pairs. Click the bundle to open the FASTQ viewport, whose summary cards [Quality Control for Reads](03-quality-control.md#reading-the-results) explains card by card. The read count is on those cards.
+Repair is a rescue step, so run it only when a paired file is broken. Every operation in the window keeps pairs together, as [Which operations keep pairs](01-importing-fastq.md#which-operations-keep-pairs) sets out, so a broken file usually comes from a program outside LGE, or from a command-line filter told `--pairing single` for paired reads. In a healthy interleaved file the records run first mate, second mate, first mate, second mate, and each neighboring pair belongs to one fragment. In a broken file one mate is missing, and every record after the gap sits beside the wrong partner. The usual symptoms are a later tool complaining that mates do not match, or an odd-numbered read count in a file that should hold pairs. Click the bundle to open the FASTQ viewport, whose summary cards [Quality Control for Reads](03-quality-control.md#reading-the-results) explains card by card. The read count is on those cards.
 
-To repair, select the bundle, choose **Tools > Read Processing > Repair Paired-End Files...**, and click Run. The pane says "No additional settings are required for paired-end repair." repair.sh matches mates by read name, writes every complete pair first, and puts reads whose partner is missing at the end.
+To repair, select the bundle, choose **Tools > Read Processing > Repair Paired-End Files…**, and click **Run**. The pane has no settings, only the Inputs and Output sections. repair.sh matches mates by read name, writes every complete pair first, and puts reads whose partner is missing at the end.
 
 ### Correcting sequencing errors
 
 A [k-mer](../../GLOSSARY.md#k-mer) is a substring of exactly k bases, the unit many read tools match on, as [Three ways to match a read](../06-classification/01-what-is-classification.md#three-ways-to-match-a-read) shows. Tadpole counts every k-mer across the whole data set. A base that turns a k-mer seen hundreds of times into one seen only once is probably an instrument mistake, and Tadpole replaces it with the base the common k-mer carries.
 
-Select the bundle, choose **Tools > Read Processing > Correct Sequencing Errors...**, leave **K-mer Size** at 50, and click Run. The output holds the same number of reads as the input, with some bases changed.
+Select the bundle, choose **Tools > Read Processing > Correct Sequencing Errors…**, leave **K-mer Size** at 50, and click **Run**. The output holds the same number of reads as the input, with some bases changed.
 
 ### Flipping and translating
 
-Reverse Complement and Translate have nothing to set. Select the bundle, choose **Tools > Read Processing > Reverse Complement All Sequences...** or **Tools > Read Processing > Translate All Sequences...**, and click Run. Translate always reads each sequence from its first base, and its pane says "Frame 1 translation is used for this operation."
+Reverse Complement and Translate have nothing to set, so their panes show only the Inputs and Output sections. Select the bundle, choose **Tools > Read Processing > Reverse Complement All Sequences…** or **Tools > Read Processing > Translate All Sequences…**, and click **Run**. Translate always reads each sequence from its first base.
 
 ### Orienting reads
 
 Orient Reads runs on the mitochondrial files, because it is built for long reads from an Oxford Nanopore instrument, which can come off either strand. It serves short amplicon reads too. The 12S matcher in [12S Amplicon Metabarcoding](../06-classification/10-twelve-s-metabarcoding.md) reads one strand only, so orient 12S amplicon reads against a 12S reference before matching them. Import `HG002.chrM.ont.fastq.gz` as a read bundle by following [Importing Sequencing Reads](01-importing-fastq.md). It holds the same 950 reads as the `barcode01` bundle from [Oxford Nanopore Runs](07-ont-runs.md), so you can use that bundle instead if you already imported it. Import `NC_012920.1.fasta` as a reference by following [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md), which is a different import path from the one for reads.
 
 1. Click the mitochondrial read bundle in the sidebar.
-2. Choose **Tools > Read Processing > Orient Reads...**.
-3. In the Inputs section, pick `NC_012920.1` from the references in your project. Until you do, the Run button stays disabled and the Readiness line says "Select a reference sequence to continue."
-4. Leave **Word Length** at 12 and **Database Mask** on dust.
-5. Click Run.
+2. Choose **Tools > Read Processing > Orient Reads…**.
+3. In the Inputs section, pick `NC_012920.1` from the references in your project. Until you do, **Run** stays disabled and the readiness line reads "Select a reference sequence to continue."
+4. Leave **Word Length** at 12 and **Database Mask** on dust, both under Primary settings.
+5. Click **Run**.
 
 <!-- SHOT: orient-reads-pane -->
 
-The dialog keeps only the reads it could place on a strand and drops the rest, and its Advanced Settings note says so. Against one very long reference record, such as the 500,001-base chromosome 20 slice, vsearch places no reads, and the run still reports success with an empty bundle. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
+Orient Reads keeps only the reads it could place on a strand and drops the rest, because LGE never asks vsearch to keep the unplaced ones. Against one very long reference record, such as the 500,001-base chromosome 20 slice, vsearch places no reads and the run still finishes with an empty bundle, a known defect listed in [Known defects in this release](../appendices/troubleshooting.md#defect-orient-long-reference).
 
 ## Settings
 
-Repair Paired-End Files, Reverse Complement, and Translate have no settings of their own. Every pane in this chapter carries Output Strategy. Orient Reads is the only pane with an Extra arguments field.
+Repair Paired-End Files, Reverse Complement, and Translate have no settings of their own, so their panes hold only the Inputs and Output sections. Every pane in this chapter carries Output Strategy. Orient Reads is the only pane with an Extra arguments field.
 
-**Output Strategy.** Chooses whether several selected bundles get one output each or one pooled output. Leave it on Per Input, the default, and see [Operation dialogs](../01-foundations/06-the-lungfish-project.md#operation-dialogs) for the two choices. This setting has no command-line flag.
+**Output Strategy.** Chooses how the results of several selected bundles are filed, offering Per Input and Grouped Result. The default is Per Input, which files each bundle's result as a bundle of its own and is right for most runs. Choose Grouped Result to keep a batch together in one folder, where each selected bundle still runs its own command and gets a sub-folder named for it, with `-2` added when two bundles share a name. This setting has no command-line flag.
 
 **Strictness.** Chooses how much evidence BBMerge needs before it joins a pair, offering Normal and Strict, where Strict turns down overlaps that look marginal. The default is Normal, which merges more pairs and is the right start when you have no reason to doubt the joins. Switch to Strict when merged reads show mismatches in the joined middle, seen as unexpected disagreement with a reference after mapping, and accept that fewer pairs will merge. On the command line this is `--strict`.
 
 **Minimum Overlap.** Sets the fewest bases the two mates must share before they may join, since a short overlap can occur by chance between unrelated sequence. The default is 12 bases, low enough to catch long fragments whose mates barely reach each other. Raise it when spurious merges produce wrong fragment lengths, and lower it only to rescue pairs that barely overlap. On the command line this is `--min-overlap`.
 
-**K-mer Size.** Sets the k-mer length Tadpole counts across the data set to tell a real base from a sequencing error. The default is 50, which suits reads of 100 bases and longer, such as this fixture's 250-base reads. Lower it for short reads or shallow data, because a k-mer longer than the read cannot be counted at all. On the command line this is `--kmer`.
+**K-mer Size.** Sets the k-mer length Tadpole counts across the data set to tell a real base from a sequencing error. The default is 50 bases, which suits reads of 100 bases and longer, such as this fixture's 250-base reads. Lower it for short reads or shallow data, because a k-mer longer than the read cannot be counted at all. On the command line this is `--kmer`.
 
-The dialog accepts any positive whole number here and shows "Enter a positive k-mer size." otherwise. The usable range is 1 to 62. A larger value starts the run, and `lungfish-cli` then stops it with the message "K-mer size must be between 1 and 62". A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it.
+The dialog accepts any positive whole number here, and otherwise the readiness line reads "Enter a positive k-mer size." The usable range is 1 to 62 bases. A larger value starts the run, and `lungfish-cli` then stops it with the message "K-mer size must be between 1 and 62". A failed run turns its row red, and [Start here, at the failed row](../appendices/troubleshooting.md#start-here-at-the-failed-row) explains what to copy from it.
 
-**Word Length.** Sets the length of the exact matching word vsearch uses to decide which strand a read came from, where longer words are more specific and slower. The default is 12 bases, short enough to find matches in nanopore reads despite their higher error rate. Shorten it when many reads come back unplaced, and lengthen it when reads land on the wrong strand, staying within the 3 to 15 that vsearch accepts. On the command line this is `--word-length`.
+**Word Length.** Sets the length of the exact matching word vsearch uses to decide which strand a read came from, where longer words are more specific and slower. The default is 12 bases, short enough to find matches in nanopore reads despite their higher error rate. Shorten it when many reads come back unplaced, and lengthen it when reads land on the wrong strand, staying within the 3 to 15 bases that vsearch accepts. On the command line this is `--word-length`.
 
 **Database Mask.** Chooses whether low-complexity stretches of the reference, such as long runs of one base, are hidden from matching, offering dust and none, where dust names the masking method. The default is dust, because a read that matches only a run of adenines says nothing about its strand. Choose none when your reference is short and masking hides the only usable match. On the command line this is `--db-mask`.
 
-**Extra arguments.** Passes text straight to vsearch without LGE checking it. The default is empty, which is right for almost every run. Use it only for a vsearch option the dialog does not show, after reading that tool's own documentation. On the command line this is `--extra-args`.
+**Extra arguments.** Passes text straight to vsearch without LGE checking what it means. The default is empty, which is right for almost every run. Use it only for a vsearch option the dialog does not show, after reading that tool's own documentation. On the command line this is `--extra-args`.
 
-The Translate pane offers no control for the [reading frame](../../GLOSSARY.md#reading-frame), which is where the reading of bases in threes begins. A sequence can be split into three-base [codons](../../GLOSSARY.md#codon) from its first base, its second, or its third, and each split gives a different protein. The dialog always uses frame 1, which starts at the first base, and the standard genetic code. If your reads are in another frame, translate them on the command line instead.
+The Translate pane offers no control for the [reading frame](../../GLOSSARY.md#reading-frame), which is where the reading of bases in threes begins. A sequence can be split into three-base [codons](../../GLOSSARY.md#codon) from its first base, its second, or its third, and each split gives a different protein. The dialog always uses frame 1, which starts at the first base, and the standard [genetic code](../../GLOSSARY.md#genetic-code). If your reads are in another frame, translate them on the command line instead.
 
 ## Reading the results
 
@@ -174,25 +173,25 @@ LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every resu
 
 ### The merge report
 
-On this fixture BBMerge saw 45,574 pairs and joined 32,031 of them, which it reports as 70.283 percent. The 13,543 pairs it could not join appear on a line labelled "No Solution", the tool's wording for finding no overlap it believed in. Its estimate of the average insert was 371.5 bases, with a standard deviation of 63.9 and joined inserts from 64 to 482 bases. The standard deviation is a measure of spread, and a value near a sixth of the average is a tight distribution for randomly broken DNA.
+On this fixture BBMerge saw 45,574 read pairs and joined 32,031 of them, which it reports as 70.283 percent. The 13,543 pairs it could not join appear on a line labeled "No Solution", the tool's wording for finding no overlap it believed in. Its estimate of the average insert was 371.5 bases, with a standard deviation of 63.9 bases and joined inserts from 64 to 482 bases. The standard deviation is a measure of spread, and a value near a sixth of the average is a tight distribution for randomly broken DNA.
 
 The numbers explain each other. Two 250-base reads span 500 bases, so a 371-base fragment leaves about 129 bases read twice. The pairs that failed are mostly the long tail of the distribution, fragments near or above 500 bases whose mates never met. The longest joined insert, 482 bases, sits just under that ceiling, because no longer fragment can be measured by overlap at all.
 
-Merging keeps every read, and the record count shows it. The 32,031 joined pairs became one record each. The 13,543 unjoined pairs kept both mates, contributing 27,086 records. Together that is 59,117 reads, and none was thrown away. Because the dialog also collapses identical sequences, its output holds 58,915 records that between them stand for the same 59,117 reads, and a record that stands for three reads carries `size=3` in its name. The unjoined mates in that output are single records like the rest, no longer next to their partners, and every base reads Q40.
+Merging keeps every read, and the read count shows it. The 32,031 joined pairs became one merged read each. The 13,543 unjoined pairs kept both mates, contributing 27,086 reads. Together the result holds 59,117 reads, the merged reads first and the pairs after them, and none was thrown away. The merged reads carry BBMerge's scores for the overlap, and the mates that did not join keep their own names and scores.
 
-A record longer than 250 bases, the longest input read, can only be a joined pair.
+A read longer than 250 bases, the longest input read, can only be a joined pair.
 
 ### The other reports
 
-Tadpole reports errors and reads separately, and the two kinds of number should not be added. On this fixture it read 91,148 reads and wrote 91,148 reads, having counted 1,485,830 distinct k-mers. It detected 122,406 errors and corrected 42,033 of them. The gap is Tadpole declining to change a base when the evidence for a replacement was thin, which is the behaviour you want. By read, it found at least one suspect base in 30,929 reads, 33.93 percent of the data set. It fully corrected 24,219 of those and partly corrected 935, and left the other 5,775 alone. On this run 4,121 of those were rollbacks, meaning Tadpole undid a correction it had started.
+Tadpole reports errors and reads separately, and the two kinds of number should not be added. On this fixture it read 91,148 reads and wrote 91,148 reads, having counted 1,485,830 distinct k-mers. It detected 122,406 errors and corrected 42,033 of them. The gap is Tadpole declining to change a base when the evidence for a replacement was thin, which is the behavior you want. By read, it found at least one suspect base in 30,929 reads, 33.93 percent of the data set. It fully corrected 24,219 of those reads, partly corrected 935 reads, and left the other 5,775 reads alone. Of those 5,775 reads, 4,121 reads were rollbacks, meaning Tadpole undid a correction it had started.
 
-Repair reports the same way. The next numbers come from a copy of this fixture with 228 mates removed on purpose, a demonstration rather than a step to repeat. On that copy repair.sh read 90,920 records and wrote 90,920, of which 90,692 were paired and 228 were [singletons](../../GLOSSARY.md#singleton-read), reads whose partner no longer exists. Both groups go into the one output, pairs first, so no read is lost.
+Repair reports the same way. The next numbers come from a copy of this fixture with 228 mates removed on purpose, a demonstration rather than a step to repeat. On that copy repair.sh read 90,920 records and wrote 90,920 records, of which 90,692 reads were paired and 228 reads were [singletons](../../GLOSSARY.md#singleton-read), reads whose partner no longer exists. Both groups go into the one output, pairs first, so no read is lost.
 
-Orient Reads reports the split between strands. Of the 950 mitochondrial reads that went in, vsearch placed 439 on the forward strand and 488 on the reverse strand, which it flipped. That is 927 oriented, 97.58 percent, with 23 left unplaced. Because the dialog drops unplaced reads, the output holds 927 records, and the gap from 950 is what was dropped.
+Orient Reads reports the split between strands. Of the 950 mitochondrial reads that went in, vsearch placed 439 reads on the forward strand and 488 reads on the reverse strand, which it flipped. That is 927 reads oriented, 97.58 percent, with 23 reads left unplaced. Because Orient Reads drops unplaced reads, the output holds 927 reads, and the gap from 950 reads is what was dropped.
 
-Reverse Complement and Translate change every record and drop none. Reverse-complementing this fixture's R1 file gave 45,574 records from 45,574 reads, with each quality string reversed alongside its sequence, so every base keeps the score it was measured with. Translating the same file gave 45,574 protein sequences, most of them 83 amino acids long, which is 250 bases divided by three with one base left over. Shorter reads give shorter proteins, and on this fixture the lengths run from 16 to 83.
+Reverse Complement changes every record and drops none. Reverse-complementing this fixture's R1 file gave 45,574 records from 45,574 reads, with each quality string reversed alongside its sequence, so every base keeps the score it was measured with. Translating the same file gave 45,574 protein sequences, most of them 83 amino acids long, which is 250 bases divided by three with one base left over. Shorter reads give shorter proteins, and on this fixture the lengths run from 16 to 83 amino acids. Translate skips only a read too short to hold one codon, and this fixture has none.
 
-Translate's output opens as a sequence bundle rather than a read bundle, because it holds protein FASTA. Click it in the sidebar to open it in the sequence viewport. Each record keeps the read's original name with the frame and code appended, as in `_frame+1 [Standard] [83 aa]`, where Standard names the genetic code that applies to nuclear genes in most organisms.
+Translate's output opens as a sequence bundle rather than a read bundle, because it holds protein FASTA. Click it in the sidebar to open it in the sequence viewport. Each protein keeps its read's name with the frame added, then the genetic code and the length, as in `_frame+1 [Standard] [83 aa]`, where Standard names the genetic code that applies to nuclear genes in most organisms. When the two mates of a pair share one name, as they do in the interleaved HG002 bundle, the first mate's protein adds `.1` right after the name and the second mate's adds `.2`, so every protein name is unique. A single-end file such as the R1 file, mates already named apart with `/1` and `/2`, and long-read bundles keep their names unchanged.
 
 ## What good looks like
 
@@ -200,13 +199,13 @@ Check the merge rate first. A rate near 70 percent, as here, means the insert si
 
 Check the insert estimate next. The average BBMerge prints describes only the pairs that joined, so it leaves out every fragment too long to overlap. The library's true average is higher. The gap is modest at a 70 percent merge rate and large at 20 percent.
 
-Check the read count on every operation. Merge, Repair, Reverse Complement, Translate, and Correct Sequencing Errors account for every input read, so a shortfall there means something failed. Orient Reads is the one operation here that discards reads on purpose, so compare its output count with its input count after every run. If it lost more than you can accept, shorten the word length and run it again.
+Check the read count on every operation. Repair, Reverse Complement, Translate, and Correct Sequencing Errors write one record for every read they read. Merge writes one read for each joined pair and both mates of every other pair, so twice the merged reads plus the paired reads gives back the input count, as 2 times 32,031 plus 27,086 gives 91,148 reads here. A shortfall in any of these means something failed. Orient Reads is the one operation here that discards reads on purpose, so compare its output count with its input count after every run. If it lost more than you can accept, shorten the word length and run it again.
 
-Finally, check that error correction was worth running. It relies on seeing each true base many times and each error once, so it needs depth. [Depth](../../GLOSSARY.md#depth) is the number of reads covering one position. With only a handful of reads over each position, Tadpole cannot tell a rare real variant from a mistake and may erase real variants, so skip the operation rather than tune it. A FASTQ file alone does not tell you the depth, so this check waits until you have mapped the reads, the subject of the next part of this manual. The Inspector's Est. Coverage is an estimate built on an assumed read length, so trust the measured mean depth instead, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) explains. This fixture's measured mean depth is 44.7x, comfortably enough.
+Finally, check that error correction was worth running. It relies on seeing each true base many times and each error once, so it needs depth. [Depth](../../GLOSSARY.md#depth) is the number of reads covering one position. With only a handful of reads over each position, Tadpole cannot tell a rare real variant from a mistake and may erase real variants, so skip the operation rather than tune it. A FASTQ file alone does not tell you the depth, so this check waits until you have mapped the reads, the subject of the next part of this manual. The Inspector then shows the measured Mean Depth of the alignment, as [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) explains. This fixture's measured mean depth is 44.7x, comfortably enough.
 
 ## On the command line
 
-The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Read processing](../appendices/cli-reference.md#read-processing) in the CLI Reference lists every flag of these commands. To see any run from this chapter as a command, right-click its row and choose Copy CLI Command, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes.
+The block follows the convention in [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block), and [Read processing](../appendices/cli-reference.md#read-processing) in the CLI Reference lists every flag of these commands. Each run from the window runs one of these commands. To see any run from this chapter as a command, right-click its row and choose **Copy CLI Command**, as [The Operations Panel](../01-foundations/06-the-lungfish-project.md#the-operations-panel) describes.
 
 The block reproduces the procedure on the Human Reads demo project. Merge and repair need one interleaved file, which the bundle already holds, and the two mate files under `Practice Data` show the interleave step. Each command writes its output file where you name it. A backslash at the end of a line means the command continues on the next line.
 
@@ -221,7 +220,7 @@ lungfish-cli fastq interleave \
   --output "$HOME/Desktop/HG002.interleaved.fastq"
 
 lungfish-cli fastq merge "$READS" \
-  --min-overlap 12 --count-duplicates --output "$HOME/Desktop/HG002.merged.fastq"
+  --min-overlap 12 --output "$HOME/Desktop/HG002.merged.fastq"
 
 lungfish-cli fastq repair "$READS" \
   --output "$HOME/Desktop/HG002.repaired.fastq"
@@ -243,9 +242,9 @@ lungfish-cli fastq deinterleave "$HOME/Desktop/HG002.interleaved.fastq" \
   --out1 "$HOME/Desktop/HG002.R1.fastq" --out2 "$HOME/Desktop/HG002.R2.fastq"
 ```
 
-Two command-line defaults differ from the window. The dialog always passes `--count-duplicates` to `fastq merge`, and the command leaves it off unless you add it, so a plain command-line merge of this fixture writes 59,117 records where the dialog writes 58,915. Without `--count-duplicates` the command keeps real quality scores and the original read names, and writes merged reads and unmerged pairs into one mixed file. The dialog always translates in frame 1, while `fastq translate` accepts `--frame` from 1 to 6, where 4 to 6 are the three frames of the [reverse complement](../../GLOSSARY.md#reverse-complement), so other frames are a command-line task.
+`fastq merge` writes what the window writes, the merged reads followed by the pairs that did not merge, 59,117 reads on this fixture. Its `--count-duplicates` option, which the window never passes, collapses identical sequences into one record each, named `u<number>;size=<reads>`, writes Q40 placeholder scores rather than measured ones, and leaves the unmerged mates without their pairing, so use it only to count distinct sequences and never before mapping. The window always translates in frame 1, while `fastq translate` accepts `--frame` from 1 to 6, where 4 to 6 are the three frames of the [reverse complement](../../GLOSSARY.md#reverse-complement), and `--table` for another genetic code, so other frames and codes are a command-line task.
 
-`fastq interleave` rewrites every base scored Phred 2 as Phred 0, which understates the lowest quality scores in the file it writes. This is a known defect, listed with its workaround in [Known defects in this release](../appendices/troubleshooting.md#known-defects-in-this-release).
+Of the commands in this block, only `fastq merge` accepts `--compress`, which writes its output gzip-compressed. The others write plain text and stop with an error when given `--compress`, so leave it out of any script that runs them. `fastq interleave` writes a quality of 0 for every `N` base and raises a quality of 0 or 1 on any other base to 2, a known defect listed in [Known defects in this release](../appendices/troubleshooting.md#defect-interleave-q2).
 
 ## Next
 
