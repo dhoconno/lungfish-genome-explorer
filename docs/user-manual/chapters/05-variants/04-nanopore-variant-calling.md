@@ -101,7 +101,7 @@ Click **Medaka**. The right pane shows **Overview**, **Thresholds**, **Medaka se
 
 <!-- SHOT: call-variants-dialog-medaka -->
 
-Click **Clair3**. Its section holds a **Sequencing Platform** menu, which starts on "Automatic (from read groups)" and reads the platform the mapping recorded, and a `Clair3 Model` field whose grey placeholder reads "Platform default". The two model fields are one stored setting under two labels. Type a Medaka model name, click **Clair3**, and the name is still there. Read the field every time you switch callers.
+Click **Clair3**. Its section holds a **Sequencing Platform** menu, which starts on "Automatic (from read groups)" and reads the platform the mapping recorded, and a `Clair3 Model` field whose gray placeholder reads "Platform default". The two model fields are one stored setting under two labels. Type a Medaka model name, click **Clair3**, and the name is still there. Read the field every time you switch callers.
 
 The Thresholds fields filter every caller's output, as [Read the dialog before you change anything](01-calling-variants-from-amplicons.md#read-the-dialog-before-you-change-anything) explains. For these two callers LGE removes rows whose allele frequency or depth falls below the fields after the caller runs.
 

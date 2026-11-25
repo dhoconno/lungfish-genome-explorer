@@ -114,7 +114,7 @@ A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logari
 
 **Minimum quality.** Sets the quality floor for the sliding-window quality trim iVar runs alongside primer removal. The default is 20. Raise it toward 30 when the run's quality was high and you want only very confident bases in the pileup. On the command line this is `--ivar-min-quality`.
 
-**Sliding window width.** Sets how many neighbouring bases iVar averages as it walks in from each read end, cutting where the average quality in that window first falls below the minimum. The default is 4, wide enough that one bad base does not cut an otherwise good read short. Widen it only for long reads whose quality drifts down slowly. On the command line this is `--ivar-sliding-window`.
+**Sliding window width.** Sets how many neighboring bases iVar averages as it walks in from each read end, cutting where the average quality in that window first falls below the minimum. The default is 4, wide enough that one bad base does not cut an otherwise good read short. Widen it only for long reads whose quality drifts down slowly. On the command line this is `--ivar-sliding-window`.
 
 **Primer offset.** Shifts every primer coordinate by this many bases before trimming, to correct a scheme whose coordinates are consistently displaced from your reference. The default is 0, right whenever the scheme and the alignment agree, which is the normal case. Use it only once you have shown that a trusted scheme's coordinates are off by a fixed amount, which first shows up as a low trim rate. On the command line this is `--ivar-primer-offset`.
 

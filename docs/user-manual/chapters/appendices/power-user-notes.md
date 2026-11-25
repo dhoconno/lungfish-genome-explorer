@@ -25,11 +25,11 @@ Every command here was read from the LGE source that builds it and checked again
 
 When this page and a run's own sidecar disagree, the sidecar wins, because it records what happened. It can still mislead where it records a setting that no code read, such as the iVar merge threshold under [Codon merging](#codon-merging), or where a [known defect](troubleshooting.md#known-defects-in-this-release) changes what a record holds, such as [one GATK run's record replacing another's](troubleshooting.md#defect-gatk-provenance-overwrite).
 
-The argument lists are shown in grey blocks with file paths shortened, because the real paths point into a scratch folder, a temporary folder for work files, that LGE creates and removes for you. None of these blocks is a step to type, and a backslash ending a line means the command continues on the next. The values shown are what LGE passes at its default settings, except thread counts such as `8`, which follow your Mac or your choice, and the examples noted under [Assembly](#assembly). The tool versions are those of [dependency set](../../GLOSSARY.md#dependency-set) `2026.2`, which [Tool Versions](tool-versions.md) lists.
+The argument lists are shown in gray blocks with file paths shortened, because the real paths point into a scratch folder, a temporary folder for work files, that LGE creates and removes for you. None of these blocks is a step to type, and a backslash ending a line means the command continues on the next. The values shown are what LGE passes at its default settings, except thread counts such as `8`, which follow your Mac or your choice, and the examples noted under [Assembly](#assembly). The tool versions are those of [dependency set](../../GLOSSARY.md#dependency-set) `2026.2`, which [Tool Versions](tool-versions.md) lists.
 
 ## Before you type anything
 
-The commands in the grey blocks below are for reading, not typing. The few you might type, in the later sections, are `lungfish-cli conda run`, `conda lock`, `bundle export`, and `storage dedupe`, typed in [Terminal](../../GLOSSARY.md#terminal), and [Finding the program](cli-reference.md#finding-the-program) shows how to run the `lungfish-cli` program that ships inside LGE.
+The commands in the gray blocks below are for reading, not typing. The few you might type, in the later sections, are `lungfish-cli conda run`, `conda lock`, `bundle export`, and `storage dedupe`, typed in [Terminal](../../GLOSSARY.md#terminal), and [Finding the program](cli-reference.md#finding-the-program) shows how to run the `lungfish-cli` program that ships inside LGE.
 
 ## Reproducibility caveats at a glance
 

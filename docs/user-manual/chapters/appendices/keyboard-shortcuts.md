@@ -21,7 +21,7 @@ lead_approved: false
 
 This appendix covers every keyboard shortcut in Lungfish Genome Explorer (LGE) on macOS and where Escape acts, and nothing else. A keyboard shortcut is a combination of keys that runs a command without going to the menu bar. macOS calls the letter or symbol at the end of that combination the [key equivalent](../../GLOSSARY.md#key-equivalent), and every Shortcut column in this appendix prints the modifiers first and that key equivalent last.
 
-The keys you hold down first are [modifier keys](../../GLOSSARY.md#modifier-key), and LGE uses four of them. Cmd is the Command key beside the space bar. Opt is the Option key next to it, labelled Alt on some keyboards. Shift is the key you already use for capital letters. Ctrl is the Control key near the left end of the bottom row, sitting just to the right of fn.
+The keys you hold down first are [modifier keys](../../GLOSSARY.md#modifier-key), and LGE uses four of them. Cmd is the Command key beside the space bar. Opt is the Option key next to it, labeled Alt on some keyboards. Shift is the key you already use for capital letters. Ctrl is the Control key near the left end of the bottom row, sitting just to the right of fn.
 
 Every row below comes from LGE's own menu and view definitions. The menu bar is the fastest check you can run yourself, because macOS prints the shortcut on the right-hand side of every menu row that has one.
 
