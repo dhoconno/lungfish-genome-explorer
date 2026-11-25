@@ -98,6 +98,51 @@ final class FASTQDrawerCloseSheetOKClosesWindowTests: XCTestCase {
         try await assertOneOKClosesTheWindow(typing: .ended, removal: .none)
     }
 
+    /// CS-c, and UX-CSA-R17 section 3 item 6: Quit's path never reads the close sheet's mark.
+    func testQuitStillAsksWhileTheCloseSheetShows() async throws {
+        let scene = try await sceneWithAnEditThatCannotBeSaved(typing: .ended)
+        let timeline = CloseTimeline()
+        let stopWatching = watch(scene, into: timeline)
+        defer { stopWatching() }
+        scene.window.performClose(nil)
+        XCTAssertEqual(timeline.closeSheets.count, 1)
+        XCTAssertTrue(scene.viewer.fastqDrawerEditReportedByCloseSheet, "Precondition: the close sheet's mark is up")
+        var asked: [[UnkeptFASTQDrawerEdit]] = []
+        FASTQDrawerEditQuitConfirmation.testingSheetAnswer = { _, unkept in asked.append(unkept); return false }
+        defer { FASTQDrawerEditQuitConfirmation.testingSheetAnswer = nil }
+        var replies: [Bool] = []
+        XCTAssertEqual(scene.delegate.testingApplicationShouldTerminate { replies.append($0) }, .terminateLater,
+                       "Quit went on over an edit the close sheet had reported")
+        _ = await waitUntil(budget: WaitBudget.standard) { !replies.isEmpty }
+        XCTAssertEqual(asked.count, 1, "Quit did not ask while the close sheet showed")
+        XCTAssertEqual(replies, [false])
+    }
+
+    /// The mark ends with a close that did not go on, so a second edit is warned of again.
+    func testASecondEditAfterACloseThatDidNotGoOnStillGetsTheSelectSheet() async throws {
+        let scene = try await sceneWithAnEditThatCannotBeSaved(typing: .ended)
+        let timeline = CloseTimeline()
+        let stopWatching = watch(scene, into: timeline)
+        defer { stopWatching() }
+        scene.window.performClose(nil)
+        let sheet = try XCTUnwrap(timeline.closeSheets.first)
+        // Another sheet queues behind the close sheet and attaches when it ends, so the OK hook's performClose leaves the window open.
+        let other = NSAlert()
+        other.messageText = "Another sheet"
+        other.beginSheetModal(for: scene.window)
+        sheet.buttons[0].performClick(nil)
+        _ = await waitUntil(budget: WaitBudget.standard) { timeline.hookEnded }
+        XCTAssertTrue(scene.window.isVisible, "Precondition: the close did not go on")
+        XCTAssertFalse(scene.viewer.fastqDrawerEditReportedByCloseSheet, "a close that did not go on left the mark up")
+        while let attached = scene.window.attachedSheet { scene.window.endSheet(attached) }
+        let drawer = try XCTUnwrap(scene.viewer.fastqMetadataDrawerView)
+        let table = try XCTUnwrap(Self.tables(in: drawer).first { $0.tableColumn(withIdentifier: .init("sampleName")) != nil })
+        let column = try XCTUnwrap(table.tableColumn(withIdentifier: .init("sampleName")))
+        drawer.tableView(table, setObjectValue: "CS-second-edit", for: column, row: 0)
+        scene.viewer.clearSurface(ifShowing: .bundle(.fastq))
+        XCTAssertEqual(timeline.selectSheets.count, 1, "the second edit was dropped with no sheet")
+    }
+
     private enum Removal { case none, whileTheSheetShows, beforeTheOKHookRuns }
 
     private func assertOneOKClosesTheWindow(
