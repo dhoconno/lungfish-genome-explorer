@@ -3,14 +3,14 @@ title: CLI Reference
 chapter_id: appendices/cli-reference
 audience: power-user
 prereqs: []
-estimated_reading_min: 152
+estimated_reading_min: 185
 task: Look up the syntax and flags for any Lungfish Genome Explorer command-line operation.
 tags: [reference, cli, command-line, scripting]
 tools: []
 entry_points: []
 shots: []
 illustrations: []
-glossary_refs: [command-line-flag, exit-status, json, positional-argument, provenance-sidecar, subcommand, switch]
+glossary_refs: [bed, command-line-flag, derived-bundle, exit-status, json, k-mer, mapping-quality, negative-control, positional-argument, provenance-sidecar, quality-binning, subcommand, switch, umi, virtual-bundle]
 features_refs: []
 fixtures_refs: [hbb-gene, human-mito]
 brand_reviewed: false
@@ -59,7 +59,7 @@ For the Preview app, the line names the Preview folder instead.
 export PATH="/Applications/Lungfish Preview.app/Contents/MacOS:$PATH"
 ```
 
-The quotation marks matter, because a folder name such as "Lungfish Preview.app" contains a space that would otherwise split the path in two. Run the line again in each new Terminal window. Every example in this appendix then writes the bare name `lungfish-cli`. To skip the `PATH` step, type the full path in place of the bare name, quoted the same way, such as `"/Applications/Lungfish.app/Contents/MacOS/lungfish-cli"`. A developer build of LGE, named `Lungfish Debug.app`, carries its own copy of the program and uses `~/.lungfish-debug`. Readers who build LGE from source find the program at `.build/debug/lungfish-cli` inside the source folder.
+The quotation marks matter, because a folder name such as "Lungfish Preview.app" contains a space that would otherwise split the path in two. Run the line again in each new Terminal window. Every example in this appendix then writes the bare name `lungfish-cli`. To skip the `PATH` step, type the full path in place of the bare name, quoted the same way, such as `"/Applications/Lungfish.app/Contents/MacOS/lungfish-cli"`. A symbolic link to `lungfish-cli`, a small file that points at the real program, also works when you place it in a folder that is already on your `PATH`, and `taxtriage run` and the other Nextflow workflows still find their tool lock through it. A developer build of LGE, named `Lungfish Debug.app`, carries its own copy of the program and uses `~/.lungfish-debug`. Readers who build LGE from source find the program at `.build/debug/lungfish-cli` inside the source folder.
 
 `lungfish-cli --version` prints the release number of the copy you are running. It should match the release named on the manual's home page.
 
@@ -102,6 +102,7 @@ Every command hands back an [exit status](../../GLOSSARY.md#exit-status), the nu
 | 10 | Work is pending (`tools update --plan` only). |
 | 11 | A label contradicts its reads (`fastq platform --check` only). |
 | 64 | Workflow error. A command line the program cannot parse, such as one missing a required flag, also returns 64. |
+| 75 | A BLAST search is still waiting at NCBI (`blast submit --park` and `blast resume --once` only). |
 | 65 | Container error. `debug container` returns it when the Docker background service cannot be reached. |
 | 66 | Network error. |
 | 124 | Timed out. |
@@ -133,11 +134,13 @@ These flags work on every command. Type them before or after the subcommand.
 
 A few commands have a thread count default of their own. They read `-t, --threads` from the global option like every other command and use their own default when you leave it out. For example, `lungfish-cli fastq entropy-filter reads.fastq -o out.fastq` runs bbduk with 4 threads, and adding `--threads 2` runs it with 2. Their entries below give each default. Several commands, among them `conda packs`, `ops stats`, `workflow list`, and `version`, ignore `--format json` and print ordinary text. That is a known defect, listed with its workaround in [Known defects in this release](troubleshooting.md#known-defects-in-this-release).
 
+No analysis step stops at a fixed time. Eight commands take `--time-limit <minutes>`, which stops any analysis step that runs longer than that many minutes, and without it the run has no time limit. They are `align mafft`, `assemble`, `extract reads`, `kraken2 classify` (and its older spelling `conda classify`), `map`, `variants call`, `variants phase`, and `fastq scrub-human`.
+
 For a run you intend to reproduce exactly, pin `--threads` to a fixed number. Several wrapped tools give slightly different numbers at different thread counts, so two runs can disagree in the last decimal place without either being wrong.
 
 ## Command index
 
-The program has 46 top-level commands. Each row names the section that lists its subcommands and flags, and the chapter that teaches the operation in the window, where one does.
+The program has 47 top-level commands. Each row names the section that lists its subcommands and flags, and the chapter that teaches the operation in the window, where one does.
 
 | Command | What it is for | Section | Chapter |
 |---|---|---|---|
@@ -145,18 +148,18 @@ The program has 46 top-level commands. Each row names the section that lists its
 | `analyze` | Sequence statistics, composition, and file validation. | [Sequence utilities](#sequence-utilities) | None |
 | `assemble` | De novo assembly with SPAdes, MEGAHIT, SKESA, Flye, or hifiasm. | [Assembly](#assembly) | [When to Assemble](../07-assembly/01-when-to-assemble.md) |
 | `bam` | Filter, trim, annotate, and adopt alignment tracks inside a bundle. | [Mapping and alignment tracks](#mapping-and-alignment-tracks) | [Alignment Quality](../04-alignments/04-alignment-quality.md) |
-| `blast` | Check a classification against NCBI BLAST. | [Classification](#classification) | [BLAST Verification](../06-classification/06-blast-verification.md) |
+| `blast` | Send sequences to NCBI BLAST, follow a waiting search, check a classification, and export a hit table. | [Classification](#classification) | [BLAST Verification](../06-classification/06-blast-verification.md) |
 | `build-db` | Build the database a classifier result viewer reads. | [Classification](#classification) | None |
-| `bundle` | Create, inspect, validate, copy, and mark duplicates in reference bundles. | [Reference bundles](#reference-bundles) | [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md) |
+| `bundle` | Create, inspect, validate, merge, export, and mark duplicates in reference bundles. | [Reference bundles](#reference-bundles) | [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md) |
 | `conda` | Plugin packs, managed environments, Kraken 2 databases, and the older spelling of `kraken2 classify`. | [Tool packs, databases, and managed tools](#tool-packs-databases-and-managed-tools) and [Classification](#classification) | [Plugin Packs](../01-foundations/07-plugin-packs.md) |
 | `convert` | Convert a sequence file between formats. | [Sequence utilities](#sequence-utilities) | None |
 | `cz-id` | Summarize or convert a CZ ID taxon report. | [Classification](#classification) | [Importing CZ ID Results](../06-classification/08-importing-cz-id-results.md) |
 | `debug` | Environment, container, and log diagnostics. | [Diagnostics](#diagnostics) | [Plugin Packs](../01-foundations/07-plugin-packs.md) |
 | `demo` | List, describe, and download the manual's demo projects. | [Demo projects](#demo-projects) | [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md) |
 | `esviritu` | Run EsViritu and manage its database. | [Classification](#classification) | [Running EsViritu](../06-classification/03-running-esviritu.md) |
-| `extract` | Pull out subsequences, reads, or contigs. | [Sequence utilities](#sequence-utilities), [Read processing](#read-processing), [Assembly](#assembly) | [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md) |
+| `extract` | Pull out subsequences, reads, contigs, or the reads of a Kraken 2 taxa collection. | [Sequence utilities](#sequence-utilities), [Read processing](#read-processing), [Assembly](#assembly) | [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md) |
 | `fastq` | Read processing, platform labels, demultiplexing, genotyping, and 12S matching. | [Read processing](#read-processing) and the sections after it | [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md) and the other Reads chapters |
-| `fetch` | Download from NCBI, the SRA, and ENA. | [Downloading records](#downloading-records) | [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) |
+| `fetch` | Download from NCBI, the SRA, ENA, and Pathoplexus. | [Downloading records](#downloading-records) | [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md) |
 | `freyja` | Build and run a Freyja lineage demixing plan. | [Classification](#classification) | [Running Freyja](../06-classification/07-running-freyja.md) |
 | `gatk` | Build or run GATK4 germline commands. | [Human Germline Variants (Experimental)](#human-germline-variants-experimental) | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) |
 | `genotype` | Inspect, annotate, and export genotype result bundles. | [MHC genotyping](#mhc-genotyping) | [Exporting Genotypes](../09-genotyping/04-haplotype-definitions-and-export.md) |
@@ -173,8 +176,9 @@ The program has 46 top-level commands. Each row names the section that lists its
 | `ops` | Summarize runtime and peak memory from provenance. | [Projects, provenance, and run history](#projects-provenance-and-run-history) | [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md) |
 | `orient` | Orient reads against a reference with vsearch. | [Read processing](#read-processing) | [Read Processing](../03-reads/08-read-processing.md) |
 | `primers` | Import primer schemes, design primers, and export orders. | [Primer schemes and primer design](#primer-schemes-and-primer-design) | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) |
-| `project` | Lock, unlock, and migrate a shared project. | [Projects, provenance, and run history](#projects-provenance-and-run-history) | [Shared Projects and Bundle Migration](shared-projects.md) |
+| `project` | Lock and unlock a shared project, check its bundles, and copy an item into another project. | [Projects, provenance, and run history](#projects-provenance-and-run-history) | [Shared Projects and Bundle Migration](shared-projects.md) |
 | `provenance` | Print citations, export scripts, and verify signatures. | [Projects, provenance, and run history](#projects-provenance-and-run-history) | [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md) |
+| `rnaseq` | Build RNA-seq reference sets, count bulk and single-cell reads, export counts, and make cell maps. | [RNA-seq](#rna-seq) | [What Is RNA-seq](../11-rna-seq/01-what-is-rna-seq.md) |
 | `run-headless` | Run a workflow quietly. | [Workflows](#workflows) | [Running External Workflows](../08-workflows/03-running-external-workflows.md) |
 | `search` | Find a pattern in a FASTA and write BED. | [Sequence utilities](#sequence-utilities) | None |
 | `sequence` | Find ORFs and edit annotation tracks in a bundle. | [Reference bundles](#reference-bundles) | [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md) |
@@ -184,7 +188,7 @@ The program has 46 top-level commands. Each row names the section that lists its
 | `translate` | Translate a nucleotide FASTA to protein. | [Sequence utilities](#sequence-utilities) | [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) |
 | `tree` | Infer and transform tree bundles. | [Multiple sequence alignments and trees](#multiple-sequence-alignments-and-trees) | [Building Trees](../02-sequences/05-building-trees.md) |
 | `universal-search` | Search one project's datasets and results. | [Sequence utilities](#sequence-utilities) | [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#searching-the-project) |
-| `variants` | Call, phase, and query variants on a bundle. | [Calling variants](#calling-variants) | [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) |
+| `variants` | Call, phase, query, delete, and export variants on a bundle. | [Calling variants](#calling-variants) | [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) |
 | `version` | Print the version and the tool table. | [Diagnostics](#diagnostics) | [Tool Versions](tool-versions.md) |
 | `workflow` | Run, list, and validate workflows. | [Workflows](#workflows) | [Running External Workflows](../08-workflows/03-running-external-workflows.md) |
 
@@ -208,6 +212,8 @@ lungfish-cli fetch ncbi [<options>] <accessions> ...
 
 Without `--api-key`, the command uses the key in the `NCBI_API_KEY` [environment variable](../../GLOSSARY.md#environment-variable) when one is set.
 
+With `--bundle`, each accession becomes a `.lungfishref` bundle in `--output-dir`, built as the app's NCBI browser builds a nucleotide or virus record, and its one sequence is named by the accession with its version. With `--format json` the command prints event lines on standard output and its text on standard error. Without `--bundle`, `--format json` needs `--save-to`, because the records would otherwise share standard output with the events. SIGTERM stops the run, removes the bundle it was building and exits 125.
+
 | Argument or flag | What it does |
 |---|---|
 | `<accessions>` | Accession number(s). |
@@ -216,6 +222,9 @@ Without `--api-key`, the command uses the key in the `NCBI_API_KEY` [environment
 | `--save-to <save-to>` | Output file path. |
 | `--api-key <api-key>` | NCBI API key for higher rate limits. |
 | `--no-retry` | Do not retry HTTP 429 rate-limit responses. |
+| `--bundle` | Builds a `.lungfishref` bundle for each accession instead of saving one file. |
+| `--output-dir <output-dir>` | With `--bundle`, the folder for the bundles. The default is the current folder. |
+| `--no-gff3` | With `--bundle`, fetches no GFF3 and takes the annotations from the GenBank record. |
 
 ### `fetch search`
 
@@ -254,8 +263,10 @@ lungfish-cli fetch sra search <query> [--limit <limit>] [--api-key <api-key>]
 Downloads a run's FASTQ files. LGE asks ENA first by default, so the SRA Toolkit is needed only when ENA fails or you add `--prefer-source ncbi` or `--use-toolkit`. Explained in [Downloading Reads from the SRA](../03-reads/02-downloading-from-sra.md).
 
 ```text
-lungfish-cli fetch sra download <accession> [--output-dir <output-dir>] [--use-toolkit] [--prefer-source <source>]
+lungfish-cli fetch sra download [<options>] <accession>
 ```
+
+With `--bundle` and `--project`, the run is downloaded, imported into a `.lungfishfastq` bundle with the import flags below, and published into `<project>/Imports/` by one rename, with a provenance record, as the app's SRA row does. SIGTERM then removes what the run staged and exits 125. The import flags take the values and defaults of the same flags of [`import fastq`](#import-fastq), `--quality-binning` included. Without `--bundle` the command writes plain FASTQ files, as the next two paragraphs describe.
 
 The command takes one run accession, `SRR`, `ERR`, or `DRR` followed by digits, in capitals. It refuses an experiment or study accession, which ENA would answer with one of its runs, and a lower-case accession, with exit status 64. If any part of the ENA download fails, including a file that turns out to be a web page, empty, not gzip, or a different size or MD5 checksum from the ones ENA lists, the command retries the whole run through the NCBI SRA Toolkit (`prefetch`, then `fasterq-dump --split-3`) and prints a line naming the run and ENA's reason, such as "ENA could not serve SRR1, so the SRA Toolkit (prefetch + fasterq-dump) fetches it instead. ENA returned HTTP 500 (server error) for SRR1". The toolkit also fetches the run when ENA's record lists only one mate of a run it calls paired, and when ENA answers with the record of a different run. `--prefer-source ncbi` reverses the order. The toolkit runs first, and ENA serves the run only when the toolkit is not installed or fails. `--use-toolkit` fetches with the toolkit only, with no fallback to ENA, and cannot be combined with `--prefer-source`. ENA's files arrive compressed, as `<run>_1.fastq.gz` and `<run>_2.fastq.gz` or `<run>.fastq.gz` for single-end reads. The toolkit writes the same names uncompressed, ending `.fastq`. Either way the command also writes one `.lungfish-provenance.json` for the download. A third file named after the run alone, beside the two mates of a paired run, holds the reads whose mate is missing, and the command keeps it. That record's `requestedStrategy` reads `ena-direct`, `sra-toolkit-first`, or `sra-toolkit`, and its `selectedStrategy` reads `ena-direct`, `sra-toolkit`, `sra-toolkit-fallback`, or `ena-fallback`. Its `preferredSource` reads `ena` or `ncbi`, or null under `--use-toolkit`. The window's SRA download writes a bundle into the project instead.
 
@@ -266,7 +277,18 @@ ENA's files go into a hidden `.lungfish-ena-` folder inside the output folder fi
 | `<accession>` | SRA run accession (for example, SRR11140748). |
 | `--output-dir <output-dir>` | Output directory for FASTQ files. The default is `.`. |
 | `--use-toolkit` | Fetch with the SRA Toolkit only, with no fallback to ENA (requires prefetch/fasterq-dump). |
-| `--prefer-source <source>` | Archive to try first, `ena` (the default) or `ncbi`. When the preferred source fails, the other one is tried. |
+| `--prefer-source <source>` | Archive to try first, `ena` (the default) or `ncbi`. ENA serves ready FASTQ files. NCBI needs the SRA Toolkit to convert its archive, which takes longer, but it can be faster when ENA is slow. When the preferred source fails, the other one is tried. |
+| `--bundle` | Imports the run into a `.lungfishfastq` bundle of `--project`, as the app's SRA row does. |
+| `-p, --project <project>` | Path to the `.lungfish` project the bundle imports into (with `--bundle`). |
+| `--platform <platform>` | Sequencing platform, one of `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, or `unknown`. The default is `auto`. |
+| `--pairing <pairing>` | Read pairing, one of `auto`, `single`, `paired`, or `interleaved`. The default is `auto`. |
+| `--quality-binning <quality-binning>` | Quality binning, one of `fiveStep`, `illumina4`, `eightLevel`, or `none`. With neither this flag nor a recipe value, the import uses `fiveStep`. |
+| `--compression <compression>` | Compression level, one of `fast`, `balanced`, or `maximum`. The default is `balanced`. |
+| `--recipe <recipe>` | Processing recipe, one of `illumina-amplicon-merge`, `illumina-paired-cleanup`, `vsp2-target-enrichment`, `wastewater-metagenomics`, `vsp2`, `wgs`, `hifi`, or `none`. The default is `none`. |
+| `--remove-duplicates`, `--no-remove-duplicates` | Remove duplicate reads, or keep them. Replaces the recipe's setting. |
+| `--remove-ribosomal-rna`, `--no-remove-ribosomal-rna` | Remove ribosomal RNA reads, or keep them. Replaces the recipe's setting. A removal is final for a stored import. |
+| `--no-optimize-storage` | Skip read reordering for storage optimization. |
+| `--clumping-tool <clumping-tool>` | Storage optimization tool, one of `auto`, `bbtools`, `trim-galore`, or `none`. The default is `platform-specific`. |
 
 ### `fetch sra info`
 
@@ -348,6 +370,24 @@ lungfish-cli fetch genome [<options>] <accession>
 | `--no-bundle` | Download files but don't create a `.lungfishref` bundle. |
 | `--api-key <api-key>` | NCBI API key for higher rate limits. |
 
+### `fetch pathoplexus`
+
+Downloads Pathoplexus records by accession, one `.lungfishref` bundle each, built as the app's Pathoplexus browser builds a record. Pathoplexus is an open database of pathogen sequences with their sample metadata. Explained in [Downloading from NCBI](../02-sequences/02-downloading-from-ncbi.md).
+
+```text
+lungfish-cli fetch pathoplexus [<options>] <accessions> ... --organism <organism>
+```
+
+A record whose data use terms are restricted is refused. A record with an INSDC accession, meaning one shared with GenBank, ENA and DDBJ, is built from its GenBank record, with Pathoplexus's metadata added to the manifest and the one sequence named by the INSDC accession with its version. A record with no INSDC accession, or one GenBank cannot serve, is built from the Pathoplexus FASTA, which the bundle keeps as `sources/record.fasta`. Each bundle holds a provenance record that names the accession with its version, the date of the fetch and the digest of what arrived. With `--format json` the command prints event lines on standard output and its text on standard error. SIGTERM stops the run, removes the bundle it was building and exits 125. Pathoplexus takes no key, and the NCBI key, used only to read a GenBank record, comes from `--api-key` or the `NCBI_API_KEY` environment variable.
+
+| Argument or flag | What it does |
+|---|---|
+| `<accessions>` | Pathoplexus accession(s), such as `PP_0012345`. |
+| `--organism <organism>` | Pathoplexus organism id, such as `mpox`. Required, since accessions are not organism-scoped. |
+| `--output-dir <output-dir>` | The folder for the bundles. The default is the current folder. |
+| `--no-gff3` | For a record read from GenBank, fetches no GFF3 and takes the annotations from the GenBank record. |
+| `--api-key <api-key>` | NCBI API key for higher rate limits when a record is read from GenBank. |
+
 ## Importing into a project
 
 The window covers this ground in the [Import Center](../../GLOSSARY.md#import-center), which [The Import Center](../01-foundations/06-the-lungfish-project.md#the-import-center) describes. Every `import` command needs its subcommand word. A bare `lungfish-cli import <file>` stops with a usage message and exit status 64. A project path is an ordinary folder path ending `.lungfish`. Only LGE's window creates a project's store, so make the project with **File > New Project** first and close it, as the [On the command line](../01-foundations/06-the-lungfish-project.md#on-the-command-line) section of The Lungfish Genome Explorer Project explains.
@@ -367,14 +407,22 @@ lungfish-cli import fastq \
 Imports a FASTA, GenBank, or EMBL record, plain or compressed, as a `.lungfishref` bundle. Explained in [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md).
 
 ```text
-lungfish-cli import fasta <input-file> [--output-dir <output-dir>] [--name <name>]
+lungfish-cli import fasta [<options>] <input-file>
 ```
+
+With `--format json`, standard output holds event lines, one start line, a progress line for each step and one complete or failed line, and the text goes to standard error. SIGTERM stops the import, removes what it built and exits 125.
 
 | Argument or flag | What it does |
 |---|---|
 | `<input-file>` | Path to the input reference (`.fa`/`.fasta`/.gb/.embl, optionally `.gz`/.bgz/.bz2/.xz/.zst). |
 | `-o, --output-dir <output-dir>` | Output project directory. The default is the current folder. |
+| `--bundle-dir <folder>` | The folder to build the bundle in, as given, in place of the project's Reference Sequences folder. Not with `--output-dir`. |
 | `--name <name>` | Display name for the reference. The default is `filename`. |
+| `--provenance-input <file>` | A file the record names as the import's input in place of the input file. Give it once for each file, in order. |
+| `--annotations <bed>` | A BED file of annotations to attach to the new bundle as a track. |
+| `--annotation-selection <json>` | With `--annotations`, the JSON selection the BED came from, which the extraction record keeps. |
+| `--source-alignment-bundle <path>` | With `--annotations`, the alignment bundle the selection came from, which the extraction record names. |
+| `--rehydrate-source-provenance` | Merges the input file's own record into the new bundle's record. |
 
 ### `import bam`
 
@@ -447,18 +495,32 @@ lungfish-cli import tree [<options>] <input-file> --project <project>
 Imports FASTQ files, folders of them, or unmapped BAM files, one bundle per sample. Give it files or folders, or give it a samplesheet, a CSV with a `sample,r1,r2` header and one row per sample whose extra columns become metadata. Explained in [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
 
 ```text
-lungfish-cli import fastq [<options>] [<input> ...] --project <project>
+lungfish-cli import fastq [<options>] [<input> ...]
 ```
 
-`--recipe` takes `none`, `vsp2` (short for `vsp2-target-enrichment`), `wastewater-metagenomics`, `illumina-amplicon-merge`, `wgs`, `hifi`, or the id of a recipe you saved. Quality binning is off by default. Binning rounds each base's quality score to a few values so the file compresses smaller, and it cannot be undone once the original files are removed, so turn it on only on purpose. `--clumping-tool auto` skips clumping when the input is too large for the memory budget and never picks Trim Galore by itself. `--pairing` takes `auto`, `single`, `paired`, or `interleaved`. `auto` and `paired` match R1 and R2 files by name, inside one folder first. An R1 with no mate in its folder pairs with a mate of another folder only when no other file of the import has the R1's name or the mate's name, so `R1/x_R1.fastq.gz` and `R2/x_R2.fastq.gz` make one sample `x`. When another file shares a name, the files stay separate samples and the command prints a warning that names them, for example "/runs/B/reads_R1.fastq was not paired with /runs/C/reads_R2.fastq, because mates pair across folders only when their names are unique among the listed files." The warning is a `notice` event under `--format json`, and a dry run prints it too. They also join a file named after the run alone to its `_1` and `_2` pair as the sample's unpaired reads, which is the third file ENA serves for spots whose mate is missing, so `SRR123.fastq.gz` imports with `SRR123_1.fastq.gz` and `SRR123_2.fastq.gz` as one bundle. The third file joins the pair of its own folder, the R1's folder for a pair whose mates sit in two folders, and a pair of another folder only when no other file of the import has the run's name or either mate's name, with the same kind of warning otherwise. The command reads the first read of `_1` and of `_2` and the first 1,000 reads of the third file before it joins them. It joins the third file only when the first reads of `_1` and `_2` are named as mates, by one shared read name, by `/1` and `/2` endings, or by Illumina `1:N` and `2:N` comments. The first read of the third file must also come from a fragment other than the one those first reads share, and no two neighbouring reads among the first 1,000 of the third file may be mates, because a file of reads whose mate is missing holds one read of each spot. Otherwise it leaves the third file out with a warning that names it and says why, and the file stays a sample of its own with the run's name, which the import skips. For `SRR123` the warning then ends "The pair imports without it, and SRR123.fastq.gz is a separate sample named SRR123, which the import skips." When `_1` or `_2` does not start with a whole record, the pair fails as well, the warning ends "SRR123.fastq.gz is a separate sample named SRR123, which the import skips whether or not the pair imports.", and nothing imports under the run's name. Mates named `SRR123.1.1` and `SRR123.1.2`, as `fastq-dump --readids` writes them, and an interleaved copy of the pair, whichever pair it starts with, are left out this way. The import checks the rest of the third file as it copies it, and two neighbouring mates further in fail the sample with a message that names the file and the two reads, so no read is stored twice. A recipe refuses a joined sample, because a recipe reads only pairs or only single reads, and `--clumping-tool trim-galore` refuses it for the same reason with a message that names the third file. Choose `--clumping-tool bbtools` or `--no-optimize-storage` to keep every read. `single` imports every file as its own single-end sample even when a mate is detected, and `interleaved` imports every file on its own and records it as holding alternating mates. Neither prints the pairing warning. `--recursive` scans every folder below the one you name and pairs all the files it finds by the same rule as files named one by one and the Import Center. Each sample's bundle goes to `Imports/<folder>/<name>.lungfishfastq`, where the folder is that of its mates below the scanned folder. A pair whose mates sit in two folders goes to the deepest folder that holds both, so `delivery/R1/x_R1.fastq.gz` and `delivery/R2/x_R2.fastq.gz` scanned from `delivery` give `Imports/x.lungfishfastq`, and a run's third file from another folder does not move its pair. That changed in this release, so a `--recursive` command recorded by 2026.10.8 or earlier can now make different bundles. Mates split into `R1/` and `R2/` folders were two single-end samples, under `Imports/R1` and `Imports/R2`, and are now one paired sample. A run's third file in another folder was a bundle of its own, and now joins its pair, or is skipped with the third-file warning when its first reads do not bear the join out. `--dry-run` prints each sample as `[paired]` or `[single-end]` with its file names, an `Unpaired:` line for a joined third file and the warning for one it left out, then the platform it would record for each sample with the evidence, and stops. `--platform` takes `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, or `unknown`, and aliases such as `nanopore` parse too. The default `auto` infers each sample's platform from its own read headers, or from a BAM's header, and prints the evidence with a confidence of high, medium, low, or none. Reads it cannot identify are recorded as `unknown`, never as Illumina, and a value you give is recorded as given. A PacBio BAM is refused with a message to convert it with `samtools fastq` first, and every other unmapped BAM converts. The global `--threads` defaults to the Mac's active core count. `--force` imports a sample again when its bundle already exists, but it never replaces a bundle that an earlier sample of the same import wrote, such as the bundle of a pair whose third file the check left out, and no sample writes a bundle that an earlier sample of the import failed to write. Such a sample is skipped with its reason in the summary. `--name` names the one sample that detection makes, before the third-file check, so a run whose third file is left out imports its pair under the given name and skips the third file.
+`--project` is required unless `--write-plan` is given. `--recipe` takes `none`, `illumina-paired-cleanup`, `vsp2` (short for `vsp2-target-enrichment`), `wastewater-metagenomics`, `illumina-amplicon-merge`, `wgs`, `hifi`, or the id of a recipe you saved. `illumina-paired-cleanup` removes duplicate reads and keeps ribosomal RNA reads, `vsp2-target-enrichment` is a preset of it with the same two settings, and `wastewater-metagenomics` is a preset of it that removes both. `--remove-duplicates` and `--remove-ribosomal-rna`, or their `--no-` forms, replace the recipe's setting, and a removal is final for a stored import, since only a reimport from the raw files brings the removed reads back.
+
+[Quality binning](../../GLOSSARY.md#quality-binning) rounds each base's quality score to a few values so the file compresses smaller. An import bins with `fiveStep` on every platform unless `--quality-binning` or the recipe names another value. `fiveStep` stores scores in steps of five, so every Q10, Q20 and Q30 count stays as sequenced. A score can move by up to 2 inside its step, and the last step stores every score from Q35 up as Q37. `illumina4` stores called Q0 to Q10 as 8 and Q18 and Q19 as 22, and is kept to replay older imports. The original scores cannot be recovered once the original files are removed, so pass `--quality-binning none` to keep every score as the sequencer gave it. With clumping on, a called Q0 or Q1 is then stored as Q2. `--clumping-tool auto` skips clumping when the input is too large for the memory budget and never picks Trim Galore by itself. `--pairing` takes `auto`, `single`, `paired`, or `interleaved`. `auto` and `paired` match R1 and R2 files by name, inside one folder first. An R1 with no mate in its folder pairs with a mate of another folder only when no other file of the import has the R1's name or the mate's name, so `R1/x_R1.fastq.gz` and `R2/x_R2.fastq.gz` make one sample `x`. When another file shares a name, the files stay separate samples and the command prints a warning that names them, for example "/runs/B/reads_R1.fastq was not paired with /runs/C/reads_R2.fastq, because mates pair across folders only when their names are unique among the listed files." The warning is a `notice` event under `--format json`, and a dry run prints it too. They also join a file named after the run alone to its `_1` and `_2` pair as the sample's unpaired reads, which is the third file ENA serves for spots whose mate is missing, so `SRR123.fastq.gz` imports with `SRR123_1.fastq.gz` and `SRR123_2.fastq.gz` as one bundle. The third file joins the pair of its own folder, the R1's folder for a pair whose mates sit in two folders, and a pair of another folder only when no other file of the import has the run's name or either mate's name, with the same kind of warning otherwise. The command reads the first read of `_1` and of `_2` and the first 1,000 reads of the third file before it joins them. It joins the third file only when the first reads of `_1` and `_2` are named as mates, by one shared read name, by `/1` and `/2` endings, or by Illumina `1:N` and `2:N` comments. The first read of the third file must also come from a fragment other than the one those first reads share, and no two neighbouring reads among the first 1,000 of the third file may be mates, because a file of reads whose mate is missing holds one read of each spot. Otherwise it leaves the third file out with a warning that names it and says why, and the file stays a sample of its own with the run's name, which the import skips. For `SRR123` the warning then ends "The pair imports without it, and SRR123.fastq.gz is a separate sample named SRR123, which the import skips." When `_1` or `_2` does not start with a whole record, the pair fails as well, the warning ends "SRR123.fastq.gz is a separate sample named SRR123, which the import skips whether or not the pair imports.", and nothing imports under the run's name. Mates named `SRR123.1.1` and `SRR123.1.2`, as `fastq-dump --readids` writes them, and an interleaved copy of the pair, whichever pair it starts with, are left out this way. The import checks the rest of the third file as it copies it, and two neighbouring mates further in fail the sample with a message that names the file and the two reads, so no read is stored twice. A recipe refuses a joined sample, because a recipe reads only pairs or only single reads, and `--clumping-tool trim-galore` refuses it for the same reason with a message that names the third file. Choose `--clumping-tool bbtools` or `--no-optimize-storage` to keep every read. `single` imports every file as its own single-end sample even when a mate is detected, and `interleaved` imports every file on its own and records it as holding alternating mates. Neither prints the pairing warning. `--recursive` scans every folder below the one you name and pairs all the files it finds by the same rule as files named one by one and the Import Center. Each sample's bundle goes to `Imports/<folder>/<name>.lungfishfastq`, where the folder is that of its mates below the scanned folder. A pair whose mates sit in two folders goes to the deepest folder that holds both, so `delivery/R1/x_R1.fastq.gz` and `delivery/R2/x_R2.fastq.gz` scanned from `delivery` give `Imports/x.lungfishfastq`, and a run's third file from another folder does not move its pair. `--dry-run` prints each sample as `[paired]` or `[single-end]` with its file names, an `Unpaired:` line for a joined third file and the warning for one it left out, then the platform it would record for each sample with the evidence, and stops. `--platform` takes `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, or `unknown`, and aliases such as `nanopore` parse too. The default `auto` infers each sample's platform from its own read headers, or from a BAM's header, and prints the evidence with a confidence of high, medium, low, or none. Reads it cannot identify are recorded as `unknown`, never as Illumina, and a value you give is recorded as given. A PacBio BAM is refused with a message to convert it with `samtools fastq` first, and every other unmapped BAM converts. The global `--threads` defaults to the Mac's active core count. `--force` imports a sample again when its bundle already exists, but it never replaces a bundle that an earlier sample of the same import wrote, such as the bundle of a pair whose third file the check left out, and no sample writes a bundle that an earlier sample of the import failed to write. Such a sample is skipped with its reason in the summary. `--name` names the one sample that detection makes, before the third-file check, so a run whose third file is left out imports its pair under the given name and skips the third file.
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Directory containing sequencing reads, FASTQ paths, or unmapped BAM paths. |
-| `--samplesheet <samplesheet>` | CSV sample sheet with sample,r1,r2 columns and optional metadata columns. |
-| `-p, --project <project>` | Path to `.lungfish` project directory. |
-| `--recipe <recipe>` | Processing recipe, a recipe id such as `vsp2-target-enrichment`, `illumina-amplicon-merge`, or `wastewater-metagenomics`, the alias `vsp2`, the built-in `wgs` or `hifi`, or `none`. `lungfish-cli import fastq --help` lists every id that resolves, your saved recipes included. The default is `none`. |
-| `--quality-binning <quality-binning>` | Quality binning. `illumina4` keeps 7 quality levels, `eightLevel` about 21, and `none` keeps every score. The default is `none`. |
+| `<input>` | Directory containing sequencing reads, FASTQ paths, or unmapped ONT BAM paths. |
+| `--samplesheet <samplesheet>` | CSV sample sheet, such as `samples.csv`, with sample,r1,r2 columns, an optional `request_disk` column and optional metadata columns. |
+| `-p, --project <project>` | Path to `.lungfish` project directory, required unless `--write-plan` is given. |
+| `--recipe <recipe>` | Processing recipe, one of `illumina-amplicon-merge`, `illumina-paired-cleanup`, `vsp2-target-enrichment`, `wastewater-metagenomics`, `vsp2`, `wgs`, `hifi`, or `none`. `lungfish-cli import fastq --help` lists every id that resolves, your saved recipes included. The default is `none`. |
+| `--remove-duplicates`, `--no-remove-duplicates` | Remove duplicate reads, or keep them. Replaces the recipe's setting. |
+| `--remove-ribosomal-rna`, `--no-remove-ribosomal-rna` | Remove ribosomal RNA reads, or keep them. Replaces the recipe's setting. |
+| `--quality-binning <quality-binning>` | Quality binning, one of `fiveStep` (8 quality levels), `illumina4` (7 quality levels), `eightLevel` (about 21 quality levels), or `none`. With neither this flag nor a recipe value, the import uses `fiveStep` on every platform. |
+| `--write-plan <folder>` | Writes a [plan folder](../08-workflows/04-running-on-a-linux-machine.md) for a run on a Linux machine to this new folder in place of importing. No file is imported and nothing is submitted, so `--project` is not needed. |
+| `--executor-manifest <file>` | The `manifest.json` beside the Linux `lungfish-executor`, which states its SHA-256, size and build. Optional with `--write-plan`. The plan uses the app's own executor when you name none. |
+| `--image <file>` | The `image.json` of the container image the jobs run in. Optional with `--write-plan`. The plan uses the app's own image record when you name none. |
+| `--image-tool-manifest <file>` | The image's tool manifest, the file `image.json` pins. Optional with `--write-plan`. The plan pins each tool it runs from this file. |
+| `--staging-folder <path>` | The absolute path of the folder on the Linux machine that the jobs read the image, the executor and the reads from. Required with `--write-plan`. |
+| `--staged-reads <file>` | A tab-separated list of reads already in the staging folder, with each read's absolute path, size in bytes and SHA-256, for `--write-plan` with `--samplesheet`. The sheet's r1 and r2 then name each read by its absolute path on the Linux machine, and LGE reads none of them, so pass `--platform` too. |
+| `--job-requirements <expression>` | The machines the jobs may run on, as one HTCondor requirements expression on one line, for `--write-plan`. It replaces the whole default, which asks for machines that can read the staging folder and run an EL9 or later system on an x86-64 CPU. |
+| `--plan-database <id=file>` | A database a recipe step reads, as `<id>=<index file>`, for `--write-plan`. Repeat it for each database the recipe reads. |
+| `--clumpify-heap-gb <clumpify-heap-gb>` | Java heap for BBTools clumpify in GB, from 1 up to this host's physical memory. The default is 35 percent of the host's physical memory, lowered to its free memory less 8 GB when that is smaller, kept between 4 and 31. |
+| `--adopt` | Adopts a plan folder that a Linux run of `lungfish-executor` returned, as one bundle. The one input names the returned plan folder, or a returned batch folder that holds one such folder per sample as `<sample>/`. A batch is adopted whole, so when any sample is refused nothing is imported and each refusal is listed. The plan fixed every setting, so no setting flag is taken with `--adopt`, while `--name` (one folder only), `--dry-run`, `--force` and `--format json` keep their meaning. |
 | `--log-dir <log-dir>` | Directory for per-sample log files. |
 | `--dry-run` | List detected pairs without importing. |
 | `--platform <platform>` | Sequencing platform, one of `auto`, `illumina`, `ont`, `pacbio`, `element`, `mgi`, `ultima`, or `unknown`. The default is `auto`, which infers each sample's platform from its reads. |
@@ -477,7 +539,7 @@ A first SIGTERM cancels the import cleanly. The command starts no further sample
 Is the same command as `import fastq`, reached by a shorter name, with the same flags. Explained in [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
 
 ```text
-lungfish-cli import-fastq [<options>] [<input> ...] --project <project>
+lungfish-cli import-fastq [<options>] [<input> ...]
 ```
 
 Its flags are exactly those of `import fastq` above.
@@ -611,7 +673,7 @@ Imports an NVD results folder. Explained in [Novel Virus Diagnostics](../06-clas
 lungfish-cli import nvd <input-path> [--output-dir <output-dir>] [--name <name>]
 ```
 
-`--output-dir` defaults to the current folder, so pass the project's `Imports` folder, which is where the Import Center writes. `nvd import` is a second spelling with the same flags.
+`--output-dir` defaults to the current folder, so pass the project's `Analyses` folder, which is where the Import Center writes every classifier result. `nvd import` is a second spelling with the same flags.
 
 | Argument or flag | What it does |
 |---|---|
@@ -621,7 +683,7 @@ lungfish-cli import nvd <input-path> [--output-dir <output-dir>] [--name <name>]
 
 ### `import cz-id`
 
-Imports a CZ ID taxon report into a project as `Classifications/<sample>.lungfishtax`. It reads files you already downloaded and never contacts CZ ID. Explained in [Importing CZ ID Results](../06-classification/08-importing-cz-id-results.md).
+Imports a CZ ID taxon report, given as a taxon report TSV, a ZIP archive, or an extracted export folder, into a project as `Classifications/<sample>.lungfishtax`. It reads files you already downloaded and never contacts CZ ID. Explained in [Importing CZ ID Results](../06-classification/08-importing-cz-id-results.md).
 
 ```text
 lungfish-cli import cz-id [<options>] <input-path> --project <project> --sample-name <sample-name>
@@ -755,7 +817,7 @@ Prints a bundle's name, organism, assembly, genome size, sequence count, and its
 lungfish-cli bundle info <bundle-path>
 ```
 
-The text form leaves out alignment tracks. `--format json` prints the whole manifest, whose `alignments` list gives each alignment track's `id`, `name`, and BAM path.
+The text form leaves out alignment tracks. `--format json` prints the whole manifest, whose `alignments` list gives each alignment track's `id`, `name`, BAM path and `mapped_read_count`. Beside the manifest, a `mapped_read_count_basis` key, keyed by track id, says what each track's count counts. `reads` means the primary reads that samtools flagstat counted, `alignments` means alignment records from a statistics database without those lines, and `manifest` means the manifest's own copy, whose unit the manifest does not record. A bundle with no alignment track prints no such key.
 
 | Argument or flag | What it does |
 |---|---|
@@ -855,6 +917,118 @@ The option is spelled `--export-format` because `--format` is the program-wide o
 | `--plugin-pack <plugin-pack>` | Plugin pack ID to pin into the exported image metadata. |
 | `-q, --quiet` | Suppress non-essential output. |
 
+### `bundle merge`
+
+Joins the sequences of two or more reference bundles into one new bundle, as the sidebar's **Merge Into New Bundle…** does for reference bundles. Each bundle's annotation tracks come across as separate tracks named for their source.
+
+```text
+lungfish-cli bundle merge <bundles> ... --name <name> [--output-dir <output-dir>]
+```
+
+A bundle with a variant, signal or alignment track is refused, because those coordinates would have to be moved onto the merged reference, and so are sequence names that two bundles share. A refusal exits 3. The new bundle is built in the project's `.tmp` folder and published under its name with one rename, so no reader sees part of it. SIGTERM stops the run before it publishes, records it as cancelled and exits 125.
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundles>` | Paths of the `.lungfishref` bundles to merge, at least two. |
+| `--name <name>` | Name of the merged bundle. |
+| `-o, --output-dir <output-dir>` | Folder to create the merged bundle in. The default is the folder of the first bundle. |
+
+### `bundle export-gff3`
+
+Writes one source's annotations as a GFF3 file, the standard text format for genome annotations, with provenance.
+
+This command and the next two write what a reference bundle's viewer exports, each with a provenance record. An export in the window runs one of them, and its row in the Operations Panel shows the command. When the app runs one, it writes the `--selection` or `--view-state` file, which holds state the result files do not, into a hidden `.lungfish-export-inputs/<UUID>/` folder beside the output. Each refuses an existing output file unless you add `--force`.
+
+```text
+lungfish-cli bundle export-gff3 [<options>] [<bundle-path>] --output <output>
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle-path>` | The reference bundle whose annotations to write. Leave it out to pass `--selection`. |
+| `--selection <selection>` | The selection file the app wrote for an open document's annotations. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
+
+### `bundle export-annotation-table`
+
+Writes the rows of one tab of the annotation table drawer, with provenance.
+
+```text
+lungfish-cli bundle export-annotation-table [<options>] <bundle-path> --tab <tab> --output-format <output-format> --selection <selection> --output <output>
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle-path>` | The reference bundle the table's rows come from. |
+| `--tab <tab>` | The tab whose table to write, one of `annotations`, `variants`, `genotypes`, or `samples`. |
+| `--output-format <output-format>` | The file format to write, one of `csv`, `tsv`, `json`, or `xlsx`. |
+| `--selection <selection>` | The selection file the app wrote for state the result files do not hold. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
+
+### `bundle export-graphic`
+
+Draws one region of a bundle as an image, with provenance.
+
+```text
+lungfish-cli bundle export-graphic [<options>] <bundle-path> --output-format <output-format> --output <output>
+```
+
+Regions are written as `contig:start-end`, counted from 1 with both ends included, as samtools takes them. A BED file given to `--regions-file` counts from 0 instead, as every BED file does.
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle-path>` | The reference bundle to draw. |
+| `--region <region>` | The region to draw, as `contig:start-end`, 1-based and inclusive, such as `chr1:101-200`. |
+| `--regions-file <regions-file>` | A [BED](../../GLOSSARY.md#bed) file of regions, one image each, written into the new folder `--output` names. Each line gives the contig, the 0-based start, the end and an optional name, separated by tabs. |
+| `--width <width>` | The figure width in points. The default is `800`. The app passes the width of its view. |
+| `--include-ruler` | Draws the coordinate ruler above the tracks. |
+| `--track <track>` | A track to draw, by the id the bundle's manifest records. Repeat for more, in drawn order. Left out, the bundle's tracks are drawn. |
+| `--output-format <output-format>` | The image format, one of `png`, `jpeg`, `tiff`, or `pdf`. |
+| `--scale <scale>` | Pixels per point of a bitmap, `1`, `2` or `4`. The default is `2`. A PDF takes no scale. |
+| `--theme <theme>` | The theme to draw with, `light` or `dark`. The default is `light`. The app passes the appearance of its viewer. |
+| `--exclude-flags <exclude-flags>` | The SAM flags of reads to leave out, as a number. The default is `2308`, which leaves out unmapped, secondary and supplementary reads. The viewer's own default is `3332`, which also leaves out duplicate-marked reads, and the app passes the viewer's current value. |
+| `--coverage-scale <coverage-scale>` | The coverage scale of an alignment track, one of `linear`, `log10`, or `squareRoot`. |
+| `--view-state <view-state>` | The view-state file the app wrote for track settings it holds only in memory. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
+
+### `sequence add-annotation`
+
+Adds one annotation to the manual annotation track of a reference bundle, as **Add Annotation…** does in the window. Explained in [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md).
+
+```text
+lungfish-cli sequence add-annotation [<options>] <bundle> --chromosome <chromosome> --start <start> --end <end> --name <name> --type <type>
+```
+
+`--start` and `--end` count from 0, the BED convention, where the first base is 0 and the end position is left out. To annotate bases 1,000 to 2,000 as the ruler shows them, pass `--start 999 --end 2000`.
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle>` | Reference bundle to update. |
+| `--chromosome <chromosome>` | Sequence or chromosome the annotation lies on. |
+| `--start <start>` | 0-based inclusive start coordinate. |
+| `--end <end>` | 0-based exclusive end coordinate. |
+| `--name <name>` | Feature name. |
+| `--type <type>` | Feature type (GenBank/GFF3-style, for example gene, CDS). |
+| `--strand <strand>` | Strand, `+`, `-`, or `.` for unknown. The default is `.`. |
+
+### `sequence attach-track`
+
+Attaches a GFF3, GTF or BED file to a reference bundle as a new annotation track. Explained in [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md).
+
+```text
+lungfish-cli sequence attach-track [<options>] <bundle> <annotation-file>
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle>` | Reference bundle to update. |
+| `<annotation-file>` | GFF3, GTF or BED file to attach. |
+| `--track-id <track-id>` | Annotation track ID. Made from the file name when omitted. |
+| `--track-name <track-name>` | Annotation track display name. Made from the file name when omitted. |
+
 ### `sequence annotate-orfs`
 
 Finds [open reading frames](../../GLOSSARY.md#open-reading-frame) in a bundle's sequence and saves them as a new annotation track. Explained in [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md).
@@ -938,19 +1112,22 @@ lungfish-cli extract sequence NC_012920.1.fasta NC_012920.1:3307-4262 -o MT-ND1.
 
 ### `convert`
 
-Converts one sequence file between FASTA, GenBank, GFF3, and FASTQ. The input format is read from the file extension, and the output must be a different file from the input.
+Converts sequence files between FASTA, GenBank, GFF3, and FASTQ. The input format is read from the file extension, and the output must be a different file from every input. A symbolic link or hard link to an input counts as the same file and is refused.
 
 ```text
-lungfish-cli convert [<options>] <input> --to <to>
+lungfish-cli convert [<options>] <inputs> ... --to <to>
 ```
+
+Several inputs are written to one output, in the order given. `--compress` writes the output as gzip or zstd under the `--to` name exactly as given, so name it `.gz` or `.zst` yourself, and publishes it only when the compressed file is whole.
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input file path. |
+| `<inputs>` | Input file paths. Several inputs are written to one output, in the order given. |
 | `--to-format <to-format>` | Output format, one of `fasta`, `genbank`, `gff3`, or `fastq`. The default is `fasta`. |
 | `--to <to>` | Output file path (required). |
 | `--include-annotations` | Include annotations in output (if supported). |
 | `--force` | Overwrite existing output file. |
+| `--compress <compress>` | Compress the output with `gzip` or `zstd`. The `--to` name is used as given. |
 
 ### `analyze stats`
 
@@ -1037,21 +1214,36 @@ lungfish-cli search [<options>] <input> <pattern>
 Pulls one region out of a FASTA, written as `name:start-end` counted from 1 with both ends included. The name can be left out when the file holds one sequence. Explained in [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md).
 
 ```text
-lungfish-cli extract sequence [<options>] <input> <region>
+lungfish-cli extract sequence [<options>] <input> [<region>]
 ```
 
-The input must end in `.fa`, `.fasta`, `.fna`, or `.faa`. The header of the extracted record names the region you asked for and, in brackets, the span actually written, both counted from 1, so `chrT:10-20 --flank 2` gives `>chrT:10-20 [chrT:8-22, 1-based] [15 bp]`. An `--output` path ending in `.lungfishref` writes a reference bundle instead of a FASTA file. Without `--output` the record goes to standard output and the two progress lines go to standard error, so `lungfish-cli extract sequence ... > region.fa` writes a clean FASTA file.
+The input must end in `.fa`, `.fasta`, `.fna`, or `.faa`, unless `--bundle` makes it a `.lungfishref` bundle. The header of the extracted record names the region you asked for and, in brackets, the span actually written, both counted from 1, so `chrT:10-20 --flank 2` gives `>chrT:10-20 [chrT:8-22, 1-based] [15 bp]`. Without `--output` the record goes to standard output and the two progress lines go to standard error, so `lungfish-cli extract sequence ... > region.fa` writes a clean FASTA file.
+
+With `--bundle` the input is a `.lungfishref` bundle, and `-o` names the new `.lungfishref`, which keeps the annotation and variant tracks inside the region. Without `--bundle`, an `-o` path ending in `.lungfishref` builds a bundle of the FASTA's region or feature, and `--source-document` names the file the FASTA was written from. A GenBank document's annotations are not carried, and the record says so. With no region, `--sequence` names a whole sequence to write as stored and `--selection` names a file the app wrote that lists them. The input is then a plain FASTA file, the records come in the order asked, `-o` is required, and an existing `-o` file is refused without `--force`. With `--format json`, standard output holds the event lines, the text goes to standard error, and `-o` is required.
 
 | Argument or flag | What it does |
 |---|---|
-| `<input>` | Input file (FASTA format). |
-| `<region>` | Region to extract, written `name:start-end`, counted from 1 with both ends included. |
+| `<input>` | Input file (FASTA format), or a `.lungfishref` bundle with `--bundle`. |
+| `<region>` | Region to extract, written `name:start-end`, counted from 1 with both ends included. Leave it out with `--sequence` or `--selection`. |
 | `--reverse-complement` | Reverse complement the extracted sequence. |
 | `--flank <flank>` | Add N bases of flanking sequence on each side. The default is `0`. |
 | `--flank-5 <flank-5>` | Add N bases of 5' (upstream) flanking sequence. |
 | `--flank-3 <flank-3>` | Add N bases of 3' (downstream) flanking sequence. |
-| `-o, --output <output>` | Output file path. The default is `stdout`. |
-| `--line-width <line-width>` | FASTA line width. The default is `70`. |
+| `-o, --output <output>` | Output file path. The default is `stdout`. Required with `--format json`. |
+| `--line-width <line-width>` | FASTA line width. The default is `70`. With `--sequence` or `--selection`, a record is wrapped only when you give this flag. |
+| `--bundle` | Builds a reference bundle of the region from a `.lungfishref` input, keeping its annotation and variant tracks in the region. Needs `-o <name>.lungfishref`. |
+| `--name <name>` | With `--bundle` or a `.lungfishref` output, the bundle's name the record keeps. The default is the region or the feature name. |
+| `--source-document <source-document>` | With a FASTA input and a `.lungfishref` output, the document the FASTA was written from, which the record names. |
+| `--samples <samples>` | With `--bundle`, keeps the variant calls of this sample. Give it once for each sample to keep. A name may hold commas, dots and spaces. |
+| `--no-samples` | With `--bundle`, keeps the variant calls of no sample. |
+| `--next-free-name` | With `--bundle` or a `.lungfishref` output, publishes under the next free name (`_1`, `_2` and so on) when a bundle already holds the name `-o` gives, and replaces nothing. |
+| `--feature-name <feature-name>` | With `--bundle` or a `.lungfishref` output, extracts this feature, whose parts the region lists in order as `name:start-end,start-end`. |
+| `--feature-type <feature-type>` | With `--feature-name`, the feature's type, such as gene, CDS or mRNA. The default is `region`. |
+| `--strand <strand>` | With `--feature-name`, the feature's strand, `+` or `-`. |
+| `--concatenate-exons` | With `--feature-name`, joins the feature's parts into one sequence. |
+| `--sequence <sequence>` | With no region, writes this whole sequence as stored. Give it once for each sequence. A name is a header line or its first word. |
+| `--selection <selection>` | With no region, the selection file the app wrote that lists the sequences to write. |
+| `--force` | With `--sequence` or `--selection`, overwrites an existing `-o` file. |
 
 ### `universal-search`
 
@@ -1071,7 +1263,9 @@ lungfish-cli universal-search [<options>] <project-path>
 
 ## Read processing
 
-The window runs these operations from the FASTQ/FASTA Operations window, which [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), [Decontamination](../03-reads/05-decontamination.md), [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md), and [Read Processing](../03-reads/08-read-processing.md) work through. [FASTQ](../../GLOSSARY.md#fastq) stores each read as four lines, a name, the bases, a separator, and one quality character per base. The flags below also use [Phred scores](../../GLOSSARY.md#phred-score), [k-mers](../../GLOSSARY.md#k-mer), [interleaved](../../GLOSSARY.md#interleaved-fastq) files that hold both [mates](../../GLOSSARY.md#paired-end) of each pair, [Shannon entropy](../../GLOSSARY.md#shannon-entropy), and [optical duplicates](../../GLOSSARY.md#optical-duplicate), each defined in the Glossary. Most of these commands read one FASTQ and write another. They share `-o` or `--output` for the output path, `--force` to overwrite an existing output, and `--compress` to gzip it, so those three are not repeated in every table below.
+The window runs these operations from the FASTQ/FASTA Operations window, which [Trimming and Filtering Reads](../03-reads/04-trimming-and-filtering.md), [Decontamination](../03-reads/05-decontamination.md), [Subsetting and Extraction](../03-reads/06-subsetting-and-extraction.md), and [Read Processing](../03-reads/08-read-processing.md) work through. [FASTQ](../../GLOSSARY.md#fastq) stores each read as four lines, a name, the bases, a separator, and one quality character per base. The flags below also use [Phred scores](../../GLOSSARY.md#phred-score), [k-mers](../../GLOSSARY.md#k-mer), [interleaved](../../GLOSSARY.md#interleaved-fastq) files that hold both [mates](../../GLOSSARY.md#paired-end) of each pair, [Shannon entropy](../../GLOSSARY.md#shannon-entropy), and [optical duplicates](../../GLOSSARY.md#optical-duplicate), each defined in the Glossary. Most of these commands read one FASTQ and write another. They share `-o` or `--output` for the output path and `--force` to overwrite an existing output, so those two are not repeated in every table below. Most write plain FASTQ and refuse `--compress` before they write any file or record. `fastq merge`, `fastq materialize` and `fastq scrub-human` take `--compress` to gzip their output, and their entries say so.
+
+A `.lungfishfastq` bundle given as the input is read as its reads, the same reads the window's operations see. A bundle of one file is read in place, a bundle of several files is read as every file joined in the bundle's own order, and a [virtual bundle](../../GLOSSARY.md#virtual-bundle) is first written out from its recipe. One file of a multi-file bundle, such as one chunk of a nanopore import, is one part of a sample, so the command reads the whole bundle instead and prints a note that says so. Any other file inside a bundle is read in place as the file you named.
 
 Fourteen of them also take `--pairing`. They are the four fastp trimmers, `trim`, `quality-trim`, `adapter-trim`, and `fixed-trim`, and `subsample`, `length-filter`, `contaminant-filter`, `entropy-filter`, `scrub-human`, `deacon-ribo`, `sequence-filter`, `deduplicate`, `search-text`, and `search-motif`. With `interleaved`, adjacent records are mates and are kept or dropped together, and with `single` every record stands alone. The default, `auto`, reads the pairing recorded by the `.lungfishfastq` bundle the input sits in, then inspects read names, recognising mates with identical names, `/1` and `/2` suffixes, or Casava descriptions. The window passes the bundle's own pairing, so a command run on the file inside a paired bundle keeps its mates together as the window does.
 
@@ -1081,7 +1275,7 @@ Run this from the folder holding the hg002-chr20 practice data. It trims adapter
 
 ```bash
 lungfish-cli fastq trim HG002.chr20.10.0-10.5Mb_R1.fastq.gz \
-  -o HG002_R1.trimmed.fastq.gz --compress
+  -o HG002_R1.trimmed.fastq
 ```
 
 ### `fastq subsample`
@@ -1269,7 +1463,7 @@ Finds ribosomal RNA reads with Deacon and removes them, keeps them, or keeps bot
 lungfish-cli fastq deacon-ribo [<options>] <inputs> ... --output <output>
 ```
 
-It takes one FASTA or FASTQ file, or an R1 and R2 pair. `--output` is a folder, and the outputs are `<stem>.norrna.<ext>`, `<stem>.rrna.<ext>`, or both. `both` runs Deacon twice. `--absolute-threshold` must be positive, and `--relative-threshold` runs from 0 to 1. It has no `--force` or `--compress`. The provenance record names the thresholds `absoluteThreshold` and `relativeThreshold`, while Deacon's own log prints `abs_threshold` and `rel_threshold`.
+It takes one FASTA or FASTQ file, or an R1 and R2 pair. Two loose mate files are read whole before Deacon starts, and a pair that is cut short, out of step by read name, or not FASTQ or FASTA by name is refused with exit status 3. `--output` is a folder, and the outputs are `<stem>.norrna.<ext>`, `<stem>.rrna.<ext>`, or both. `both` runs Deacon twice. `--absolute-threshold` must be positive, and `--relative-threshold` runs from 0 to 1. It has no `--force` or `--compress`. The provenance record names the thresholds `absoluteThreshold` and `relativeThreshold`, while Deacon's own log prints `abs_threshold` and `rel_threshold`.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1288,7 +1482,7 @@ Finds ribosomal RNA reads with RiboDetector, a deep-learning classifier, in its 
 lungfish-cli fastq ribodetector [<options>] <inputs> ... --output <output>
 ```
 
-It takes one FASTA or FASTQ file, or an R1 and R2 pair. An interleaved paired file is split into mates, classified as pairs so a pair is kept or removed together, and written back interleaved. A file that mixes pairs and single reads runs as single reads with a warning. `--output` is a folder, and the outputs are `<stem>.norrna.<ext>`, `<stem>.rrna.<ext>`, or both.
+It takes one FASTA or FASTQ file, or an R1 and R2 pair. Two loose mate files are read whole before RiboDetector starts, because it pairs the two files by position, and a pair that is cut short, out of step by read name, or not FASTQ or FASTA by name is refused with exit status 3. An interleaved paired file is split into mates, classified as pairs so a pair is kept or removed together, and written back interleaved. A file that mixes pairs and single reads runs as single reads with a warning. `--output` is a folder, and the outputs are `<stem>.norrna.<ext>`, `<stem>.rrna.<ext>`, or both.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1440,10 +1634,10 @@ lungfish-cli fastq reverse-complement <input> --output <output> [--force] [--com
 Translates reads into a protein FASTA. Explained in [Read Processing](../03-reads/08-read-processing.md).
 
 ```text
-lungfish-cli fastq translate <input> [--frame <frame>] [--table <table>] --output <output> [--force] [--compress]
+lungfish-cli fastq translate <input> [--frame <frame>] [--table <table>] --output <output> [--force]
 ```
 
-Frames 4 to 6 are the reverse-complement frames and print as `_frame-1`, `_frame-2`, and `_frame-3` in the headers. Records whose translation is empty are skipped.
+Frames 4 to 6 are the reverse-complement frames and print as `_frame-1`, `_frame-2`, and `_frame-3` in the headers, and frame -1 starts at the last base. Records whose translation is empty are skipped. When the two mates of an interleaved pair share one read ID, the protein names add `.1` for mate 1 and `.2` for mate 2 right after the ID, so a pair named `A1` gives `>A1.1_frame+1` and `>A1.2_frame+1`. Every other read keeps its name, including single-end reads, mates already named apart such as `A1/1` and `A1/2`, nanopore and PacBio reads, and the pairs in a bundle that also holds merged or unpaired reads.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1525,7 +1719,7 @@ It spells the masking flag `--mask` rather than `--db-mask`, writes into an outp
 Writes a JSON quality summary for one or more FASTQ files. Explained in [Quality Control for Reads](../03-reads/03-quality-control.md).
 
 ```text
-lungfish-cli fastq qc-summary <inputs> ... --output <output> [--force] [--compress]
+lungfish-cli fastq qc-summary <inputs> ... --output <output> [--force]
 ```
 
 It writes one JSON report with an `inputs` list holding each file's statistics, including `minReadLength` and `maxReadLength`. Its `meanQuality` converts every base's quality to an error probability, averages those, and turns the average back into a Phred score, the same definition the FASTQ viewport's Mean Q card uses. That average sits below the plain average of the scores, because a few poor bases weigh heavily. Without `--force` it refuses to overwrite an existing report.
@@ -1577,6 +1771,8 @@ lungfish-cli extract reads [<options>] --output <output>
 
 The table marks which route each flag belongs to. A Kraken 2 selection is made with `--taxon <taxid>`, while EsViritu, TaxTriage, NAO-MGS, and NVD selections are made with `--accession`, and `--tool naomgs` fails without one. The source FASTQ is found from the result's own record, so `--source` is for `--by-id` only. A Kraken 2 extraction reads every file the classification read, so it returns both mates of each pair, each merged read, and each orphan, with each R1 read followed by its R2 read and the single reads after the pairs. It reads a sample's R1 and R2 files side by side, as Kraken 2 read them, takes a pair when either mate carries a call for the selection, and matches mates named with `/1` and `/2`, with `.1` and `.2`, or with `_1` and `_2` to their Kraken 2 calls. Files whose records fall out of step stop the extraction with an error. Mates named the last two ways are not recognised as mate names afterwards, so a bundle of them records single reads. With `--bundle`, the bundle records the layout the app's extraction records, interleaved for pairs alone and mixed, with the role of each read, when single reads are present. `--tool nvd` needs the run's BAM files and stops with "No BAM file found for sample" on an import that holds only BLAST tables. `--bundle-name` is the extraction dialog's Name field. With `--by-region`, `--region` takes a reference name from the BAM header, matched exactly, then as a prefix, then as a substring, or a range on one reference written `name:start-end` and counted from 1 with both ends included. A range extracts the reads that overlap it, and a read that overlaps several ranges is written once. A name that holds a colon goes in braces, as `{name}:start-end`.
 
+With `--index`, `--by-region` and `--by-id --bam` read the alignment through that index and publish a `.lungfishfastq` bundle at `--output` with its record. A region then keeps the reads that pass `--min-mapq`, `--exclude-flags` and `--read-group`. `--by-id` takes the names in `--ids` from the alignment, or from the `--source` FASTQ files when you give them. `--taxon-scope` picks which reads of each Kraken 2 `--taxon` to take, `children` (the default) for the taxon and its descendants or `exact` for reads classified to the taxon itself. With `--format json` the command prints event lines on standard output and its text on standard error.
+
 | Argument or flag | What it does |
 |---|---|
 | `--by-id` | Extract reads by read ID from FASTQ files. |
@@ -1601,12 +1797,89 @@ The table marks which route each flag belongs to. A Kraken 2 selection is made w
 | `--sample <sample>` | Sample id. Repeatable, and each one scopes the `--accession` and `--taxon` flags after it (`--by-classifier` only). |
 | `--accession <accession>` | Reference accession / contig name (repeatable, for `--by-classifier`). |
 | `--taxon <taxon>` | Taxonomy ID (repeatable, for `--by-classifier` `--tool` kraken2). |
-| `--read-format <read-format>` | Output read format. Fastq or fasta (for `--by-classifier`. Default fastq). The default is `fastq`. |
+| `--taxon-scope <taxon-scope>` | Which reads of each `--taxon` to take, `children` for the taxon and its descendants or `exact` for the taxon itself (`--tool kraken2`). The default is `children`. |
+| `--read-format <read-format>` | Output read format, `fastq` or `fasta` (for `--by-classifier`). The default is `fastq`. |
 | `--include-unmapped-mates` | Include unmapped mates of mapped pairs (for `--by-classifier`, non-kraken2). |
 | `--exclude-unmapped` | Drops unmapped reads as well as duplicates (`--by-region` only). |
+| `--index <index>` | The alignment's index (`.bai`, `.csi` or `.crai`). With it, `--by-region`, or `--by-id` with `--bam`, publishes a `.lungfishfastq` bundle with its record at `--output`. |
+| `--decoding-reference <decoding-reference>` | FASTA that decodes a CRAM (with `--index`). |
+| `--min-mapq <min-mapq>` | Lowest [mapping quality](../../GLOSSARY.md#mapping-quality) of a read kept (`--by-region` with `--index`). |
+| `--exclude-flags <exclude-flags>` | SAM flag bits of the records left out (`--by-region` with `--index`). |
+| `--read-group <read-group>` | Read group to keep. Repeat for more. All when none is given (`--by-region` with `--index`). |
+| `--records-without-sequence <records-without-sequence>` | How many of the selected alignment records held no sequence, kept in the record (`--by-id` with `--index`). The default is `0`. |
 | `-o, --output <output>` | Output FASTQ file path. |
 | `--bundle` | Wrap output in a `.lungfishfastq` bundle. |
 | `--bundle-name <bundle-name>` | Custom bundle display name (implies `--bundle`). |
+| `--time-limit <minutes>` | Stops any analysis step that runs longer than this many minutes. Without it the run has no time limit. |
+
+### `extract taxa-collection`
+
+Writes the reads of each taxon of a taxa collection from a Kraken 2 result, as the **Extract** button of the taxa collections drawer does. Explained in [Running Kraken 2](../06-classification/02-running-kraken2.md).
+
+```text
+lungfish-cli extract taxa-collection [<options>] --result <result> --collection-id <collection-id> --collection-name <collection-name> --output-dir <output-dir>
+```
+
+It writes one gzip FASTQ file per taxon into `--output-dir`, named after the taxon's display name and tax ID. Each `--target` gives one taxon as `<taxId>,<children|exact>,<display name>`. A taxon with `children` also takes the reads of its descendants, which needs the result's report. A taxon without reads in the result is skipped. When the result holds several read files, a taxon's file holds each pair together. With `--format json` standard output holds only the event lines. SIGTERM cancels the run, which is recorded as cancelled, and the command exits 125.
+
+| Argument or flag | What it does |
+|---|---|
+| `--result <result>` | Kraken 2 classification result folder. |
+| `--collection-id <collection-id>` | Identifier of the collection. |
+| `--collection-name <collection-name>` | Name of the collection, used in messages. |
+| `--target <target>` | A taxon as `<taxId>,<scope>,<display name>`, where `<scope>` is `children` or `exact`. Repeat for each taxon of the collection. |
+| `--output-dir <output-dir>` | Folder for the per-taxon files. |
+
+### `fastq ingest`
+
+Runs the FASTQ storage step that the app runs when a FASTQ file is copied into a project. It reorders the reads with clumpify so the file compresses smaller, compresses it, and writes its metadata sidecar. Explained in [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
+
+```text
+lungfish-cli fastq ingest [<options>] <input>
+```
+
+The processed file is a `.fastq.gz` in the folder of the input, named for the input without its extension and its `_R1`, `_R2`, `_1` or `_2` suffix. It is built in a hidden folder, under the project's `.tmp` folder when the input sits in a project and beside the input otherwise, and moved into place only when it is whole. With `--pair`, the two loose mate files are read whole before anything is staged, and a pair that is cut short or out of step by read name is refused with exit status 3. The command then writes the FASTQ metadata sidecar and a provenance record that names each original file with its SHA-256. Only after that does `--delete-originals` remove the original files, and a cancel (SIGTERM) or a failure leaves them in place. The command reads no platform, so it bins quality scores with `fiveStep`, the default of every platform, unless `--binning` names a scheme. Binning is lossy, and `--binning none` keeps every score, except that with clumping on a called Q0 or Q1 is stored as Q2. With `--format json` the command prints progress as events.
+
+| Argument or flag | What it does |
+|---|---|
+| `<input>` | Input FASTQ file (R1 for paired-end). |
+| `--pair <pair>` | Optional R2 FASTQ file for paired-end mode. |
+| `--binning <binning>` | Quality binning, one of `fiveStep`, `illumina4` (to replay older imports), `eightLevel`, or `none`. The default is `fiveStep`. |
+| `--skip-clumpify` | Skip the read reordering step. |
+| `--delete-originals` | Delete the original FASTQ file(s) once the output, its sidecar and its record are written. |
+
+### `fastq export reads`
+
+Writes the reads of a FASTQ bundle as one FASTQ file with provenance.
+
+```text
+lungfish-cli fastq export reads [<options>] <bundle-path> --output <output>
+```
+
+A bundle with one FASTQ file is copied. A bundle of several source files is joined in the bundle's own order, and a `.gz` output joins gzip inputs byte for byte. A [derived bundle](../../GLOSSARY.md#derived-bundle) holds a recipe and no reads, so it needs `--materialize-derived` to write the reads it stands for. The record is written beside the output.
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle-path>` | The FASTQ bundle (`.lungfishfastq`) the sidebar shows. |
+| `--materialize-derived` | Writes the reads a derived bundle stands for. A derived bundle needs it. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
+
+### `fastq export sample-barcodes`
+
+Writes the sample barcode sheet of the FASTQ metadata drawer as CSV with provenance.
+
+```text
+lungfish-cli fastq export sample-barcodes [<options>] <bundle-path> --tab <tab> --selection <selection> --output <output>
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle-path>` | The FASTQ file or bundle the drawer shows. |
+| `--tab <tab>` | The tab whose table to write, `samples` or `demux`. |
+| `--selection <selection>` | The selection file the app wrote for state the result files do not hold. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
 
 ## Demultiplexing and Oxford Nanopore runs
 
@@ -1620,13 +1893,17 @@ lungfish-cli fastq import-ont ont-run/fastq_pass -o ont-imported
 
 ### `fastq demultiplex`
 
-Splits pooled reads into one bundle per barcode, using cutadapt or an exact matcher. Explained in [Oxford Nanopore Runs](../03-reads/07-ont-runs.md).
+Splits pooled reads into one bundle per barcode, by searching the read sequences with cutadapt or an exact matcher, or by reading the index in the read names. Explained in [Oxford Nanopore Runs](../03-reads/07-ont-runs.md).
 
 ```text
-lungfish-cli fastq demultiplex <input> --kit <kit> --output <output> [--location <location>] [--max-distance-5prime <max-distance-5prime>] [--max-distance-3prime <max-distance-3prime>] [--error-rate <error-rate>] [--overlap <overlap>] [--engine <engine>] [--no-trim] [--discard-unassigned] [--threads <threads>] [--replace]
+lungfish-cli fastq demultiplex [<options>] <input> --kit <kit> --output <output>
 ```
 
-The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. A header line may name the columns instead, so a file headed `id,sequence,sample_name` carries sample names in its third column and the per-barcode bundles are named after them. The long-read kits, meaning the Oxford Nanopore native, rapid, PCR, and 16S barcoding kits and the PacBio kits, are searched as the platform's whole adapter and barcode construct at both ends of each read in both orientations, and a read is assigned only when both ends carry the same barcode. `--location` and the two `--max-distance` flags do not apply to those kits, and the command prints a note on standard error and ignores them. A read with a barcode at one end only joins the unassigned reads, which `--discard-unassigned` drops. For those kits the trim removes the construct at the start of each read, and the copy at its far end stays. `--no-trim` keeps every read whole in every bundle, virtual bundles included. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. Interleaved pairs are demultiplexed by fragment with either engine. Both mates go to the barcode their calls agree on, or to the barcode of the one mate that carries one, and a pair whose mates carry different barcodes goes to the unassigned bundle whole, as the input held it. Merged and single reads keep their own call. For paired input the summary on standard error adds a line such as `Mate pairs: 15 (4 with both mates called alike, 7 placed by their one called mate, 2 sent to unassigned because their mates disagree)`, and `demux-manifest.json` records the counts under `mateCalls`. A run writes into a hidden `.lungfish-demux-incomplete-` folder inside the output folder and moves its bundles into place, the manifest last, only when it finishes, so a run that fails or is cancelled leaves no barcode bundle behind. A run that is killed can leave the hidden folder. `--replace` makes every check before it touches the earlier output, and refuses with exit status 4 when the output folder holds the input or anything else the run reads. It then sets the earlier output aside, removes it once the new bundles are in place, and puts it back if the run fails. The global `--threads` sets the cutadapt thread count, and the default here is 4. The command runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
+There are three engines. `cutadapt` is a fuzzy adapter matcher that allows errors and indels. `exact-bare` matches plain A, C, G and T barcodes exactly. `header-index` splits reads by the index that bcl2fastq or BCL Convert wrote in their names, allows at most one mismatch in each index, runs no tool, and keeps every read whole. With no `--engine`, a file whose read names carry the indexes of two or more of the kit's barcodes is split by those names with `header-index`, and any other file is searched with `cutadapt`. Naming `cutadapt` or `exact-bare` always searches the read sequences.
+
+Before it writes sample files, the run checks how many reads would match the kit's barcodes by chance. When that check cannot judge the kit, because the barcodes are only a few bases long or because cutadapt searches them anywhere in the read, as it does for the Fluidigm Access Array kit, the run is refused. With `--engine exact-bare` the run is also refused when the read names carry the kit's barcodes, which that engine would find in the read sequences only by chance. `--keep-unchecked-samples` makes the sample files anyway, so check each sample against your sample sheet. For Fluidigm barcodes in nanopore reads use [`fastq ont-fluidigm-samples`](#fastq-ont-fluidigm-samples), and for reads whose index is in their names use `--engine header-index`.
+
+The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `nextera-xt-v2`, `idt-ud-indexes`, `fluidigm-access-array`, `pacbio-sequel-16-v3`, `pacbio-sequel-96-v2`, `pacbio-sequel-384-v1`, `m13-universal-primers`, `ont-nbd104`, `ont-nbd114`, `ont-nbd104-114`, `ont-nbd114-96`, `ont-pbc096`, `ont-rbk004`, `ont-rbk114-24`, `ont-rbk114-96`, `ont-16s114-24`, and `ont-rab204-214`. The list still names `idt-ud-indexes`, IDT for Illumina UD Indexes, but every route refuses that kit until its barcode table is checked, so give its barcodes in your own barcode file instead. `--kit` also takes the path of your own barcode file, a CSV, TSV, or whitespace-separated text file with the columns `id,sequence`, optionally followed by `secondary_sequence` and `sample_name`. A header line may name the columns instead, so a file headed `id,sequence,sample_name` carries sample names in its third column and the per-barcode bundles are named after them. The long-read kits, meaning the Oxford Nanopore native, rapid, PCR, and 16S barcoding kits and the PacBio kits, are searched as the platform's whole adapter and barcode construct at both ends of each read in both orientations, and a read is assigned only when both ends carry the same barcode. `--location` and the two `--max-distance` flags do not apply to those kits, and the command prints a note on standard error and ignores them. A read with a barcode at one end only joins the unassigned reads, which `--discard-unassigned` drops. For those kits the trim removes the construct at the start of each read, and the copy at its far end stays. `--no-trim` keeps every read whole in every bundle, virtual bundles included. The `exact-bare` engine matches plain A, C, G, and T barcodes exactly anywhere in a read and on both strands, and never trims. Interleaved pairs are demultiplexed by fragment with either engine. Both mates go to the barcode their calls agree on, or to the barcode of the one mate that carries one, and a pair whose mates carry different barcodes goes to the unassigned bundle whole, as the input held it. Merged and single reads keep their own call. For paired input the summary on standard error adds a line such as `Mate pairs: 15 (4 with both mates called alike, 7 placed by their one called mate, 2 sent to unassigned because their mates disagree)`, and `demux-manifest.json` records the counts under `mateCalls`. A run writes into a hidden `.lungfish-demux-incomplete-` folder inside the output folder and moves its bundles into place, the manifest last, only when it finishes, so a run that fails or is cancelled leaves no barcode bundle behind. A run that is killed can leave the hidden folder. `--replace` makes every check before it touches the earlier output, and refuses with exit status 4 when the output folder holds the input or anything else the run reads. It then sets the earlier output aside, removes it once the new bundles are in place, and puts it back if the run fails. The global `--threads` sets the cutadapt thread count, and the default here is 4. The command runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
 
 | Argument or flag | What it does |
 |---|---|
@@ -1638,9 +1915,10 @@ The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `n
 | `--max-distance-3prime <max-distance-3prime>` | Cutadapt max bases from 3' terminus where barcodes may end. The default is `0`. |
 | `--error-rate <error-rate>` | Cutadapt maximum error rate for barcode matching. The default is `0.15`. |
 | `--overlap <overlap>` | Cutadapt minimum overlap length. The default is `3`. |
-| `--engine <engine>` | Demultiplexing engine, one of `cutadapt` or `exact-bare`. The default is `cutadapt`. |
+| `--engine <engine>` | Demultiplexing engine, one of `cutadapt`, `exact-bare`, or `header-index`. Left out, the read names decide, as the note above says. |
 | `--no-trim` | Cutadapt only. Keep barcode sequences in output reads (exact-bare always preserves reads). |
 | `--discard-unassigned` | Discard reads that do not match any barcode. |
+| `--keep-unchecked-samples` | Makes sample files even when the check for chance matches cannot judge the kit, or when `exact-bare` meets read names that carry the kit's barcodes. Without it such a run is refused. |
 | `-t, --threads <threads>` | Cutadapt thread count, read from the global option. The default is `4`. |
 | `--replace` | Replace an output directory that already holds files, keeping the earlier contents until the new bundles are in place and putting them back if the run fails. Without it the command refuses to overwrite earlier results, names the directory, and lists what it holds. |
 
@@ -1672,8 +1950,10 @@ lungfish-cli fastq scout [<options>] <input> --kit <kit> --output <output>
 Imports an Oxford Nanopore output folder, either `fastq_pass/` or one barcode folder, as one bundle per barcode. Explained in [Oxford Nanopore Runs](../03-reads/07-ont-runs.md).
 
 ```text
-lungfish-cli fastq import-ont <input> --output <output> [--include-unclassified] [--concurrency <concurrency>] [--storage-mode <storage-mode>] [--optimize-storage] [--quality-binning <quality-binning>]
+lungfish-cli fastq import-ont [<options>] <input> --output <output>
 ```
+
+Each barcode folder's chunked FASTQ files become one bundle, and the command writes a demultiplex manifest beside them. A chunked import bins each chunk's quality scores with reformat.sh, and `--optimize-storage` bins them with clumpify. The binning default is `fiveStep`, the default of every platform, which keeps every Q10, Q20 and Q30 count. Binning is lossy, and `--quality-binning none` keeps every score.
 
 | Argument or flag | What it does |
 |---|---|
@@ -1683,7 +1963,7 @@ lungfish-cli fastq import-ont <input> --output <output> [--include-unclassified]
 | `--concurrency <concurrency>` | Max concurrent barcode imports. The default is `4`. |
 | `--storage-mode <storage-mode>` | How to store ONT chunks inside each bundle, one of `chunked` or `flattened`. The default is `chunked`. |
 | `--optimize-storage` | Run clumpify on flattened per-barcode FASTQ payloads to improve compression. |
-| `--quality-binning <quality-binning>` | Quality binning used with `--optimize-storage`. `illumina4` keeps 7 quality levels, `eightLevel` about 21, and `none` keeps every score. The default is `none`. |
+| `--quality-binning <quality-binning>` | Quality binning, one of `fiveStep` (8 quality levels), `illumina4` (7 quality levels, to replay older imports), `eightLevel` (about 21 quality levels), or `none`, which keeps every score. The default is `fiveStep`. |
 
 ### `fastq ont-fluidigm-samples`
 
@@ -1796,6 +2076,53 @@ Adopting moves the BAM and its index into the bundle. `--track-id` defaults to `
 | `--mapping-result <mapping-result>` | Path to the mapping folder that `map` wrote. |
 | `--name <name>` | Display name for the new alignment track. |
 | `--track-id <track-id>` | Override the auto-generated alignment track identifier. |
+
+### `bam remove-track`
+
+Removes an alignment track that `bam filter` derived, with its BAM, index, statistics database and their records. Explained in [Alignment Quality](../04-alignments/04-alignment-quality.md).
+
+```text
+lungfish-cli bam remove-track --bundle <bundle> --track <track>
+```
+
+A source alignment, one that was mapped or imported rather than derived, cannot be removed. Before any file goes, the record of the removal, which names each removed file with its digest, is written to `provenance/removals/<track>.lungfish-provenance.json` in the bundle. `--format` takes `text` or `json` here.
+
+| Argument or flag | What it does |
+|---|---|
+| `--bundle <bundle>` | Path to the reference bundle (`.lungfishref`). |
+| `--track <track>` | ID of the derived alignment track to remove. |
+
+### `bam consensus`
+
+Calls a consensus sequence for one region of a BAM or CRAM from the reads alone. Explained in [Extracting a Consensus Sequence](../05-variants/05-consensus-and-lineage.md).
+
+```text
+lungfish-cli bam consensus [<options>] --alignment <alignment> --index <index> --region <region> --output <output>
+```
+
+The command writes one base per reference position of the region. A position covered by fewer than `--min-depth` reads after the filters is written as N, and the reference never fills one in. An output ending in `.lungfishref` is written as a reference bundle with its record inside, and any other output as a FASTA with its record beside it. A consensus that is N at every position is refused with exit status 3 unless you add `--allow-all-low-depth`. `--format` takes `text` or `json` here.
+
+| Argument or flag | What it does |
+|---|---|
+| `--alignment <alignment>` | Path to the sorted BAM or CRAM. |
+| `--index <index>` | Path to the alignment's index (`.bai`, `.csi` or `.crai`). |
+| `--decoding-reference <decoding-reference>` | FASTA that decodes a CRAM. |
+| `--scope <scope>` | `wholeContig` or `selectedRegion`, recorded with the run. The default is `selectedRegion`. |
+| `--region <region>` | Region as `contig:start-end`, 1-based and inclusive, as samtools takes it. |
+| `--min-depth <min-depth>` | Fewest reads that call a base. Fewer give N. The default is `1`. |
+| `--min-mapq <min-mapq>` | Lowest mapping quality of a read that counts. The default is `0`. |
+| `--min-baseq <min-baseq>` | Lowest base quality of a base that counts. The default is `0`. |
+| `--exclude-flags <exclude-flags>` | SAM flag bits of the reads left out. The default is `2308`, which leaves out unmapped, secondary and supplementary reads. |
+| `--read-group <read-group>` | Read group to keep. Repeat for more. All when none is given. |
+| `--caller-mode <caller-mode>` | samtools consensus mode, `bayesian` or `simple`. The default is `bayesian`. |
+| `--use-ambiguity <use-ambiguity>` | Write IUPAC ambiguity codes, `true` or `false`. The default is `false`. |
+| `--insertion-policy <insertion-policy>` | `omit`, the only policy, one base per reference position. The default is `omit`. |
+| `--deletion-policy <deletion-policy>` | `n`, the only policy, so a deleted position is N. The default is `n`. |
+| `--reference-fill <reference-fill>` | `never`, the only policy, so the reference never fills a base. The default is `never`. |
+| `--name <name>` | FASTA header and bundle name. The default is `<contig> consensus`. |
+| `--result-id <result-id>` | Analysis result the alignment belongs to, a bundle's source assembly. The default is the alignment's name. |
+| `-o, --output <output>` | Output FASTA, or a `.lungfishref` bundle. |
+| `--allow-all-low-depth` | Write a consensus that is N at every position. |
 
 ### `bam filter`
 
@@ -1977,11 +2304,13 @@ lungfish-cli variants call [<options>] --bundle <bundle> --alignment-track <alig
 
 `--alignment-track` takes the track's id, or its display name when exactly one track carries that name. A name shared by several tracks, or a track the bundle does not hold, stops the command with exit status 3 and a message listing the tracks the bundle does hold. The command has no default thresholds. Leave out `--min-af` and `--min-depth` and iVar uses 0.05 and 10, while the other callers run with no threshold filter. Given either flag, LGE removes rows below it after LoFreq, bcftools, Medaka, or Clair3 finish, with a `bcftools view -i` step, and iVar applies it natively. The window always sends 0.05 and 10, so pass `--min-af 0.05 --min-depth 10` to reproduce a window run. `--ploidy` applies to bcftools alone and takes `1` or `2`. Leave it out and LGE derives the value from the bundle's organism metadata as the dialog does, falling back to `1`. A `--ploidy` inside `--extra-args` for bcftools is refused. The `--ivar-*` flags reach iVar only, and iVar's strand-bias filter is off by default because amplicon reads at one site all start from the same primer. iVar needs primer-trimmed reads. On a track that LGE primer-trimmed itself, the command reads the primer-trim record beside the BAM and confirms the trim on its own, as the Call Variants dialog does, so `--ivar-primer-trimmed` is needed only for a BAM trimmed outside LGE. `--platform` applies to Medaka and Clair3 only and is refused with any other caller.
 
+`--caller gatk` runs GATK HaplotypeCaller, the caller of the Call Variants dialog's GATK row, and attaches its calls under `variants/gatk`. The flags that begin "GATK" in the table apply to it alone. For it, `--ploidy` is the GATK sample ploidy, a positive number that defaults to 2, and `--intervals` is read as the path of a BED file or an interval list, so a contig name or a region such as `chr1:1-100` is not accepted.
+
 | Argument or flag | What it does |
 |---|---|
 | `--bundle <bundle>` | Path to the reference bundle directory. |
 | `--alignment-track <alignment-track>` | Bundle alignment track identifier, or its display name when only one track has that name. |
-| `--caller <caller>` | Variant caller, one of `lofreq`, `ivar`, `medaka`, `bcftools`, or `clair3`. |
+| `--caller <caller>` | Variant caller, one of `lofreq`, `ivar`, `medaka`, `bcftools`, `clair3`, or `gatk` (GATK HaplotypeCaller, attached under `variants/gatk`). |
 | `--name, --output-track-name <name>` | Display name for the created variant track. |
 | `--min-af <min-af>` | Minimum allele frequency threshold. |
 | `--min-depth <min-depth>` | Minimum depth threshold. |
@@ -1992,15 +2321,22 @@ lungfish-cli variants call [<options>] --bundle <bundle> --alignment-track <alig
 | `--ivar-merge-af-threshold <ivar-merge-af-threshold>` | Maximum allele frequency distance for merging adjacent iVar SNPs. The default is `0.25`. |
 | `--ivar-bad-quality-threshold <ivar-bad-quality-threshold>` | iVar ALT_QUAL below this fails the bq filter. The default is `20`. |
 | `--ivar-no-ignore-strand-bias` | Apply iVar strand-bias filter (off by default for amplicon data). |
-| `--ploidy <ploidy>` | bcftools genotype ploidy, `1` for viral and bacterial references or `2` for human and other eukaryotic references. The default is derived from the bundle's organism metadata, falling back to `1`. |
+| `--ploidy <ploidy>` | bcftools genotype ploidy, `1` for viral and bacterial references or `2` for human and other eukaryotic references. The default is derived from the bundle's organism metadata, falling back to `1`. For `--caller gatk` it is the GATK sample ploidy, a positive number that defaults to `2`. |
 | `--extra-args, --advanced-options <extra-args>` | Additional caller arguments, written exactly as they should be passed to the underlying tool. |
+| `--emit-ref-confidence <emit-ref-confidence>` | GATK. Reference confidence mode, `NONE` or `GVCF`. `NONE` writes a plain VCF of the called variants. The default is `NONE`. |
+| `--intervals <intervals>` | GATK. Optional intervals file, a BED file or an interval list, read as a file path. |
+| `--pcr-indel-model <pcr-indel-model>` | GATK. PCR indel model. The default is `CONSERVATIVE`. |
+| `--stand-call-conf <stand-call-conf>` | GATK. Calling confidence threshold, used when reference confidence is `NONE`. The default is `30.0`. |
+| `--max-alternate-alleles <max-alternate-alleles>` | GATK. Maximum alternate alleles. The default is `6`. |
+| `--pair-hmm-threads <pair-hmm-threads>` | GATK. Native PairHMM threads. The default is `4`. |
+| `--time-limit <minutes>` | Stops any analysis step that runs longer than this many minutes. Without it the run has no time limit. |
 
 ### `variants phase`
 
 Builds a plan that calls variants with GATK HaplotypeCaller and then phases them with WhatsHap. Nothing runs without `--execute`. Explained in [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md).
 
 ```text
-lungfish-cli variants phase [--execute] [--dry-run] --reference <reference> --bam <bam> --output-vcf <output-vcf> [--output-dir <output-dir>] [--sample <sample>] [--threads <threads>] [--extra-gatk-args <extra-gatk-args>] [--extra-whatshap-args <extra-whatshap-args>]
+lungfish-cli variants phase [--execute] [--dry-run] --reference <reference> --bam <bam> --output-vcf <output-vcf> [--output-dir <output-dir>] [--sample <sample>] [--time-limit <minutes>] [--extra-gatk-args <extra-gatk-args>] [--extra-whatshap-args <extra-whatshap-args>]
 ```
 
 The plan always calls with `-ERC NONE`, writes `gatk-unphased.vcf.gz` and `phased-variant-command-plan.json` into the output folder, and does not index the phased VCF. `--output-dir` defaults to the output VCF's folder, and `--dry-run` wins over `--execute`. The phased entry of the Call Variants dialog is switched off, so this command is the only phased route. The global `--threads` sets the HaplotypeCaller PairHMM thread count, passed as `--native-pair-hmm-threads`, and the default here is 1.
@@ -2013,6 +2349,7 @@ The plan always calls with `-ERC NONE`, writes `gatk-unphased.vcf.gz` and `phase
 | `--output-dir <output-dir>` | Command-plan/provenance output directory. |
 | `--sample <sample>` | Optional sample name passed to WhatsHap. |
 | `-t, --threads <threads>` | GATK PairHMM threads, the number of threads HaplotypeCaller uses, read from the global option. The default is `1`. |
+| `--time-limit <minutes>` | Stops any analysis step that runs longer than this many minutes. Without it the run has no time limit. |
 | `--extra-gatk-args <extra-gatk-args>` | Additional GATK HaplotypeCaller arguments. |
 | `--extra-whatshap-args <extra-whatshap-args>` | Additional WhatsHap phase arguments. |
 
@@ -2048,6 +2385,64 @@ It reads only the first variant track in the bundle that has a database, and has
 | `--filter <filter>` | Smart filter, for example Sample[NA12878].GT=1/1. |
 | `-o, --output <output>` | Output VCF path. |
 | `--limit <limit>` | Maximum variants to export. The default is `5000`. |
+
+### `variants delete`
+
+Deletes variants from the variant databases of a reference bundle, the command the window's variant deletion runs. Explained in [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md).
+
+```text
+lungfish-cli variants delete <bundle> [--all] [--variant-id <variant-id> ...]
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle>` | Reference bundle to edit. |
+| `--all` | Delete every variant of every variant track. |
+| `--variant-id <variant-id>` | Delete one variant, named `<track-id>:<row-id>`. Repeat for more variants. |
+
+### `variants import-sample-metadata`
+
+Imports a CSV or TSV file of sample metadata into the variant databases of a reference bundle. Explained in [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md).
+
+```text
+lungfish-cli variants import-sample-metadata <bundle> <metadata-file> [--metadata-format <metadata-format>]
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle>` | Reference bundle to edit. |
+| `<metadata-file>` | CSV or TSV file of sample metadata. Its first column names the sample. |
+| `--metadata-format <metadata-format>` | File format, `csv` or `tsv`. Taken from the file extension when omitted, `csv` for a `.csv` file and `tsv` for any other. |
+
+### `variants export bookmarked`
+
+Writes the bookmarked variants of one or more variant databases as TSV with provenance.
+
+```text
+lungfish-cli variants export bookmarked <database-paths> ... --output <output> [--force]
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<database-paths>` | A variant database the app opens, such as a bundle's `variants.db`. Repeat for more, in track order. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
+
+### `variants export sample-template`
+
+Writes a sample metadata template of a bundle's variant samples as TSV or CSV with provenance. Fill it in and give it back to `variants import-sample-metadata`.
+
+```text
+lungfish-cli variants export sample-template [<options>] <bundle-path> --output-format <output-format> --output <output>
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle-path>` | The reference bundle whose variant tracks hold the samples. |
+| `--metadata-column <metadata-column>` | A sample metadata column to add to the template, by name. Repeat for more. Its cells are empty. |
+| `--output-format <output-format>` | The file format to write, `csv` or `tsv`. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
 
 ## Human Germline Variants (Experimental)
 
@@ -2257,7 +2652,7 @@ lungfish-cli kraken2 classify [<options>] <fastq-files> ... --db <db>
 
 `conda classify` is the older spelling of this command. Both spellings take the same flags and run the same code. A run started from Tools > Classification shows `kraken2 classify` with `--project` and `--format json` in the Operations panel, so a command copied from it uses the newer spelling. A run started as `kraken2 classify` records that spelling in its provenance.
 
-The output folder holds `classification.kreport`, the per-read `classification.kraken`, `classification.bracken` when `--profile` is given, and the provenance record. A Bracken profile that cannot be made leaves the classification complete, with a warning and exit status 0. The kreport has eight columns because LGE always asks Kraken 2 for minimizer data. `--read-format auto` plans a single input, a file or a `.lungfishfastq` bundle. Its read pairs run as pairs in Kraken 2's paired mode, and its merged or single reads run beside them in the same Kraken 2 run, each with an empty mate staged beside it so it gets the call a single-end run would give. A file whose records strictly alternate read 1 and read 2 is split into two temporary mate files. A run that held pairs counts fragments, a pair counting once, and the result records how many came from pairs and how many from merged or single reads. `unpaired` classifies every read on its own. Two separate files still need `--paired`, which conflicts with any other explicit `--read-format`, and `--unpaired` adds a file of merged or single reads beside such a pair. The input files may mix gzip and plain text, such as a gzip R1 beside a plain R2. Kraken 2 reads every file with the decompression of the first, so each file in the other form is read from a copy in the first file's form, staged in the run's `.lungfish-classify-inputs` folder, removed after the run, and recorded as the step `Lungfish Classification Input Compression Staging`. Files that share the first file's form stage nothing. When Kraken 2 read any file the run staged and then deleted, its provenance step records no `durableReplayArgv`, so repeat such a run with the run's recorded command. The command checks its request before it makes or claims any folder, so a refusal leaves an earlier run's `.lungfish-provenance.json` in the folder byte for byte. The refusals include an unknown database, a database that is not ready, a `--db-digest` that is malformed or that the database's install receipt does not hold, a confidence outside 0.0 to 1.0, `--paired` together with `--batch`, and a run whose input sits inside an output it would remove before Kraken 2 starts, such as an earlier run's provenance copy under `.lungfish-provenance/intermediates/classification-inputs`. Status 3 reports a request that cannot run, such as an unknown database, a malformed `--db-digest`, a confidence out of range, or `--paired` with `--batch`. Status 126 reports a database that is not ready, has no install receipt that checks out, or holds a digest other than `--db-digest`. A run that fails after its folder exists exits with status 64. A rerun into the same folder that passes these checks still removes the earlier run's report, per-read output, and Bracken profile before Kraken 2 starts, so give each run its own `--output-dir`. To extract the reads of one taxon afterwards, run `extract reads --by-classifier --tool kraken2 --result <folder> --taxon <taxid> --output <file>`, which finds the source FASTQ from the result's own record.
+The output folder holds `classification.kreport`, the per-read `classification.kraken`, `classification.bracken` when `--profile` is given, and the provenance record. A Bracken profile that cannot be made leaves the classification complete, with a warning and exit status 0. The kreport has eight columns because LGE always asks Kraken 2 for minimizer data. `--read-format auto` plans a single input, a file or a `.lungfishfastq` bundle. Its read pairs run as pairs in Kraken 2's paired mode, and its merged or single reads run beside them in the same Kraken 2 run, each with an empty mate staged beside it so it gets the call a single-end run would give. A file whose records strictly alternate read 1 and read 2 is split into two temporary mate files. A run that held pairs counts fragments, a pair counting once, and the result records how many came from pairs and how many from merged or single reads. `unpaired` classifies every read on its own. Two separate files still need `--paired`, which conflicts with any other explicit `--read-format`, and `--unpaired` adds a file of merged or single reads beside such a pair. The input files may mix gzip and plain text, such as a gzip R1 beside a plain R2. Kraken 2 reads every file with the decompression of the first, so each file in the other form is read from a copy in the first file's form, staged in the run's `.lungfish-classify-inputs` folder, kept with the run's other kept inputs, and recorded as the step `Lungfish Classification Input Compression Staging`. Files that share the first file's form stage nothing. The command checks its request before it makes or claims any folder, so a refusal leaves an earlier run's `.lungfish-provenance.json` in the folder byte for byte. The refusals include an unknown database, a database that is not ready, a `--db-digest` that is malformed or that the database's install receipt does not hold, a confidence outside 0.0 to 1.0, `--paired` together with `--batch`, and a run whose input sits inside an output it would remove before Kraken 2 starts, such as an earlier run's provenance copy under `.lungfish-provenance/intermediates/classification-inputs`. Status 3 reports a request that cannot run, such as an unknown database, a malformed `--db-digest`, a confidence out of range, or `--paired` with `--batch`. Status 126 reports a database that is not ready, has no install receipt that checks out, or holds a digest other than `--db-digest`. A run that fails after its folder exists exits with status 64. A rerun into the same folder that passes these checks still removes the earlier run's report, per-read output, and Bracken profile before Kraken 2 starts, so give each run its own `--output-dir`. To extract the reads of one taxon afterwards, run `extract reads --by-classifier --tool kraken2 --result <folder> --taxon <taxid> --output <file>`, which finds the source FASTQ from the result's own record.
 
 With `--format json`, standard output holds version 2 events only. Otherwise, and also with `--format tsv`, the command prints the text it has always printed, with its errors and warnings on standard error. A SIGTERM records the run as cancelled and the command exits 125.
 
@@ -2279,30 +2674,40 @@ With `--format json`, standard output holds version 2 events only. Otherwise, an
 | `--min-hit-groups <min-hit-groups>` | Override minimum hit groups. |
 | `--memory-mapping` | Use memory-mapped I/O (slower, less RAM). |
 | `--quick` | Use Kraken2 quick mode. |
+| `--time-limit <minutes>` | Stops any analysis step that runs longer than this many minutes. Without it the run has no time limit. |
 | `--bracken-read-length <bracken-read-length>` | Read length for Bracken `-r` flag. The default is `150`. |
 | `--bracken-level <bracken-level>` | Bracken taxonomic level, one of `D`, `P`, `C`, `O`, `F`, `G`, or `S`. The default is chosen to suit the selected database. |
 | `--bracken-threshold <bracken-threshold>` | Bracken minimum read threshold. The default is `10`. |
 | `--extra-args <extra-args>` | Additional kraken2 arguments passed verbatim. |
 
-### `conda extract`
+### `conda classify`
 
-Writes the reads Kraken 2 assigned to chosen taxa into FASTQ files. Explained in [Running Kraken 2](../06-classification/02-running-kraken2.md).
+The older spelling of [`kraken2 classify`](#kraken2-classify), kept so recorded commands still run. Explained in [Running Kraken 2](../06-classification/02-running-kraken2.md).
 
 ```text
-lungfish-cli conda extract [<options>] --kraken-output <kraken-output> --source <source> ... --output <output> ... --taxid <taxid> ...
+lungfish-cli conda classify [<options>] <fastq-files> ... --db <db>
 ```
 
-`--output` must be given once for each `--source`, in the same order. `extract reads --by-classifier --tool kraken2` does the same job with the window's code and is the form this manual uses. Kraken 2 names each fragment of a paired run once, so with `--no-read-pairs` the command matches those fragment names and writes the records of every classified fragment. This command extracts each file by name on its own, so mates named with `.1` and `.2` leave the R2 output empty. Use `extract reads --by-classifier` for such files.
+It takes exactly the flags of `kraken2 classify` above, `--time-limit` included, and runs the same code. Write `kraken2 classify` in new scripts.
+
+### `kraken2 export table`
+
+Writes the taxonomy table of a Kraken 2 result as TSV or CSV with provenance, as the taxonomy viewer's Export does.
+
+```text
+lungfish-cli kraken2 export table [<options>] <source-path> --output-format <output-format> --output <output>
+```
+
+Clade % and Direct % give each row's reads as a percent of all reads of its sample, unclassified reads included. With more than one sample, each sample's row is followed by its taxa and then its own unclassified row.
 
 | Argument or flag | What it does |
 |---|---|
-| `--kraken-output <kraken-output>` | Kraken2 per-read output file (`.kraken`). |
-| `--source <source>` | Source FASTQ file(s). Repeat for paired-end. |
-| `--output <output>` | Output FASTQ file(s). Must match source count. |
-| `--taxid <taxid>` | Taxonomy ID(s) to extract (comma-separated or repeated). |
-| `--include-children` | Include reads classified to descendant taxa. |
-| `--kreport <kreport>` | Kreport file for taxonomy tree (required with `--include-children`). |
-| `--no-read-pairs` | Extract only exact read IDs (don't pair /1 and /2 mates). |
+| `<source-path>` | The Kraken 2 result the app shows. Pass `kraken2.sqlite`, `classification-result.json` or the result folder. |
+| `--sample <sample>` | A sample to export, as the result records its id. Repeat for more. Left out, every sample is exported. |
+| `--metadata-column <metadata-column>` | A sample metadata column to add, by name. Repeat for more. Values come from the result's metadata. |
+| `--output-format <output-format>` | The file format to write, `csv` or `tsv`. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
 
 ### `blast verify`
 
@@ -2326,6 +2731,97 @@ lungfish-cli blast verify [<options>] --kreport <kreport> --source <source> ... 
 | `--include-children` | Include reads classified to descendant taxa. |
 | `--extra-args <extra-args>` | Additional BLAST URL API parameters as KEY=VALUE tokens (for example WORD_SIZE=11). |
 | `--result-dir <result-dir>` | Classifier result folder to save the verification in, under `blast-verifications/`. The window restores it when the taxon is selected. |
+
+### `blast submit`
+
+Sends every sequence of a FASTA file to NCBI BLAST and saves the result in a new folder. Every BLAST action in the window, from a classifier row, an assembly or a FASTA selection, runs this command. Explained in [BLAST Verification](../06-classification/06-blast-verification.md).
+
+```text
+lungfish-cli blast submit [<options>] --query <query> --output <output>
+```
+
+The `--output` folder gets `query.fasta`, a copy of the query, beside `blast-result.json` and its provenance. The record names the copy's SHA-256 and the lineage flags, which say which result, sample, taxon or contig and which subsample the sequences came from. The sequences go to NCBI and leave this Mac, and LGE cannot call them back. If NCBI is slow, the same sequences are sent again, at most three sends in all, and the record lists every send. A search still waiting stays in the folder, and `blast resume --output <folder>` collects it later. `--park` exits with status 75 and a waiting event once every send has been out long enough, and leaves the search to `blast resume`. NCBI gets the contact email set in LGE's Settings, or else LGE's shared no-reply address.
+
+| Argument or flag | What it does |
+|---|---|
+| `--query <query>` | FASTA file of the sequences to BLAST. |
+| `--output <output>` | Result folder to create, which gets `query.fasta`, `blast-result.json` and its provenance. |
+| `--name <name>` | Label of the search in the result. The default is the query's file name. |
+| `--taxid <taxid>` | Taxon the sequences were assigned to, recorded. `--accepted-taxid` and `--accepted-name` judge hits, or else the `--name` label does. |
+| `--contig <contig>` | Contig the sequences are, or came from, recorded. |
+| `--source-result <source-result>` | Result folder the sequences came from, recorded. |
+| `--sample <sample>` | Sample the sequences came from, recorded. |
+| `--subsample-count <subsample-count>` | Number of sequences a subsample drew, recorded. |
+| `--subsample-seed <subsample-seed>` | Seed of that subsample, recorded. |
+| `--database <database>` | BLAST database to search. The default is `core_nt`. |
+| `--entrez-query <entrez-query>` | Entrez query that restricts the search, for example `txid11320[Organism:exp]`. |
+| `--accepted-taxid <accepted-taxid>` | Taxon whose hits support the assignment. Repeatable. |
+| `--accepted-name <accepted-name>` | Organism name whose hits support the assignment. Repeatable. |
+| `--related-taxid <related-taxid>` | Taxon whose hits count as a relative. Repeatable. |
+| `--related-name <related-name>` | Organism name whose hits count as a relative. Repeatable. |
+| `--judged-at <judged-at>` | What the verdicts were judged at, `species`, `rowTaxId` or `names`, recorded and shown beside the counts. |
+| `--extra-args <extra-args>` | Additional BLAST URL API parameters as KEY=VALUE tokens (for example WORD_SIZE=11). |
+| `--park` | Exit 75 with a waiting event once every send has been out long enough, and leave the search to `blast resume`. |
+
+### `blast resume`
+
+Goes on with a BLAST search from its result folder. Explained in [BLAST Verification](../06-classification/06-blast-verification.md).
+
+```text
+lungfish-cli blast resume [<options>] --output <output>
+```
+
+It reads `blast-search.json` in the `--output` folder, goes on from where the search stands with the request IDs it holds, and saves the result there. SIGTERM exits 125 and leaves the search as it stands, so another resume can go on with it. A search someone stopped is taken up again.
+
+| Argument or flag | What it does |
+|---|---|
+| `--output <output>` | Result folder that holds the search's `blast-search.json`. |
+| `--once` | Makes one pass of what is due, then exits, with status 75 while the search still waits at NCBI. |
+| `--check-now` | Checks every send now, as often as NCBI allows, whatever its next check says. |
+| `--send-again` | Sends the same sequences to NCBI once more, as a person's own choice. |
+
+### `blast stop`
+
+Stops a BLAST search, so that LGE no longer checks it. Explained in [BLAST Verification](../06-classification/06-blast-verification.md).
+
+```text
+lungfish-cli blast stop --output <output>
+```
+
+It marks the search in the `--output` folder as stopped and records that it was cancelled. LGE keeps its request IDs and contacts nothing, and NCBI may still finish it. `blast resume --output <folder>` takes it up again while NCBI holds it.
+
+| Argument or flag | What it does |
+|---|---|
+| `--output <output>` | Result folder that holds the search's `blast-search.json`. |
+
+### `blast in-flight`
+
+Lists the BLAST searches that have not ended.
+
+```text
+lungfish-cli blast in-flight [--project <project>]
+```
+
+It reads the lines under the storage root, each naming a search's result folder, and lists those not ended. A line whose folder has been missing for 72 hours since its last contact is retired, and the search is taken up again when its project reopens.
+
+| Argument or flag | What it does |
+|---|---|
+| `--project <project>` | Project folder that has just opened, whose searches this adopts from its result folders. |
+
+### `blast export table`
+
+Writes the hit table of a saved BLAST search as TSV or CSV with provenance, as the BLAST Results drawer's export does.
+
+```text
+lungfish-cli blast export table [<options>] <record-path> --output-format <output-format> --output <output>
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<record-path>` | The saved BLAST search the drawer shows. Pass the `blast-result.json` of a `blast submit` folder or a BLAST verification archive file. |
+| `--output-format <output-format>` | The file format to write, `csv` or `tsv`. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
 
 ### `esviritu detect`
 
@@ -2375,25 +2871,49 @@ lungfish-cli esviritu db-status
 
 It takes no arguments beyond the global flags.
 
-### `taxtriage run`
+### `esviritu export detections`
 
-Runs the TaxTriage Nextflow pipeline on one sample or a samplesheet. Explained in [Running TaxTriage](../06-classification/04-running-taxtriage.md).
+Writes the detection table of an EsViritu result as TSV or CSV with provenance, as the EsViritu viewer's Export does.
 
 ```text
-lungfish-cli taxtriage run [<options>] --output <output>
+lungfish-cli esviritu export detections [<options>] <result-path> --output-format <output-format> --output <output>
 ```
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-path>` | The EsViritu result folder the app opens, which holds `esviritu.sqlite`. |
+| `--sample <sample>` | A sample to export, as the result records its id. Repeat for more. Left out, every sample is exported. |
+| `--metadata-column <metadata-column>` | A sample metadata column to add, by name. Repeat for more. Values come from the result's metadata. |
+| `--output-format <output-format>` | The file format to write, `csv` or `tsv`. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
+
+### `taxtriage run`
+
+Runs the TaxTriage Nextflow pipeline on one or more samples. Explained in [Running TaxTriage](../06-classification/04-running-taxtriage.md).
+
+```text
+lungfish-cli taxtriage run <options>
+```
+
+`run` is the default subcommand, so `lungfish-cli taxtriage <options>` runs it too. Give `--output` or `--project`. With a plain `--output`, one Nextflow run processes every sample and the folder keeps every file TaxTriage wrote, so samples that record different platforms are refused there. With `--project`, the result lands in the project's `Analyses/taxtriage-batch-<timestamp>/` folder, where the app's TaxTriage runs put it. One sample runs in that folder itself, and several samples each run alone in a folder named after the sample. The run then builds `taxtriage.sqlite` for the viewer, removes the intermediate files the viewer does not read while keeping `top/`, and the bundle of each sample that completes lists the run among its analyses. `--batch` runs each sample alone in its own Nextflow run and folder of one batch result, gets `taxtriage.sqlite` and loses its intermediate files as a `--project` result does. A `--negative-control` mark stays with the result, so the batch overview flags organisms found in a control as possible contamination. TaxTriage itself never sees the mark, and a name that no sample of the run has is refused.
+
+A `.lungfishfastq` bundle given to `--input` is planned whole. One file inside a bundle, such as one chunk of a multi-file nanopore bundle, is read as the file you named, so the run sees only that part of the sample. Pass the bundle itself to run the whole sample. `--input` and `--input2` that together name every file of one bundle are read as that bundle, so two chunks of one run become one joined file and never a pair. The one exception is the preview file of a virtual bundle, which holds a few reads and not the sample, so the command reads its bundle and prints a note saying so. A sample whose reads lie in a bundle runs on the platform the bundle records, and it is a negative control when the bundle's sample role is negative control or extraction blank. A folder gives one sample for each FASTQ file or bundle in it, and a folder that holds paired reads is refused, since the folder route pairs no R1 and R2 files, so give pairs in a `--samplesheet`.
 
 A `--samplesheet` CSV needs exactly the header `sample,fastq_1,fastq_2,platform`, which is the file LGE writes into every result folder. Change `--revision` only to reproduce an older run. The result folder holds `taxtriage-launch-command.txt` and `.sh`, which record the repository, pinned revision, profile, working folders, and the full Nextflow command.
 
 | Argument or flag | What it does |
 |---|---|
-| `--input <input>` | Input FASTQ file (R1 or single-end), or a `.lungfishfastq` bundle, which is planned whole. A bundle of pairs runs as pairs, and a bundle that mixes pairs with merged or single reads, or holds several files of single reads, gives one single-end file of every read. A file inside a bundle is read as named, except the preview of a virtual bundle, which reads its bundle. `--input` and `--input2` that name every file of one bundle are read as that bundle. |
+| `--input <input>` | Input FASTQ file (R1 or single-end), a `.lungfishfastq` bundle, or a folder. Repeat it to run several, in the order given. A bundle of pairs runs as pairs, and a bundle that mixes pairs with merged or single reads, or holds several files of single reads, gives one single-end file of every read. |
 | `--input2 <input2>` | Second FASTQ file (R2 for paired-end). |
 | `--recursive` | When `--input` is a directory, include eligible FASTQ files in subfolders. |
-| `--sample <sample>` | Sample identifier. Required when `--input` names a file or a bundle. An `--input` folder needs none and names each sample after its file, or `<sample>-<file>` when `--sample` is given and the folder holds several files. |
+| `--sample <sample>` | Sample name, required with one `--input` file or bundle and with `--input2`. With an `--input` folder or several `--input`, each sample is named after its file or bundle, behind this name when given. |
 | `--samplesheet <samplesheet>` | Path to a TaxTriage samplesheet CSV (alternative to `--input`). |
-| `--platform <platform>` | Sequencing platform, one of `illumina`, `oxford`, or `pacbio`. The default is `illumina`. |
-| `-o, --output <output>` | Output directory for results. With several samples, one Nextflow run processes them all and writes their results to this folder. |
+| `--negative-control <sample>` | Marks the sample of this name as a [negative control](../../GLOSSARY.md#negative-control). Repeat it for several. A bundle whose sample role is negative control or extraction blank marks its sample without this flag. |
+| `--platform <platform>` | Sequencing platform, one of `illumina`, `oxford`, or `pacbio`, for each sample whose reads record none. The default is `illumina`. |
+| `-o, --output <output>` | Output directory for results. Not with `--project`. |
+| `--project <project>` | The `.lungfish` project the run belongs to. The result lands in its `Analyses/taxtriage-batch-<timestamp>/` folder. Not with `--output`. |
+| `--batch` | Runs each sample alone, in its own Nextflow run and folder of one batch result. It pairs no R1 and R2 files by name, so give pairs in a `--samplesheet`. |
 | `--db <db>` | Path to existing Kraken2 database. |
 | `--confidence <confidence>` | Kraken2 confidence threshold. The default is `0.2`. |
 | `--top-hits <top-hits>` | Number of top hits to report. The default is `10`. |
@@ -2419,6 +2939,49 @@ lungfish-cli taxtriage check-prerequisites
 It reports Nextflow and the container runtime, which for TaxTriage is Docker, and exits with status 126 when either is missing. Nextflow arrives with the Required Setup pack, so install that pack when Nextflow is reported missing, whatever install line the command suggests.
 
 It takes no arguments beyond the global flags.
+
+### `taxtriage export results`
+
+Writes the TaxTriage results table as CSV or TSV, with the rows the viewer shows for the given search, sort and filters.
+
+```text
+lungfish-cli taxtriage export results [<options>] <result-path> --output-format <output-format> --output <output>
+```
+
+The next two commands share its `<result-path>`, `--sample`, `--search`, `--output` and `--force`, which mean the same in each. An existing output file is refused without `--force`.
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-path>` | The TaxTriage result folder the app opens, which holds `taxtriage.sqlite`. |
+| `--sample <sample>` | A sample to export, as the result records its id. Repeat for more. Left out, every sample is exported. |
+| `--search <search>` | Keeps the rows the viewer's search matches for this text. |
+| `--sort <sort>` | Sorts by a column, written `<column>:ascending` or `<column>:descending`. The first is the primary key. |
+| `--filter <filter>` | A column filter as the viewer stores it, one JSON object. Repeat for more. |
+| `--filter-match <filter-match>` | Keeps a row when all filters match or when any filter matches. The default is all. |
+| `--metadata-column <metadata-column>` | A sample metadata column to add, by name. Repeat for more. Values come from the result's metadata. |
+| `--output-format <output-format>` | The file format to write, `csv` or `tsv`. |
+| `-o, --output <output>` | The file to write. |
+| `--force` | Overwrite an existing output file. |
+
+### `taxtriage export organism-matrix`
+
+Writes the cross-sample organism matrix of a TaxTriage result as CSV with provenance.
+
+```text
+lungfish-cli taxtriage export organism-matrix [<options>] <result-path> --output <output>
+```
+
+It takes `<result-path>`, `--sample`, `--search`, `-o, --output` and `--force`, as `taxtriage export results` describes them.
+
+### `taxtriage export batch-report`
+
+Writes the batch report of a TaxTriage result as text with provenance.
+
+```text
+lungfish-cli taxtriage export batch-report [<options>] <result-path> --output <output>
+```
+
+It takes `<result-path>`, `--sample`, `--search`, `-o, --output` and `--force`, as `taxtriage export results` describes them. The result folder must hold `taxtriage-result.json` beside `taxtriage.sqlite`.
 
 ### `nao-mgs import`
 
@@ -2450,6 +3013,26 @@ It prints the columns TaxID, Organism, Hits, Avg %ID, Avg Score, and Refs. On a 
 | `<input-path>` | Path to `virus_hits_final.tsv`(`.gz`) or results directory. |
 | `--top <top>` | Number of top taxa to display. The default is `20`. |
 
+### `nao-mgs export table`
+
+Writes the taxon table of an NAO-MGS result as TSV with provenance, with the rows the viewer shows for the given search, sort and filters.
+
+```text
+lungfish-cli nao-mgs export table [<options>] <result-path> --output <output>
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-path>` | The NAO-MGS result folder the app opens, which holds `hits.sqlite` and `manifest.json`. |
+| `--sample <sample>` | A sample to export, as the result records its id. Repeat for more. Left out, every sample is exported. |
+| `--search <search>` | Keeps the rows the viewer's search matches for this text. |
+| `--sort <sort>` | Sorts by a column, written `<column>:ascending` or `<column>:descending`. The first is the primary key. |
+| `--filter <filter>` | A column filter as the viewer stores it, one JSON object. Repeat for more. |
+| `--filter-match <filter-match>` | Keeps a row when all filters match or when any filter matches. The default is all. |
+| `--metadata-column <metadata-column>` | A sample metadata column to add, by name. Repeat for more. Values come from the result's metadata. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
+
 ### `nvd import`
 
 Imports NVD results into a bundle. Explained in [Novel Virus Diagnostics](../06-classification/09-novel-virus-detection.md).
@@ -2478,6 +3061,23 @@ With `--format tsv` the columns keep the pipeline's own names, `sample_id`, `qse
 |---|---|
 | `<input-path>` | Path to NVD results directory or *`_blast_concatenated.csv`(`.gz`) file. |
 | `--top <top>` | Number of top contigs to display. The default is `20`. |
+
+### `nvd export contigs`
+
+Writes the contigs table of an NVD result as TSV with provenance.
+
+```text
+lungfish-cli nvd export contigs [<options>] <result-path> --output <output>
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-path>` | The NVD result folder the app opens, which holds `hits.sqlite` and `manifest.json`. |
+| `--sample <sample>` | A sample to export, as the result records its id. Repeat for more. Left out, every sample is exported. |
+| `--search <search>` | Keeps the rows the viewer's search matches for this text. |
+| `--metadata-column <metadata-column>` | A sample metadata column to add, by name. Repeat for more. Values come from the result's metadata. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
 
 ### `cz-id import`
 
@@ -2544,7 +3144,7 @@ Builds a SQLite database from a TaxTriage result folder.
 lungfish-cli build-db taxtriage <result-dir> [--force] [--no-cleanup]
 ```
 
-When it prints "top report fallback", the confidence report was missing and TASS scores are stored as 0.
+When it prints "top report fallback", the confidence report was missing and TASS scores are stored as 0. Each sample takes the BAM file named for it exactly, first `minimap2/<sample>.<sample>.dwnld.references.bam`. A file whose name fits a longer sample id of the same result is never taken for a shorter one, and each fit is named in a build line and in the database's metadata. The app rebuilds an older TaxTriage database once when it opens the result, and `--force` does the same here.
 
 | Argument or flag | What it does |
 |---|---|
@@ -3464,6 +4064,28 @@ lungfish-cli primers analysis annotated-reference <bundle-path> --result-id <res
 | `--result-id <result-id>` | Result UUID from `primers analysis inspect --json`. |
 | `--output-directory <output-directory>` | Existing destination directory. |
 
+### `primers analysis export-selection`
+
+Writes a primer FASTA bundle or a reference amplicon for one saved selection, the same new `.lungfishref` bundle that the saved primer analysis view writes for **Save Primer FASTA Bundle** and **Extract Reference Amplicon**. Explained in [Reviewing and Ordering Primers](../10-primer-design/05-reviewing-and-ordering-primers.md).
+
+```text
+lungfish-cli primers analysis export-selection [<options>] <bundle-path> --kind <kind> --output <output>
+```
+
+Name exactly one selection, which is one primer (`--target-id` and `--primer-id`), one amplicon (`--target-id` and `--amplicon-id`), one numbered pool (`--source-result-id` and `--pool`) or one native pool (`--source-result-id` and `--native-pool`). `--kind primer-fasta` saves the selected primers as `primers.fasta`, 5' to 3' as they were stored, and for an amplicon it saves that amplicon's primers. `--kind reference-amplicon` extracts the saved reference span of one amplicon, with its primer sites as an annotation track, so it needs an amplicon. The IDs are the ones the saved analysis stores, and **Copy CLI Command** on an export made in the app records them. The bundle keeps its provenance and a copy of the evidence it came from. The saved analysis is never changed, and an existing `--output` is never replaced.
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle-path>` | Path to the saved `.lungfishprimeranalysis` bundle. |
+| `--kind <kind>` | What to write, `primer-fasta` for the selected primers or `reference-amplicon` for one amplicon's reference span. |
+| `--target-id <target-id>` | Target ID of the primer or amplicon, with `--primer-id` or `--amplicon-id`. |
+| `--primer-id <primer-id>` | Primer ID, with `--target-id`. |
+| `--amplicon-id <amplicon-id>` | Amplicon ID, with `--target-id`. |
+| `--source-result-id <source-result-id>` | ID of the saved result a pool belongs to, with `--pool` or `--native-pool`. |
+| `--pool <pool>` | Numbered pool to export, 1 or higher, with `--source-result-id`. |
+| `--native-pool <native-pool>` | Pool name exactly as the design tool saved it, with `--source-result-id`. |
+| `--output <output>` | New `.lungfishref` bundle to write. It must not exist, and its parent folder must. |
+
 ## MHC genotyping
 
 The window covers this ground in [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md), [Reading the Genotype Comparison](../09-genotyping/03-reading-the-genotype-comparison.md), and [Exporting Genotypes](../09-genotyping/04-haplotype-definitions-and-export.md). Allele names follow the scheme [How allele names are built](../09-genotyping/01-what-is-mhc-genotyping.md#how-allele-names-are-built) explains. The `--haplotype-*` percent filters hide rows from the matrix and workbook views and never delete evidence from the report.
@@ -3904,6 +4526,21 @@ lungfish-cli genotype export-labkey --bundle <bundle> --output-dir <output-dir>
 | `-b, --bundle <bundle>` | Path to the `.lungfishgenotype` bundle. |
 | `-o, --output-dir <output-dir>` | Directory to write the LabKey CSV files into. Created if missing. |
 
+### `genotype export-manual-definitions`
+
+Writes a genotype bundle's manual haplotype definitions as JSON with provenance, the definitions you assigned by hand in the genotype view. Explained in [Exporting Genotypes](../09-genotyping/04-haplotype-definitions-and-export.md).
+
+```text
+lungfish-cli genotype export-manual-definitions [<options>] <bundle-path> --selection <selection> --output <output>
+```
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundle-path>` | The `.lungfishgenotype` bundle the assignments belong to. |
+| `--selection <selection>` | The selection file the app wrote for state the result files do not hold. |
+| `-o, --output <output>` | The file to write. An existing file is refused without `--force`. |
+| `--force` | Overwrite an existing output file. |
+
 ### `genotype apply-annotations`
 
 Merges an annotation patch into a genotype bundle's `annotations.json`. Explained in [Reading the Genotype Comparison](../09-genotyping/03-reading-the-genotype-comparison.md).
@@ -3967,6 +4604,322 @@ Is not supported in this release, and this manual does not document it further. 
 ```text
 lungfish-cli genotype ai-haplotyping <options>
 ```
+
+## RNA-seq
+
+RNA-seq measures which genes a sample is expressing by sequencing its RNA and counting the reads that come from each gene. Bulk RNA-seq counts a whole tissue sample at once, and single-cell RNA-seq counts each cell apart, tagging every molecule with a [UMI](../../GLOSSARY.md#umi), a short random tag that marks one original molecule. [What Is RNA-seq](../11-rna-seq/01-what-is-rna-seq.md) explains both, and the chapters after it run them in the window. The commands below share three ideas. A reference set is a genome, its annotation and any extra sequences, such as a virus or spike-ins, that LGE keeps together under an id named by their content. salmon counts reads against an index of the set's transcripts on this Mac. STAR is a mapper that LGE runs only on a Linux machine, through a [plan folder](../08-workflows/04-running-on-a-linux-machine.md) that you copy there and adopt back. A count result is a `.lungfishrnaseq` folder.
+
+Run this to build a rhesus macaque reference set, index it, and count two FASTQ bundles of a project. The file names are placeholders for your own genome and annotation.
+
+```bash
+PROJECT="$HOME/Documents/My Project.lungfish"
+lungfish-cli rnaseq reference-set --genome Mmul_10.fa.gz --annotation Mmul_10.gtf.gz \
+  --species "Macaca mulatta" --assembly Mmul_10
+SET="the id of the set the line above built"
+lungfish-cli rnaseq index --set "$SET"
+lungfish-cli rnaseq quant "$PROJECT/Imports/A.lungfishfastq" "$PROJECT/Imports/B.lungfishfastq" \
+  --project "$PROJECT" --set "$SET"
+```
+
+### `rnaseq reference-set`
+
+Builds a reference set from a genome, an annotation and extra sequences. Explained in [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md).
+
+```text
+lungfish-cli rnaseq reference-set [<options>] --genome <genome> --annotation <annotation>
+```
+
+LGE copies each file into the set, checks its SHA-256, writes the transcript FASTA with gffread and the gene and transcript tables, and names the set by its content, so a set of the same content is reused. An extra is written `<kind>,<name>,<fasta>[,<annotation>]`, where kind is `virus`, `bacterium` or `spike-in`. The annotation of an extra needs `--layout deposit`.
+
+| Argument or flag | What it does |
+|---|---|
+| `--genome <genome>` | Genome FASTA, plain or gzip, or a `.lungfishref` reference bundle. |
+| `--annotation <annotation>` | GTF annotation of the genome, plain or gzip. |
+| `--default <default>` | A named default set whose checksums the files must equal, such as `rhesus/ensembl-100`. |
+| `--name <name>` | Display name of the set. |
+| `--species <species>` | Species, such as "Macaca mulatta". |
+| `--assembly <assembly>` | Assembly name, such as `Mmul_10`. |
+| `--assembly-accession <assembly-accession>` | Assembly accession. |
+| `--annotation-source <annotation-source>` | Annotation source, such as Ensembl or RefSeq. |
+| `--annotation-release <annotation-release>` | Annotation release, such as `100`. |
+| `--extra <extra>` | An extra sequence as `<kind>,<name>,<fasta>[,<annotation>]`, in the order given. |
+| `--extra-mask <extra-mask>` | An extra's rRNA mask as `<name>,<gtf>`, the GTF's gene lines of gene_biotype rRNA. |
+| `--layout <layout>` | `lge` or `deposit`. The default is `lge`. |
+| `--study <study>` | The study whose deposit the deposit layout reproduces. |
+| `--mitochondrial-contig <mitochondrial-contig>` | A mitochondrial contig, when the files do not name it. |
+| `--assembly-report <assembly-report>` | NCBI assembly report that types the mitochondrion. |
+| `--storage-root <storage-root>` | Managed storage root. The default is the configured location. |
+
+### `rnaseq index`
+
+Builds or reuses the salmon index of a reference set. Explained in [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md).
+
+```text
+lungfish-cli rnaseq index [<options>] --set <set>
+```
+
+LGE writes the set's transcripts and then its genome as decoys into one file, runs salmon index with the same options every time, and keeps the index under the storage root by set, salmon version, k and decoys. A decoy is genome sequence that catches reads from outside the transcripts. A second request for the same index reuses it and starts no salmon. Every build runs salmon with 8 threads, so `--threads` does not apply. A build needs about 16.6 GB of memory and 64 GB of free disk, and on a Mac with less, LGE refuses before it starts and says how to build the index on Linux.
+
+| Argument or flag | What it does |
+|---|---|
+| `--set <set>` | The id of a reference set under the storage root. |
+| `--k <k>` | [k-mer](../../GLOSSARY.md#k-mer) length, an odd number up to 31. The default is `31`. |
+| `--decoys <decoys>` | `genome` to add the genome as decoys, or `none`. The default is `genome`. |
+| `--storage-root <storage-root>` | Managed storage root. The default is the configured location. |
+
+### `rnaseq quant`
+
+Counts bulk RNA-seq reads in a project with salmon, one FASTQ bundle per sample. Explained in [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md).
+
+```text
+lungfish-cli rnaseq quant [<options>] [<bundles> ...] --set <set>
+```
+
+salmon runs with selective alignment and library type A on the set's own index, which `rnaseq index` builds, and this command never builds one itself. Reads are not trimmed unless you pass `--trim`, which runs Trim Galore with poly-G trimming off unless you pass `--poly-g-trimming on`. Duplicates are kept. The result holds transcript counts and gene sums through the set's transcript table, in unit estimated, and its record names the set, the index's hashes, salmon's version and every setting that changes counts. `--threads` is recorded and changes no count.
+
+With `--write-plan`, the command writes a plan folder for a run on a Linux machine instead of counting here, one plan per sample, and writes no result in a project. Each plan runs salmon on the index this Mac published for the set, or with `--chain` a STAR chain on the STAR index an earlier Linux run built. A STAR chain pins the STAR index of its version, which you plan with `rnaseq index-plan --star <version>`, run, and record with `rnaseq index-adopt`. A run you adopt as a result takes the manifest of the executor you built, through `--executor-manifest`, since the plan pins it. Adopt the returned counts with `import rnaseq --adopt`.
+
+| Argument or flag | What it does |
+|---|---|
+| `<bundles>` | FASTQ bundles, one sample each. A plan of staged reads names none. |
+| `--project <project>` | The project the result is written in, required unless `--write-plan` is given. |
+| `--name <name>` | The result's name. The default is `RNA-seq counts`. |
+| `--set <set>` | The id of a reference set under the storage root. |
+| `--k <k>` | k-mer length of the index, an odd number up to 31. The default is `31`. |
+| `--decoys <decoys>` | `genome` for the index with the genome as decoys, or `none`. The default is `genome`. |
+| `--trim` | Trims the reads with Trim Galore before salmon. Reads are not trimmed by default. |
+| `--poly-g-trimming <poly-g-trimming>` | With `--trim`, `on` passes `--poly_g` to Trim Galore and `off` (the default) passes `--no_poly_g`. |
+| `--storage-root <storage-root>` | Managed storage root. The default is the configured location. |
+| `--write-plan <folder>` | Writes a plan folder for a run on a Linux machine to this new folder instead of counting here. Nothing runs here and nothing is submitted, so `--project` is not used. |
+| `--chain <chain>` | With `--write-plan`, what each plan runs after trimming, one of `salmon` (the default), `star-salmon`, `star-salmon-errormodel`, `star-2.7.11b-genecounts`, `star-2.7.3a-genecounts`, or `star-2.7.11b-featurecounts`. `star-salmon` maps with STAR 2.7.11b and counts STAR's transcriptome alignments with salmon, `star-salmon-errormodel` adds salmon's `--errorModel`, the two `genecounts` chains count genes with STAR's GeneCounts, and `star-2.7.11b-featurecounts` counts exons with featureCounts. A STAR chain takes neither `--k` nor `--decoys`. |
+| `--star-multimap-nmax <n>` | With `--write-plan` and a STAR GeneCounts or featureCounts chain, the most loci a read may map to, STAR's `--outFilterMultimapNmax`. Left out, the plan passes no flag and STAR keeps its default of 10. The other chains refuse it. |
+| `--staged-reads <file>` | A tab-separated list of reads already in the staging folder, with each read's absolute path, size in bytes and SHA-256, for `--write-plan` with `--samplesheet`. LGE reads none of them. |
+| `--samplesheet <file>` | A comma-separated sample sheet with sample, r1 and r2 columns, for `--staged-reads`. Leave r2 empty for single-end reads, which `salmon` and the three `genecounts` and `featurecounts` chains take, while `star-salmon`, `star-salmon-errormodel` and a UMI kit take pairs only. A plan folder holds samples of one layout. The optional kit column names a UMI kit, `quartz-seq2-x910`, whose preset fixes the chain, so leave out `--chain`, `--trim`, `--k` and `--decoys`. |
+| `--staging-folder <path>` | The absolute path of the folder on the Linux machine that holds the image, the executor, the index and the reads. |
+| `--executor-manifest <file>` | The `manifest.json` beside the Linux `lungfish-executor`. The default is the app's. A run you adopt as a result takes the one you built. |
+| `--image <file>` | The `image.json` of the container image the jobs run in. The default is the app's. |
+| `--image-tool-manifest <file>` | The image's tool manifest, the file `image.json` pins. The default is the app's. |
+| `--request-memory-mib <request-memory-mib>` | Memory each job asks for, in MiB. Optional for `Macaca_fascicularis_6.0`. |
+| `--request-cpus <request-cpus>` | CPUs each job asks for, and the threads of salmon and STAR. The default is `8`. Optional for `Macaca_fascicularis_6.0`. |
+| `--request-disk-gib <request-disk-gib>` | Disk each job asks for, in GiB. Optional for `Macaca_fascicularis_6.0`. |
+| `--job-requirements <job-requirements>` | The machines the jobs may run on, as one HTCondor requirements expression. |
+| `--dry-run` | With `--write-plan`, makes every refusal of the run and writes no folder. |
+
+### `rnaseq export`
+
+Exports RNA-seq counts for DESeq2, edgeR and limma, the R packages that test genes for differences between groups. Explained in [Reading and Exporting Bulk RNA-seq Counts](../11-rna-seq/03-reading-and-exporting-bulk-counts.md).
+
+```text
+lungfish-cli rnaseq export [<options>] <result-paths> ... --output <output>
+```
+
+It writes `counts.tsv`, `genes.tsv`, `samples.tsv`, `deseq2.R`, `edger-limma-dream.R` (edgeR, limma voom and dream) and a record into the new folder `--output` names. The results must come from one route and one reference set, where a route is the tool, its version and every setting that changes counts. A single-cell result exports by itself and writes no table of counts. Its matrices, features and barcodes go in one folder per sample, beside `genes.tsv`, `samples.tsv`, `seurat.R` and `scanpy.py`. `--design`, `--contrast`, `--batch`, `--batch-correction`, `--lfc-bar` and a `--padj-cutoff` other than 0.05 are refused for it, so sum its cells with `rnaseq pseudobulk` and export that result to compare groups.
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-paths>` | One or more `.lungfishrnaseq` result folders. A single-cell result is exported alone. |
+| `--output <output>` | The new folder to write. It must not exist. |
+| `--sample-sheet <sample-sheet>` | A tab-separated sheet with a sample column. Its other columns join `samples.tsv`. |
+| `--design <design>` | A column of `samples.tsv` that enters the model. Repeat it, and the last one is the tested factor. |
+| `--contrast <contrast>` | `FACTOR:NUMERATOR:DENOMINATOR`, such as `group:TB:HIV`. Repeat it for more contrasts. |
+| `--padj-cutoff <padj-cutoff>` | The adjusted p-value cutoff, which is also alpha in DESeq2's `results()`. The default is `0.05`. |
+| `--lfc-bar <lfc-bar>` | A bar on the absolute log2 fold change. None by default. |
+| `--batch <batch>` | The column of `samples.tsv` that names each sample's batch, for `--batch-correction`. |
+| `--batch-correction <batch-correction>` | `none`, `combat-seq` or `sva`. The default is `none`. |
+
+### `rnaseq pseudobulk`
+
+Sums a single-cell result's UMIs by sample and label into a new bulk result, so groups of cells can be compared with bulk methods. Explained in [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md).
+
+```text
+lungfish-cli rnaseq pseudobulk [<options>] <result-path> --labels <labels> --output <output>
+```
+
+The new result has one column for each sample and label of the `--labels` table. A group under 10 cells is left out and named, and so are the cells with no label. For a table that `rnaseq cell-map select` wrote, name its cell map with `--cell-map`, and the record names both.
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-path>` | A single-cell `.lungfishrnaseq` result. |
+| `--labels <labels>` | A tab-separated table with barcode and label columns, and sample for a result of two or more samples. |
+| `--cell-map <cell-map>` | The cell map that the `--labels` table of a selection came from. It must be a cell map of the result. |
+| `--output <output>` | The new `.lungfishrnaseq` folder to write. It must not exist. |
+
+### `rnaseq quality`
+
+Prints the quality numbers and the sample correlation of a bulk RNA-seq result, and writes nothing. Explained in [Reading and Exporting Bulk RNA-seq Counts](../11-rna-seq/03-reading-and-exporting-bulk-counts.md).
+
+```text
+lungfish-cli rnaseq quality <result-path> [--table <table>]
+```
+
+It first checks each file of the result against the SHA-256 its manifest lists. `--table samples` gives each sample's library size, the number of reads counted, its mapping rate, the share of reads placed on the reference, its library type, and its shares on rRNA genes and on features that are not the host's. The globin share reads Not recorded, since LGE names no globin genes yet. `--table correlation` gives Pearson r of log2(CPM + 1) between the samples, on the host's features only, where CPM is counts per million reads. `--format tsv` prints the table alone, `json` one document, and `text` a line that names the table first.
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-path>` | A bulk `.lungfishrnaseq` result. |
+| `--table <table>` | The table to print, `samples` or `correlation`. The default is `samples`. |
+
+### `rnaseq index-plan`
+
+Writes a plan folder that builds the STAR index of a reference set on a Linux machine. Explained in [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md).
+
+```text
+lungfish-cli rnaseq index-plan [<options>] --set <set> --output <output> --staging-folder <staging-folder>
+```
+
+The plan runs STAR `--runMode genomeGenerate` with 8 threads on the set's genome, each extra and its counting GTF, `derived/genes.gtf`. Each index file stays in the staging folder on the Linux machine, and `rnaseq index-adopt` then records where each file sits and its SHA-256 for later plans. A set built before the counting GTF existed has none, so rebuild it first. A genome with no measured figures needs `--request-memory-mib`, `--request-cpus` and `--request-disk-gib`, taken from STAR's own peak memory and the job's disk on a small run.
+
+| Argument or flag | What it does |
+|---|---|
+| `--set <set>` | The id of a reference set under the storage root, or the path of a set folder. |
+| `--star <star>` | The STAR version to run, `2.7.11b` or `2.7.3a`. The default is `2.7.11b`. |
+| `--tenx-filter <tenx-filter>` | The 10x biotype list, `mkgtf-3.0.0` or `gencode-2020-A`, of a STARsolo index. Its filter rule makes the GTF from `derived/genes.gtf` into the plan folder. |
+| `--genomeSAsparseD <genomeSAsparseD>` | The distance between the positions STAR keeps in its suffix array, a whole number from 1. The default is `2`. A larger value needs less memory and maps more slowly. A value of 1 needs `--request-memory-mib`. |
+| `--output <output>` | The new plan folder to write. It must not exist. |
+| `--staging-folder <staging-folder>` | The absolute path of the folder on the Linux machine that holds the image and the executor and keeps the index. |
+| `--executor-manifest <executor-manifest>` | The `manifest.json` beside the Linux `lungfish-executor`. The default is the app's. |
+| `--image <image>` | The `image.json` of the container image. The default is the app's. |
+| `--image-tool-manifest <image-tool-manifest>` | The image's tool manifest, the file `image.json` pins. The default is the app's. |
+| `--request-memory-mib <request-memory-mib>` | Memory the job asks for, in MiB. Optional for `Macaca_fascicularis_6.0`. |
+| `--request-cpus <request-cpus>` | CPUs the job asks for. Optional for `Macaca_fascicularis_6.0`. |
+| `--request-disk-gib <request-disk-gib>` | Disk the job asks for, in GiB. Optional for `Macaca_fascicularis_6.0`. |
+| `--job-requirements <job-requirements>` | The machines the job may run on, as one HTCondor requirements expression. |
+| `--storage-root <storage-root>` | Managed storage root that `--set` names a set under. The default is the configured location. |
+
+### `rnaseq index-adopt`
+
+Records the STAR index that a run on a Linux machine built. Explained in [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md).
+
+```text
+lungfish-cli rnaseq index-adopt [<options>] <result-path> --set <set> --staging-folder <staging-folder> --batch <batch>
+```
+
+It reads `run-record.json` in the result folder, which must read succeeded and name each index file as a staged output, and writes the index record under the storage root, with the set id, the key, the tool, and each file's staging path, bytes and SHA-256, all from the run record. A later plan finds the record by set id and key. The index files stay in the staging folder on the Linux machine, and nothing here copies one.
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-path>` | The folder the job returned its files to, which holds `run-record.json`. |
+| `--set <set>` | The id of the reference set the index was built from, or the path of its folder. |
+| `--staging-folder <staging-folder>` | The absolute path of the staging folder on the Linux machine, as the plan was written with. |
+| `--batch <batch>` | The name of the plan folder, which names the batch in the staging folder. |
+| `--sample <sample>` | The sample name of the job. The default is `index`. |
+| `--tenx-filter <tenx-filter>` | The 10x biotype list that `index-plan` named for a STARsolo index. LGE makes the GTF again from the set and checks its SHA-256. |
+| `--storage-root <storage-root>` | Managed storage root to write the record under. The default is the configured location. |
+
+### `rnaseq solo-plan`
+
+Writes a plan folder that counts 10x single-cell libraries with STARsolo, STAR's single-cell mode, on a Linux machine. Explained in [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md).
+
+```text
+lungfish-cli rnaseq solo-plan [<options>] --set <set> --preset <preset> --staged-reads <file> --samplesheet <file> --output <output> --staging-folder <staging-folder>
+```
+
+Each library gets one plan that runs STAR 2.7.11b in STARsolo mode on its staged reads, each lane's read 2 and then each lane's read 1, on the set's STAR index that an earlier Linux run built. Plan that index with `rnaseq index-plan`, with `--tenx-filter` for a 10x biotype list, run it, and record it with `rnaseq index-adopt`. The plan names no GTF, since STARsolo reads its genes through the index. The barcode list is the preset's whole 10x list, checked by SHA-256. With no `--barcode-list` the plan reads the list in the tool image. A list you give is checked here and never copied, so place it in the staging folder where the plan folder's README says. Adopt what a run returns with `import rnaseq <folder> --adopt`.
+
+| Argument or flag | What it does |
+|---|---|
+| `--set <set>` | The id of a reference set under the storage root, or the path of a set folder. |
+| `--preset <preset>` | The library's chemistry and the matrix counted. `tenx-3p-v3` counts exons of 10x 3' v3 with the 3M-february-2018 list, `tenx-5p-v2` counts exons of 10x 5' v2 read 2 with the 737K-august-2016 list, and `tenx-3p-v3-introns` counts exons and introns of 10x 3' v3 with the 3M list. |
+| `--barcode-list <file>` | The preset's whole 10x barcode list as a file on this Mac, checked by SHA-256. The default is the list in the tool image. |
+| `--tenx-filter <tenx-filter>` | The 10x biotype list of the adopted STARsolo index to map on, `mkgtf-3.0.0` or `gencode-2020-A`. Leave it out for an index with no 10x filter rule. |
+| `--staged-reads <file>` | A tab-separated list of the reads in the staging folder, with each read's absolute path, size in bytes and SHA-256. LGE reads none of the reads. |
+| `--samplesheet <file>` | A comma-separated sample sheet with sample, r1 and r2 columns, one row per lane, whose rows of one sample are one library. |
+| `--output <output>` | The new plan folder to write. It must not exist. |
+| `--staging-folder <staging-folder>` | The absolute path of the folder on the Linux machine that holds the image, the executor, the index and the reads. |
+| `--executor-manifest <executor-manifest>` | The `manifest.json` beside the Linux `lungfish-executor`. The default is the app's. |
+| `--image <image>` | The `image.json` of the container image. The default is the app's. |
+| `--image-tool-manifest <image-tool-manifest>` | The image's tool manifest, the file `image.json` pins. The default is the app's. |
+| `--expected-cells <expected-cells>` | The expected cells of STARsolo's EmptyDrops_CR cell filter. The default is `3000`. |
+| `--request-memory-mib <request-memory-mib>` | Memory each job asks for, in MiB. |
+| `--request-cpus <request-cpus>` | CPUs each job asks for, and STAR's threads. The default is `8`. |
+| `--request-disk-gib <request-disk-gib>` | Disk each job asks for, in GiB. |
+| `--job-requirements <job-requirements>` | The machines the jobs may run on, as one HTCondor requirements expression. |
+| `--dry-run` | Makes every refusal of the run and writes no folder. |
+| `--storage-root <storage-root>` | Managed storage root that holds the set and the index records. The default is the configured location. |
+
+### `rnaseq cell-map import`
+
+Imports a single-cell result's embeddings and cell labels as a cell map, a picture that places each cell as a point so similar cells sit together. Explained in [The Cell Map](../11-rna-seq/05-the-cell-map.md).
+
+```text
+lungfish-cli rnaseq cell-map import [<options>] <result-path> --output <output>
+```
+
+It reads LGE's table or 10x's `projection.csv` and `clusters.csv`, matches each barcode to a cell of the result as given, and writes a new cell map beside the result. Cells with no coordinates are counted, and the given files are kept.
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-path>` | A single-cell `.lungfishrnaseq` result. |
+| `--coordinates <coordinates>` | LGE's table or one of 10x's `projection.csv` files. Repeat for more. |
+| `--clusters <clusters>` | One of 10x's `clusters.csv` files. Repeat for more. |
+| `--label-column <label-column>` | A column of LGE's table that holds labels. Repeat for more. |
+| `--method <method>` | The method of one embedding, as `<embedding>=<name>`, such as `umap=UMAP`. Repeat for more. |
+| `--barcode-suffix <barcode-suffix>` | `drop` to drop `-1` from each given barcode that ends in it, or `add` to add `-1` to each, before matching. |
+| `--skip-barcodes-not-held` | Leaves out the given barcodes that the result does not hold, and counts them. |
+| `--other-counts` | The embedding was computed on counts other than the result's. |
+| `--tool <tool>` | The tool that made the files, as you state it. |
+| `--tool-version <tool-version>` | The version of that tool, as you state it. |
+| `--output <output>` | The new `.lungfishrnaseq` folder to write. It must not exist. |
+
+### `rnaseq cell-map select`
+
+Writes a label table of the cells that a polygon or a set of labels selects in one embedding of a cell map. Explained in [The Cell Map](../11-rna-seq/05-the-cell-map.md).
+
+```text
+lungfish-cli rnaseq cell-map select [<options>] <cell-map-path> --embedding <embedding> --output <output>
+```
+
+Each cell drawn in the embedding gets one line, selected or rest, and a cell the embedding leaves out gets none, so `rnaseq pseudobulk` counts it with the cells that have no label. The table is written outside every result, with its record beside it.
+
+| Argument or flag | What it does |
+|---|---|
+| `<cell-map-path>` | A cell map `.lungfishrnaseq` result. |
+| `--embedding <embedding>` | The embedding whose drawn cells are selected or in the rest. |
+| `--polygon <polygon>` | At least 3 and at most 1,000 vertices separated by one space, each `x,y`, such as `'0,0 10,0 10,10'`. |
+| `--label-set <label-set>` | The label set whose labels select the cells. |
+| `--label <label>` | A label of the set. Repeat for more. |
+| `--output <output>` | The new table to write, outside every `.lungfishrnaseq` folder. It must not exist. |
+
+### `rnaseq cell-map compute`
+
+Computes a UMAP embedding and Leiden clusters of a single-cell result as a cell map. Explained in [The Cell Map](../11-rna-seq/05-the-cell-map.md).
+
+```text
+lungfish-cli rnaseq cell-map compute <result-path> [--seed <seed>] --output <output>
+```
+
+It runs LGE's pinned Scanpy route on the result's matrices with exact nearest neighbors, then checks its table and writes a new cell map beside the result. A run predicted to need more than 40 percent of this Mac's memory is refused before it starts. The help lists the global `--threads` with its usual default of `auto`, but this command runs on 1 thread unless you pass `--threads`.
+
+| Argument or flag | What it does |
+|---|---|
+| `<result-path>` | A single-cell `.lungfishrnaseq` result. |
+| `--seed <seed>` | The seed of the PCA, the neighbors, Leiden and UMAP. Only `0` is offered. The default is `0`. |
+| `--output <output>` | The new `.lungfishrnaseq` folder to write. It must not exist. |
+
+### `import rnaseq`
+
+Imports RNA-seq counts made elsewhere into a project, or adopts the counts that a Linux run returned. Explained in [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) and [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md).
+
+```text
+lungfish-cli import rnaseq [<options>] <input-paths> ... --project <project> --name <name>
+```
+
+The inputs are salmon quant folders, one count table of genes by samples, or Cell Ranger `outs` and STARsolo run folders. With `--adopt`, the one input names the returned plan folder, which holds `plan.json`, `run-record.json` and the run's count files, or a returned batch folder that holds one such folder per sample as `<sample>/`. The counts are those the plan's route names. A STARsolo plan of `rnaseq solo-plan` gives the filtered matrix of `Solo.out/Gene` as one single-cell result. A batch gives one result of all its samples, and when any sample is refused nothing is imported. The genes are those of the reference set the plan names, and a STAR, featureCounts or umi_tools table counted on another GTF is refused. The plan fixed every setting, so no flag that sets a count is taken with `--adopt`, and a refused adopt writes nothing.
+
+| Argument or flag | What it does |
+|---|---|
+| `<input-paths>` | salmon quant folders, one count table of genes by samples, or Cell Ranger outs and STARsolo run folders. |
+| `--project <project>` | LGE project directory to import into. |
+| `--name <name>` | Name of the RNA-seq result. |
+| `--tx2gene <tx2gene>` | Transcript-to-gene table for the gene sums of salmon folders. |
+| `--samples <samples>` | Sample sheet (sample, run, animal, species, origin, group). |
+| `--unit <unit>` | Unit of a count table, one of `reads`, `pairs`, `umis` or `estimated`. |
+| `--genome <genome>` | Gene id prefix of one genome of a single-cell reference of two or more, such as `hg19`. Repeat for each genome. |
+| `--reference-set <reference-set>` | Reference set folder whose not-host sequences a single-cell import counts in each cell and in the ambient pool. |
+| `--not-host-bam <not-host-bam>` | A sample's sorted, indexed BAM as `<sample>=<path>`, one for each sample with `--reference-set`. Repeat for each. |
+| `--adopt` | Adopts the counts a Linux run of `lungfish-executor` returned, as one result. |
+| `--dry-run` | With `--adopt`, runs every check and reads and writes nothing. |
+| `--storage-root <storage-root>` | With `--adopt`, the storage root that holds the plan's reference set. The default is the configured location. |
 
 ## Workflows
 
@@ -4091,6 +5044,9 @@ The command line can install the packs `conda packs` lists. The three experiment
 | `--from-lockfile <from-lockfile>` | Unsupported exact reconstruction input. Requested specifications cannot be installed as resolved locks. |
 | `--conda-root <conda-root>` | Conda root to install into when using `--offline` or `--from-lockfile`. The default is the managed storage conda root. |
 | `--overwrite` | Replace existing environments when using `--offline`. |
+| `--reinstall` | With `--pack`, recreates every environment of the pack instead of installing only what is missing. The Plugin Manager's reinstall runs this. |
+
+With `--pack`, the command installs the environments a pack is missing, and each pack run writes a record under `provenance/packs` in the storage root. `--format json` prints progress as event lines on standard output and the text on standard error. SIGTERM cancels a pack run, which puts back the environments it moved aside, records the run as cancelled and exits 125.
 
 ### `conda list`
 
@@ -4317,7 +5273,7 @@ Compares this machine against the pinned dependency set and prints, or with `--a
 lungfish-cli tools update <options>
 ```
 
-`tools update` exits 0 when there is nothing to do or the update succeeded, 10 when `--plan` finds work pending, 2 for a usage error such as `--apply` without `--yes`, and 1 when an item fails to install.
+`tools update` exits 0 when there is nothing to do or the update succeeded, 10 when `--plan` finds work pending, 2 for a usage error such as `--apply` without `--yes`, and 1 when an item fails to install. The **Update Tools** sheet runs `tools update --apply`. `--only <id>` applies chosen items of the plan and may be repeated. An id is an environment to install or reinstall, a database id, or a retired environment to remove. An id the plan does not hold is refused with exit status 3 before any work, and required work in the plan always runs too, as in the Update Tools sheet.
 
 | Argument or flag | What it does |
 |---|---|
@@ -4327,6 +5283,7 @@ lungfish-cli tools update <options>
 | `--json` | Machine-readable JSON output. |
 | `--required-only` | Only work the user cannot defer. |
 | `--include-databases` | Include advisory database updates (no effect with `--required-only`). |
+| `--only <only>` | Apply only this item of the plan. Repeatable, with `--apply`. |
 | `--storage-root <storage-root>` | Managed storage root. The default is the configured location. |
 
 ### `storage info`
@@ -4421,7 +5378,7 @@ lungfish-cli provenance bibliography hg002-minimap2
 
 ### `project lock`
 
-Writes a lock record inside a project so other copies of LGE and other scripts see it is in use. Explained in [Shared Projects and Bundle Migration](shared-projects.md).
+Writes a lock record inside a project so other copies of LGE, and any script that reads `.lungfish/project.lock`, see it is in use. Explained in [Shared Projects and Bundle Migration](shared-projects.md).
 
 ```text
 lungfish-cli project lock <project-path> [--mode <mode>] [--force]
@@ -4448,16 +5405,35 @@ lungfish-cli project unlock <project-path> [--force]
 
 ### `project migrate`
 
-Brings older bundles in a project up to the current layout where a safe converter exists, and reports the rest without changing them. Explained in [Shared Projects and Bundle Migration](shared-projects.md).
+Reads the manifest of every bundle in a project and reports whether each is at the current schema version. Explained in [Shared Projects and Bundle Migration](shared-projects.md).
 
 ```text
 lungfish-cli project migrate <project-path> [--dry-run]
 ```
 
+It leaves current bundles untouched and reports bundles of an older schema without changing them, since LGE has no converter for an older schema. The command therefore changes no file, with or without `--dry-run`.
+
 | Argument or flag | What it does |
 |---|---|
 | `<project-path>` | Path to the LGE project directory. |
-| `--dry-run` | Report planned actions without modifying files. |
+| `--dry-run` | Changes only the Dry run line of the report and the action word of an unsupported bundle, since the command never modifies a file. |
+
+### `project copy-item`
+
+Copies one bundle or analysis result folder into another project, as dropping it onto the sidebar of another project window does. Explained in [Shared Projects and Bundle Migration](shared-projects.md).
+
+```text
+lungfish-cli project copy-item [<options>] <item> --project <project>
+```
+
+The item keeps its folder from the source project, or goes to the folder its kind uses, or to `--folder`. A name the project already holds gets a counter, such as `NC_045512-2.lungfishref`. The copy is built in the project's `.tmp` folder, where its links into the source project are rewritten and its record names the source item by its path inside the source project and the SHA-256 of every file the copy read. It is then published with one rename, so no reader sees part of it. SIGTERM stops the copy before it publishes, records it as cancelled and exits 125. A refusal exits 3.
+
+| Argument or flag | What it does |
+|---|---|
+| `<item>` | The item to copy, as its path inside `--source-project`, or an absolute path for an item in no project. |
+| `--source-project <source-project>` | The project that holds the item. The default is the project the item's path is inside. |
+| `--project <project>` | The project to copy the item into. |
+| `--folder <folder>` | The folder to copy into, as a path inside `--project`. The default is the item's folder in its project, or the folder its kind uses. |
 
 ### `provenance bibliography`
 
@@ -4498,7 +5474,7 @@ Checks the signature on a signed provenance record. Explained in [Provenance and
 lungfish-cli provenance verify <file> [--signature <signature>] [--public-key <public-key>]
 ```
 
-On an unsigned record it prints "Signature artifact is missing" and exits non-zero. When a signer is configured, each export gets a `.signature.json` and a `.pub` file beside it.
+On a record with no signature it says so and exits with status 3. Given a Viral Recon results folder, it names the bundle that holds the signed copy. When a signer is configured, each export gets a `.signature.json` and a `.pub` file beside it.
 
 | Argument or flag | What it does |
 |---|---|
@@ -4588,6 +5564,8 @@ Runs the same FASTQ import pipeline the window uses on one file or pair.
 ```text
 lungfish-cli debug fastq-ingest [<options>] <input>
 ```
+
+With `--pair`, it reads the two loose mate files whole before anything is staged, as [`fastq ingest`](#fastq-ingest) does, and refuses a pair that is cut short or out of step by read name with exit status 3.
 
 | Argument or flag | What it does |
 |---|---|
