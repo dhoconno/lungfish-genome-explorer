@@ -77,6 +77,42 @@ enum AnnotationDrawerIndexHandoff {
     /// Marks the track lines of a drawer whose table shows the tracks that did open, at the foot of the drawer.
     static let missingTracksIdentifier = NSUserInterfaceItemIdentifier("annotationDrawerMissingTracksNotice")
 
+    /// The foot line's label. Its height is the height its words need at the width it really has, capped at
+    /// `noticeMaximumWidth`. A wrapping label's own height is its words' height at `preferredMaxLayoutWidth`, which stays
+    /// at `noticeMaximumWidth` here. So in a pane that left the label 431 pt it held the height of its words at 520 pt and
+    /// cut its last line, the remedy (walk row W2, build 14643, W2-FOOTLINE review SF-1). Its width stays the words' own at
+    /// that wrap, and never the width it last had, so a pane that widens again gives the room back. Only a change in
+    /// width asks for the height again, so layout cannot loop.
+    private final class FootLineLabel: NSTextField {
+        /// The width the height was last asked for at.
+        private var heightWidth: CGFloat = 0
+
+        override var intrinsicContentSize: NSSize {
+            var size = super.intrinsicContentSize
+            guard frame.width > 0, let cell = cell else { return size }
+            let wrapWidth = min(frame.width, AnnotationDrawerIndexHandoff.noticeMaximumWidth)
+            let room = NSRect(x: 0, y: 0, width: wrapWidth, height: CGFloat.greatestFiniteMagnitude)
+            size.height = cell.cellSize(forBounds: room).height.rounded(.up)
+            return size
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            followWidth()
+        }
+
+        override func layout() {
+            super.layout()
+            followWidth()
+        }
+
+        private func followWidth() {
+            guard abs(frame.width - heightWidth) >= 0.5 else { return }
+            heightWidth = frame.width
+            invalidateIntrinsicContentSize()
+        }
+    }
+
     /// Shows `words` at the foot of the drawer under the table, which gives up the room, or removes them when nil.
     static func setMissingTracksNotice(_ words: String?, in drawer: AnnotationTableDrawerView) {
         let existing = drawer.subviews.first { $0.identifier == missingTracksIdentifier } as? NSTextField
@@ -88,7 +124,7 @@ enum AnnotationDrawerIndexHandoff {
             existing.stringValue = words
             return
         }
-        let label = NSTextField(wrappingLabelWithString: words)
+        let label = FootLineLabel(wrappingLabelWithString: words)
         label.identifier = missingTracksIdentifier
         label.font = .systemFont(ofSize: 11)
         label.textColor = .secondaryLabelColor
