@@ -50,7 +50,7 @@ A job then needs the tools its workflow calls. There are two ways to provide the
 
 A [cache](../../GLOSSARY.md#cache) is a folder the CI service keeps between jobs so the next job skips the download. Installing and caching is the route to try first.
 
-`lungfish-cli tools update --plan` prints the work pending against the pinned [dependency set](../../GLOSSARY.md#dependency-set), the exact tool versions one LGE release was built and tested against. Its first line names the target set, and each later line starts with the action LGE would take, such as `reinstall` or `preserve`, which means a tool you installed yourself is left alone. It exits 10 when work is pending and 0 when there is none, so a CI step that fails on any nonzero [exit status](../../GLOSSARY.md#exit-status) turns it into a check that the runner matches the pinned set before any scientific work starts. `--json` gives the same plan as JSON.
+`lungfish-cli tools update --plan` prints the work pending against the pinned [dependency set](../../GLOSSARY.md#dependency-set), the exact tool versions one LGE release was built and tested against. Its first line names the target set, and most later lines start with the action LGE would take, such as `reinstall` or `preserve`, which means a tool you installed yourself is left alone. The last line gives the estimated download, or says `Nothing to do.` when no work is pending. It exits 10 when work is pending and 0 when there is none, so a CI step that fails on any nonzero [exit status](../../GLOSSARY.md#exit-status) turns it into a check that the runner matches the pinned set before any scientific work starts. `--json` gives the same plan as JSON.
 
 To do the work, run `lungfish-cli tools update --apply --yes --required-only`. `--yes` is required because the command changes nothing without confirmation. `--required-only` installs only what LGE cannot run without, so the job then adds each [plugin pack](../../GLOSSARY.md#plugin-pack) it needs with `lungfish-cli conda install --pack <id>`, replacing `<id>` with the pack's id. The ids and what each pack holds are listed in [The packs, and what is in them](../01-foundations/07-plugin-packs.md#the-packs-and-what-is-in-them).
 
@@ -74,7 +74,7 @@ A [workflow engine](../../GLOSSARY.md#workflow-engine) reads a description of an
 |---|---|
 | A file ending in a lower-case `.nf` | Nextflow |
 | A file whose name contains `snakefile` in any letter case | Snakemake |
-| `nf-core/viralrecon` or `viralrecon` | The built-in nf-core pipeline, which takes exactly one `--input` samplesheet |
+| `nf-core/viralrecon` or `viralrecon` | The built-in nf-core pipeline, which takes one `--input` samplesheet, or one or more `--input` FASTQ bundles or files from which LGE builds the samplesheet |
 
 Running a workflow file is covered in [Running External Workflows](../08-workflows/03-running-external-workflows.md), which also describes [what a workflow package holds](../08-workflows/03-running-external-workflows.md#what-a-workflow-package-holds). The example below is the Nextflow file inside `Examples/WorkflowPackages/hello-world-nextflow.lungfishflowpkg` in the LGE source repository on GitHub, which does almost no work. It is not installed with the app.
 
@@ -109,7 +109,7 @@ A CI step fails when its command ends with any [exit status](../../GLOSSARY.md#e
 Four more flags of `workflow run` matter in CI.
 
 - `--executor` applies to the nf-core run only. It accepts `docker`, `conda`, or `local`, but only the default, `docker`, reaches a working run, as [`workflow run`](cli-reference.md#workflow-run) explains, so a runner without Docker cannot run that pipeline.
-- `--dry-run` prints the workflow, results folder, executor, and parameters without checking or running anything, and needs no expected output, which makes it a fast check on a proposed change.
+- `--dry-run` prints the workflow, results folder, executor, and parameters without running anything, and needs no expected output, which makes it a fast check on a proposed change.
 - `--prepare-only` writes the run bundle and the command preview without starting the engine, and also needs no expected output.
 - `--resume` continues from the engine's last checkpoint, so it helps only when the engine's work folder survived in a cache.
 
@@ -283,7 +283,7 @@ A step that looks for `*.lungfish-provenance.json` files beside the output finds
 
 `lungfish-cli ops stats <folder>` walks a folder and summarizes every record under it, printing the number of records, completed runs, and total wall time, then one row per operation. Peak RAM reads `unknown` for local workflow runs, which do not record it.
 
-`lungfish-cli provenance verify` checks a signed record, and signing is off by default, so on an ordinary record it exits 64 and reports that the signature file is missing. Until you set up signing, check the record's `exitStatus` field and that the declared outputs exist. With the `jq` JSON reader that most runners carry, that is one line.
+`lungfish-cli provenance verify` checks a signed record, and signing is off by default, so on an ordinary record it exits 3 and says the record carries no signature, which leaves nothing to verify. Until you set up signing, check the record's `exitStatus` field and that the declared outputs exist. With the `jq` JSON reader that most runners carry, that is one line.
 
 ```bash
 jq -e '.exitStatus == 0' outputs/result.lungfishref/.lungfish-provenance.json
