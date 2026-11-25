@@ -150,6 +150,7 @@ lungfish-cli conda install --offline --from-bundle ./read-mapping-conda-offline-
 ```
 
 Each command has a second name that does the same job, and older notes and scripts may use either. `lungfish-cli conda offline-export` runs the same export as `conda export-pack`, and `lungfish-cli conda offline-install <folder>`, where a word in angle brackets stands for what you type in its place, runs the same install as `conda install --offline --from-bundle`. The export writes a folder, or a single archive when the output name ends in `.tar`, `.tgz`, or `.tar.gz`. Add `--overwrite` to the install to replace environments that already exist.
+
 ### Manage installed environments
 
 The **Installed** tab lists every managed environment LGE has built, one per tool, except that the four Single-Cell Analysis tools share one. Click a row to expand it and read the exact packages and versions inside. Each row has a **Remove** button that deletes that one environment.
@@ -303,6 +304,7 @@ lungfish-cli storage dedupe
 ```
 
 `tools update --plan` exits with status 10 when work is pending and 0 when the Mac matches the pinned list. `storage dedupe` without `--apply` only reports what it would reclaim.
+
 ## Next
 
 Continue to [Provenance and Reproducibility](08-provenance-and-reproducibility.md) to learn how LGE records every operation it runs, including which tool versions were installed at the time.
