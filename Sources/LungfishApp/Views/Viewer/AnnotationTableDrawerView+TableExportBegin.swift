@@ -127,6 +127,15 @@ extension AnnotationTableDrawerView {
         )
     }
 
+    /// The words the drawer's label and the Operations row show at the end of a table export. A track whose database
+    /// is missing or cannot be read is named, in the drawer's words (ANNOT-EXPORT-MISSING-TRACK).
+    nonisolated static func tableExportCompletionWords(
+        rowCount: Int, fileName: String, leftOut: [AnnotationDatabase.LeftOutTrack]
+    ) -> String {
+        let rows = rowCount == 1 ? "1 row" : "\(rowCount) rows"
+        return AnnotationDatabase.LeftOutWords.message("Exported \(rows) to \(fileName)", leftOut: leftOut, notIn: "table")
+    }
+
     /// Begins the Operations row of the table export and runs the leaf for it on the shared viewer export runner
     /// (ARCH ruling 1.5, rules 3 and 4).
     ///
@@ -145,15 +154,6 @@ extension AnnotationTableDrawerView {
     /// - Returns: The row's id and the task that runs the leaf and settles the row, or nil when the row did not
     ///   start.
     @discardableResult
-    /// The words the drawer's label and the Operations row show at the end of a table export. A track whose database
-    /// is missing or cannot be read is named, in the drawer's words (ANNOT-EXPORT-MISSING-TRACK).
-    nonisolated static func tableExportCompletionWords(
-        rowCount: Int, fileName: String, leftOut: [AnnotationDatabase.LeftOutTrack]
-    ) -> String {
-        let rows = rowCount == 1 ? "1 row" : "\(rowCount) rows"
-        return AnnotationDatabase.LeftOutWords.message("Exported \(rows) to \(fileName)", leftOut: leftOut, notIn: "table")
-    }
-
     static func beginAnnotationTableExportOperation(
         invocation: ViewerExportInvocation,
         rowCount: Int,
