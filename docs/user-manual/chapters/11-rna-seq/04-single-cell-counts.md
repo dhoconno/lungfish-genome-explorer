@@ -40,13 +40,13 @@ An imported result opens in its own view, which shows how many cells the run kep
 
 ### Cells, barcodes, and UMIs
 
-In a 10x Genomics [library](../../GLOSSARY.md#library), the prepared material that goes on the sequencer, each cell is caught in a tiny droplet with a bead that carries DNA tags. The tags on one bead share a [cell barcode](../../GLOSSARY.md#cell-barcode), a short sequence that marks the droplet, and each tag also carries a [UMI](../../GLOSSARY.md#umi), or unique molecular identifier, a random tag that differs from molecule to molecule. 10x's 3' v3 kit, version 3 of its kit that reads the 3' end of each RNA, gives read pairs, two reads from one fragment. Read 1 starts with the 16-base barcode, followed by a 12-base UMI, and read 2 holds the [cDNA](../../GLOSSARY.md#cdna), the DNA copy of the captured RNA. A library made with the 5' v2 kit, which reads the 5' end, uses a 10-base UMI.
+In a 10x Genomics [library](../../GLOSSARY.md#library), the prepared material that goes on the sequencer, each cell is caught in a tiny droplet with a bead that carries DNA tags. The tags on one bead share a [cell barcode](../../GLOSSARY.md#cell-barcode), a short sequence that marks the droplet, and each tag also carries a [UMI](../../GLOSSARY.md#umi), or unique molecular identifier, a random tag that differs from molecule to molecule. 10x's 3' v3 kit, version 3 of its kit that reads the 3' end of each RNA, gives read pairs, two reads from one fragment. Read 1 starts with the 16-base barcode, followed by a 12-base UMI, and read 2 holds the [cDNA](../../GLOSSARY.md#cdna), the DNA copy of the captured RNA.
 
 The counting program uses the barcode to learn which droplet a read came from and the UMI to tell molecules apart. Reads that share a barcode, a UMI, and a gene are copies of one molecule made during amplification, so they count once. A single-cell count is therefore a count of UMIs, which stand for molecules, not a count of reads.
 
-Most droplets hold a bead and no cell. The 10x 3' v3 barcode list holds 6,794,880 barcodes, far more than the cells of any run, so the counting program decides which barcodes held a cell, a step called cell calling. Put simply, it keeps the barcodes with many UMIs, though both programs use more involved rules. The kept barcodes form the filtered matrix, `filtered_feature_bc_matrix` in a Cell Ranger `outs` folder and `Solo.out/Gene/filtered` in a STARsolo run folder. The raw matrix beside it holds every barcode the run saw, and LGE imports only the filtered one.
+Most droplets hold a bead and no cell. The 10x 3' v3 barcode list holds 6,794,880 barcodes, far more than the cells of any run, so the counting program decides which barcodes held a cell, a step called cell calling. Put simply, it keeps the barcodes with many UMIs, though both programs use more involved rules, which 10x's [Gene Expression algorithm page](https://www.10xgenomics.com/support/software/cell-ranger/latest/algorithms-overview/cr-gex-algorithm) and the [STARsolo manual](https://github.com/alexdobin/STAR/blob/master/docs/STARsolo.md) describe. The kept barcodes form the filtered matrix, `filtered_feature_bc_matrix` in a Cell Ranger `outs` folder and `Solo.out/Gene/filtered` in a STARsolo run folder. The raw matrix beside it holds every barcode the run saw. LGE imports only the filtered matrix's counts and reads the raw one only to build an ambient pool, which the next section explains.
 
-Both programs write the matrix as [Matrix Market](../../GLOSSARY.md#matrix-market) text, three files that make one table. `matrix.mtx` lists only the entries that are not zero, `features.tsv` names the genes in row order, and `barcodes.tsv` names the cells in column order. Most entries are zero, since each cell expresses only some genes and the method captures only part of their RNA. In the fixture's STARsolo cut, 17,692 of the 270,600 entries of a table of 1,353 genes by 200 cells are not zero, about 6.5 percent.
+Both programs write the matrix as [Matrix Market](../../GLOSSARY.md#matrix-market) text, three files that make one table. `matrix.mtx` lists only the entries that are not zero, `features.tsv` names the genes in row order, and `barcodes.tsv` names the cells in column order. Most entries are zero, since each cell expresses only some genes and the method captures only part of their RNA. In the fixture's STARsolo cut, about 6.5 percent of the entries are not zero.
 
 The two programs write a barcode in two forms. STARsolo writes it bare, as `AAACCCAAGGAGAGTA`, and Cell Ranger adds a suffix, as `AAACCCAAGGAGAGTA-1`. A table of barcodes that you match to a result must use that result's form.
 
@@ -54,35 +54,33 @@ The two programs write a barcode in two forms. STARsolo writes it bare, as `AAAC
 
 [Ambient RNA](../../GLOSSARY.md#ambient-rna) is RNA floating free in the cell suspension, often from cells that broke open. It drifts into every droplet, so each cell's counts include a little of it, and a droplet with no cell still holds some.
 
-That matters when you look for a virus or a bacterium cell by cell, since a cell can show viral UMIs only because viral RNA drifted into its droplet. If you import with a [reference set](01-what-is-rna-seq.md#reference-sets-and-why-a-count-names-one) that holds extra not-host sequences and with each sample's [BAM](../../GLOSSARY.md#bam) file, the alignments that Cell Ranger or STARsolo wrote, LGE counts the not-host UMIs of every cell and of an ambient pool. The pool is the barcodes ranked 45,000 to 90,000 by UMIs in the raw matrix, droplets that very likely held no cell.
+That matters when you look for a virus or a bacterium cell by cell, since a cell can show viral UMIs only because viral RNA drifted into its droplet. If you import with a [reference set](01-what-is-rna-seq.md#reference-sets-and-why-a-count-names-one) that holds extra not-host sequences, [built as Counting Bulk Reads shows](02-counting-bulk-reads.md#build-a-reference-set-with-rnaseq-reference-set), and with each sample's [BAM](../../GLOSSARY.md#bam) file, the alignments that Cell Ranger or STARsolo wrote, LGE counts the not-host UMIs of every cell and of an ambient pool. The pool is the barcodes ranked 45,000 to 90,000 by UMIs in the raw matrix, droplets that very likely held no cell.
 
-A cell is flagged when it holds at least 2 not-host UMIs and more than the pool's rate explains, by a test that allows, on average, at most about one wrong flag per thousand flags. This is a simplified account, and the import's record states the exact rule. The flag reads **viral RNA above ambient** or **bacterial RNA above ambient**, and a [spike-in](../../GLOSSARY.md#spike-in-control), a synthetic RNA added in a known amount, gets counts but no flag. A flag cannot say whether the virus grew in that cell, so LGE never calls a cell infected.
-
-If you need only gene counts per cell, import the filtered folder as it is, and add a reference set and BAM files only when you must count a virus or bacterium cell by cell.
+A cell is flagged when it holds at least 2 not-host UMIs and more than the ambient pool would explain, meaning more than a droplet that only caught ambient RNA would hold by chance. The test allows, on average, at most about one wrong flag per thousand flags. This is a simplified account, and the import's record states the exact rule. The flag reads **viral RNA above ambient** or **bacterial RNA above ambient**, and a [spike-in](../../GLOSSARY.md#spike-in-control), a synthetic RNA added in a known amount, gets counts but no flag. A flag cannot say whether the virus grew in that cell, so LGE never calls a cell infected.
 
 ## Why you would do this
 
-Blood holds many kinds of cells, and a change in one kind can vanish in a bulk count of the whole sample. Single-cell counts let you check each cell's quality, group the cells by type, and compare one type between animals.
+Blood holds many kinds of cells, and a change in one kind can vanish in a bulk count of the whole sample. Single-cell counts let you check each cell's quality and compare groups of cells between animals, groups that you name in Seurat, Scanpy, or on the cell map.
 
-The fixture, `rnaseq-single-cell`, holds 200 cells of the 10x Genomics data set "1k PBMCs from a Healthy Donor (v3 chemistry)". PBMCs, or peripheral blood mononuclear cells, are white blood cells with a single unlobed nucleus, mainly lymphocytes and monocytes. Cell Ranger and STARsolo counted the same 200 cells on the same 1,353 genes, which are every 25th gene of 10x's human reference and every mitochondrial gene. Import both and you can see how closely two counting programs agree.
+The fixture, `rnaseq-single-cell`, holds 200 cells of the 10x Genomics data set "1k PBMCs from a Healthy Donor (v3 chemistry)". PBMCs, or peripheral blood mononuclear cells, are white blood cells with a single unlobed nucleus, mainly lymphocytes and monocytes. Cell Ranger and STARsolo counted the same 200 cells on the same 1,353 genes, which are every 25th gene of 10x's human reference and every mitochondrial gene.
 
-A labels table that comes with the fixture names a group for each cell. It splits the cells into groups of 9, 10, 100, and 51 cells and leaves 30 cells with no label, which shows how pseudobulk, the sum of each group's counts, treats small groups. The group names `nine`, `ten`, `T`, and `B` follow the rows of the table, not cell types, so read no biology into them.
+A labels table that comes with the fixture splits the cells into groups of 9, 10, 100, and 51 cells and leaves 30 cells with no label, which shows how pseudobulk, the sum of each group's counts, treats small groups. The group names `nine`, `ten`, `T`, and `B` are not cell types, so read no biology into them.
 
 ## Choosing a tool
 
-What you hold decides the route. Counts that Cell Ranger or STARsolo already made come in through the **Single-cell Counts** card, and 10x reads that nobody has counted need a STARsolo plan for a Linux machine.
+What you hold decides the route. Counts that Cell Ranger or STARsolo already made come in through the **Single-cell Counts** card, and 10x reads that nobody has counted need a STARsolo plan for a Linux machine. Import the facility's counts when they exist. Plan a STARsolo count only when you must recount, since it needs a Linux machine and a STAR index, and its numbers come out close to the facility's but not equal.
 
-**Cell Ranger** is 10x Genomics' own pipeline for its libraries. It maps the reads, counts UMIs per gene and cell, and calls the cells. Its `outs` folder holds `filtered_feature_bc_matrix` and `metrics_summary.csv`, a table of whole-run numbers. LGE imports the `outs` folder of `cellranger count` and refuses the `outs` folder of `cellranger multi`, whose per-sample folders it does not import yet. A Cell Ranger matrix states the program's version, so the result records it.
+**Cell Ranger** is 10x Genomics' own pipeline for its libraries. It maps the reads, counts UMIs per gene and cell, and calls the cells. Its `outs` folder holds `filtered_feature_bc_matrix` and `metrics_summary.csv`, a table of whole-run numbers. LGE imports the `outs` folder of `cellranger count` and refuses the `outs` folder of `cellranger multi`, whose per-sample folders it does not import yet. Open the folder in Finder to tell them apart. A `count` outs folder holds `filtered_feature_bc_matrix`, and a `multi` outs folder holds `per_sample_outs`, which LGE refuses. A folder of only `.h5` files holds neither, so LGE refuses it too. For either, ask the facility for the `outs` folder of a `cellranger count` run. A Cell Ranger matrix states the program's version, so the result records it.
 
 **STARsolo** is the single-cell mode of STAR. It reads each read's barcode and UMI, counts UMIs per gene and cell, and calls the cells. Its run folder holds `Solo.out/Gene/filtered`, `Solo.out/Gene/Summary.csv`, and `Log.final.out`. LGE's Linux plan runs STAR 2.7.11b on a STAR index, the lookup structure STAR builds from a genome, with presets that follow Cell Ranger's choices for each 10x kit. A STARsolo folder states no version, so an imported one reads **Not recorded** for it. The fixture's README cites the STARsolo paper by Kaminow, Yunusov, and Dobin (2021).
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
-| Import of Cell Ranger counts | 10x libraries that 10x's pipeline counted | You hold the `outs` folder of `cellranger count` | Your folder came from `cellranger multi` |
+| Import of Cell Ranger counts | 10x libraries that 10x's pipeline counted | You hold the `outs` folder of `cellranger count` | Your folder came from `cellranger multi`, so ask for a `count` run |
 | Import of STARsolo counts | 10x libraries that STARsolo counted | You or a pipeline ran STARsolo | You hold only reads |
 | STARsolo plan | 10x reads already on a Linux machine | You have the reads, a Linux machine, and a STAR index of your reference set | You have no Linux machine |
 
-A plan names one of three presets, each a fixed group of STARsolo settings for one 10x kit. Each counts reads on exons, the stretches of a gene that stay in its RNA, and one counts reads on introns, the stretches spliced out, as well. Choose the preset that matches the kit in the library's records.
+A plan names one of three presets, each a fixed group of STARsolo settings for one 10x kit. Each counts reads on exons, the stretches of a gene that stay in its RNA, and one counts reads on introns, the stretches spliced out, as well. Choose the preset that matches the kit, and ask the facility which 10x kit and version they used if you do not know.
 
 | Preset | Library | What it counts | Barcode list |
 |---|---|---|---|
@@ -90,19 +88,21 @@ A plan names one of three presets, each a fixed group of STARsolo settings for o
 | `tenx-5p-v2` | 10x 5' v2, read 2 only | Exons only (STARsolo Gene) | 737K-august-2016 |
 | `tenx-3p-v3-introns` | 10x 3' v3 | Exons and introns (STARsolo GeneFull_Ex50pAS) | 3M-february-2018 |
 
-The introns preset approximates Cell Ranger 7's include-introns counting but never matches it. LGE cannot adopt the folder it returns, as [Plan a STARsolo count for a Linux machine](#plan-a-starsolo-count-for-a-linux-machine) explains.
+The introns preset approximates Cell Ranger 7's include-introns counting but never matches it, and LGE cannot adopt the folder it returns.
 
-The fixture was counted by both programs, so this chapter imports the STARsolo cut and checks it against the Cell Ranger cut. Its three plan files, one per preset, are for reading only, since they name a stand-in reference set.
+This chapter imports the fixture's STARsolo cut and checks it against its Cell Ranger cut. Its three plan files are for reading only, since they name a stand-in reference set.
 
 ## Before you start
 
 You need an open [project](../../GLOSSARY.md#project), since an import writes into the project's `Analyses` folder. Without one, the card shows "No Project Open" after you choose the folders, so make one first with **File > New Project**. The import, the pseudobulk, and the export need no [plugin pack](../../GLOSSARY.md#plugin-pack) and no container runtime, a program such as Docker that runs packaged tools.
 
-The STARsolo plan asks more of the Linux side.
+The STARsolo plan asks more of the Linux side, and it needs the command line, since its index steps are `lungfish-cli` commands.
 
 - Each library's reads in the staging folder, the folder on the Linux machine that holds the jobs' inputs, with a list giving each read file's size and [checksum](../../GLOSSARY.md#checksum), a fingerprint of its bytes, and a sample sheet that names each library's read files. [Plan reads that are already on the Linux machine](../08-workflows/04-running-on-a-linux-machine.md#plan-reads-that-are-already-on-the-linux-machine) shows how to make both.
 - A reference set whose STAR index an earlier Linux run built. Plan that index with `lungfish-cli rnaseq index-plan`, run it, and record it with `lungfish-cli rnaseq index-adopt`.
 - A Linux machine or an HTCondor pool, a group of computers that share jobs, and the tool image, the file that holds the packaged tools, as [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md#before-you-start) lists.
+
+Your reads stay on your Mac or a facility drive until someone copies them, so ask your core facility or research computing to stage them and to name the machine, pool, and tool image you may use.
 
 To run the export's scripts, you need R with the Matrix and Seurat packages, or Python with numpy, scipy, pandas, and Scanpy. `seurat.R` was checked on Seurat 5.5.1 with SeuratObject 5.4.0 and R 4.5.3, and on no other Seurat version.
 
@@ -121,7 +121,7 @@ The fixture is the [rnaseq-single-cell fixture folder](https://github.com/dhocon
 
 1. Open your project. Choose **File > Import Center…** (Cmd-Shift-I) and click the **Sequencing Reads** tab.
 
-2. Click **Import…** on the **Single-cell Counts** card. In the panel, select the fixture's `starsolo-pbmc_1k_v3` folder and click **Open**.
+2. Click **Import…** on the **Single-cell Counts** card. In the panel, select the fixture's `starsolo-pbmc_1k_v3` folder and click **Open**. For your own counts, select the `outs` folder of a `cellranger count` run or the folder that holds it.
 
 3. In the **Import Single-cell Counts** sheet, type `STARsolo pbmc_1k_v3 cut` in **Name**. Leave **Sample sheet**, **Genomes**, and **Reference set** empty.
 
@@ -131,9 +131,9 @@ The fixture is the [rnaseq-single-cell fixture folder](https://github.com/dhocon
 
 5. When the [Operations Panel](../../GLOSSARY.md#operations-panel) row `RNA-seq Import: STARsolo pbmc_1k_v3 cut` reads `Imported STARsolo_pbmc_1k_v3_cut.lungfishrnaseq`, LGE selects the new result under **Analyses** in the [sidebar](../../GLOSSARY.md#sidebar) and opens it.
 
-Each folder you select becomes one sample, named after the folder, or after the folder above it when you select an `outs` folder. Select several folders made by one program to make one result with several samples. Cell Ranger and STARsolo folders cannot share a result, so import the fixture's `cellranger-pbmc_1k_v3/outs` the same way in a run of its own and name it `Cell Ranger pbmc_1k_v3 cut`.
+Each folder you select becomes one sample, named after the folder, or after the folder above it when you select an `outs` folder, so `/Core/PBMC_A/outs` and `/Core/PBMC_A` both give the sample `PBMC_A`. Select several folders made by one program to make one result with several samples. Cell Ranger and STARsolo folders cannot share a result, so import the fixture's `cellranger-pbmc_1k_v3/outs` the same way in a run of its own and name it `Cell Ranger pbmc_1k_v3 cut`.
 
-The fixture sits outside your project, so the sheet notes that the record names it `<external>/<name>` and that its command does not replay. Copy a folder into the project before you import it to keep a command that replays. If the import refuses, the sheet keeps your values and shows the command's words, so change what they name and click **Import** again. **Cancel Import** stops a run and leaves no result.
+The fixture sits outside your project, so the sheet notes that the record names it `<external>/<name>` and that its command does not replay, meaning the recorded command cannot rerun to rebuild the result. To keep one that can, copy the folder into the project's folder in Finder before you import it. If the import refuses, the sheet keeps your values and shows the command's words, so change what they name and click **Import** again. **Cancel Import** stops a run and leaves no result.
 
 ### Plan a STARsolo count for a Linux machine
 
@@ -141,7 +141,7 @@ The plan sheet writes a folder that a Linux machine runs, and nothing runs or is
 
 1. Choose **File > Import Center…**, click the **Sequencing Reads** tab, and click **Import…** on the **Single-cell Plan for a Linux Machine** card. The **Plan 10x Counts for a Linux Machine** sheet opens at once.
 
-2. Type the id of your reference set in **Reference set** and choose the **Preset** that matches your library's kit.
+2. Type the id of your reference set in **Reference set**, copied from the line that starts with `Built reference set` when you [build the set](02-counting-bulk-reads.md#build-a-reference-set-with-rnaseq-reference-set), and choose the **Preset** that matches your library's kit.
 
 3. Choose the **Staged reads list** and the **Sample sheet**. The sheet is a CSV file, a text table with comma-separated columns, with `sample`, `r1`, and `r2` columns and one row per lane, and the rows of one sample make one library.
 
@@ -149,15 +149,21 @@ The plan sheet writes a folder that a Linux machine runs, and nothing runs or is
 
 5. Click **Check**, which runs every check of the plan and writes no folder. When the sheet says that every check passed and no folder was written, click **Write Plan**.
 
+A sheet for one library read on two lanes, two channels of the sequencer's flow cell, looks like this, with made-up file names. Read 1 (`r1`) holds the barcode and UMI, and read 2 (`r2`) the cDNA. The sheet has no column for the I1 file, the index read some runs write as a third file, so leave it out.
+
+```text
+sample,r1,r2
+PBMC_A,PBMC_A_S1_L001_R1_001.fastq.gz,PBMC_A_S1_L001_R2_001.fastq.gz
+PBMC_A,PBMC_A_S1_L002_R1_001.fastq.gz,PBMC_A_S1_L002_R2_001.fastq.gz
+```
+
 Each library gets its own plan, which runs STAR 2.7.11b in STARsolo mode. Copy, run, and return it as [Copy the plan folder and stage the reads](../08-workflows/04-running-on-a-linux-machine.md#copy-the-plan-folder-and-stage-the-reads) and the steps after it show. Then adopt the returned folder with the **RNA-seq Linux Run Result** card, as [Adopt the counts a Linux run returned](02-counting-bulk-reads.md#adopt-the-counts-a-linux-run-returned) shows, and the filtered matrix of `Solo.out/Gene` becomes one single-cell result.
 
 The `tenx-3p-v3-introns` preset is the exception. Its plan counts `Solo.out/GeneFull_Ex50pAS`, which the adopt does not read, so the card refuses the folder it returns. The words under **Preset** give two ways on. Read the `Solo.out/GeneFull_Ex50pAS` files yourself, or import the exon matrix with `lungfish-cli import rnaseq <result folder>/solo`.
 
-To see what a plan states, open the fixture's `solo-plan/plan-tenx-3p-v3.json` in a text editor. Its `cellFilter` line begins "EmptyDrops_CR with 3000 expected cells".
-
 ### Pseudobulk cells by label with Pseudobulk RNA-seq Cells
 
-[Pseudobulk](../../GLOSSARY.md#pseudobulk) sums the UMIs of the cells that share a label within each sample into one column of a new bulk result. A label names a group of cells, such as a cluster or a cell type. The labels table is a [TSV](../../GLOSSARY.md#tsv) file, a text table with tab-separated columns, with `barcode` and `label` columns, and a `sample` column when the result has two or more samples. Clusters from Seurat or Scanpy can give you one, and so can a [selection on the cell map](05-the-cell-map.md#save-a-selection-as-a-labels-table-or-pseudobulk-the-selected-cells).
+[Pseudobulk](../../GLOSSARY.md#pseudobulk) sums the UMIs of the cells that share a label within each sample into one column of a new bulk result. A label names a group of cells, such as a cluster or a cell type. The labels table is a [TSV](../../GLOSSARY.md#tsv) file, a text table with tab-separated columns, with `barcode` and `label` columns, and a `sample` column when the result has two or more samples. Clusters from Seurat or Scanpy can give you one, and so can a [selection on the cell map](05-the-cell-map.md#save-a-selection-as-a-labels-table-or-pseudobulk-the-selected-cells). To make one by hand, head two spreadsheet columns `barcode` and `label`, list one cell per row, and save it from Numbers or Excel as tab-separated text. Compare its first barcode with the first line of the result's `barcodes.tsv`, which Finder unpacks when you double-click Cell Ranger's `barcodes.tsv.gz`, since Cell Ranger adds `-1` and STARsolo does not.
 
 1. Choose **Tools > RNA-seq > Pseudobulk RNA-seq Cells…**. The **Workflow Operations** dialog opens on its **Pseudobulk RNA-seq Cells** row.
 
@@ -178,7 +184,7 @@ Group starsolo-pbmc_1k_v3 nine holds 9 cells, under 10, and is left out.
 30 cells of sample starsolo-pbmc_1k_v3 have no label and are left out.
 ```
 
-The new result, `STARsolo_pseudobulk.lungfishrnaseq`, sums the other 161 cells into three columns named for sample and label, `starsolo-pbmc_1k_v3_B`, `starsolo-pbmc_1k_v3_T`, and `starsolo-pbmc_1k_v3_ten`. Since a group is one sample and one label, cells of different animals never pool. The result opens in the bulk view of [Reading and Exporting Bulk RNA-seq Counts](03-reading-and-exporting-bulk-counts.md), whose export tests groups only when each holds at least 3 animals, so the one-donor fixture can be summed but not tested.
+The new result, `STARsolo_pseudobulk.lungfishrnaseq`, sums the other 161 cells into three columns named for sample and label, `starsolo-pbmc_1k_v3_B`, `starsolo-pbmc_1k_v3_T`, and `starsolo-pbmc_1k_v3_ten`. Since a group is one sample and one label, cells of different animals never pool. LGE leaves out a group of fewer than 10 cells and has no setting to change that floor. Its sources give no reason for 10, but a sum of so few cells probably rests mostly on chance. The result opens in the bulk view of [Reading and Exporting Bulk RNA-seq Counts](03-reading-and-exporting-bulk-counts.md), whose export tests groups only when each compared level holds at least 3 animals, the app's word for individuals, so a human donor counts as one. It counts animals and not cells because a test that takes each cell as a replicate gives false discoveries, so the one-donor fixture can be summed but not tested.
 
 ### Export single-cell counts for Seurat or Scanpy
 
@@ -192,7 +198,7 @@ The new result, `STARsolo_pseudobulk.lungfishrnaseq`, sums the other 161 cells i
 
 5. Click **Run**. The Operations Panel row `Export RNA-seq counts` reads `Writing counts and scripts for 1 result to rnaseq-export` and ends with `Exported 1 result to rnaseq-export`.
 
-To use the files, open [Terminal](../../GLOSSARY.md#terminal), move into the export folder with `cd`, and type `Rscript --vanilla seurat.R` for Seurat or `python -I scanpy.py` for Scanpy, as the first line of each script says. [The Seurat and Scanpy export folder](#the-seurat-and-scanpy-export-folder) explains what each script does.
+The scripts need R or Python with the packages named under Before you start, so a labmate or your core facility's analyst may run them for you. To run them yourself, open [Terminal](../../GLOSSARY.md#terminal), type `cd` and a space, drag the export folder from Finder onto the Terminal window to fill in its path, and press Return. Then type `Rscript --vanilla seurat.R` for Seurat or `python -I scanpy.py` for Scanpy, as the first line of each script says. [The Seurat and Scanpy export folder](#the-seurat-and-scanpy-export-folder) explains what each script does.
 
 ## Settings
 
@@ -200,9 +206,9 @@ To use the files, open [Terminal](../../GLOSSARY.md#terminal), move into the exp
 
 **Name.** Names the single-cell result that the import writes into the project's `Analyses` folder. The default is `Single-cell counts`, which says nothing about the study. Type the study or sample name so you can tell results apart in the sidebar. On the command line this is `--name`.
 
-**Sample sheet.** Describes each sample in a [sample sheet](../../GLOSSARY.md#sample-sheet), a tab-separated table with a `sample` column and, when known, `run`, `animal`, `species`, `origin`, and `group`. The default is no sheet, so each folder is a sample named after it and its other fields read **Not recorded**. Add one when you know each sample's animal or group, and let its `run` column name the folders so that each sample takes the sheet's id. On the command line this is `--samples`.
+**Sample sheet.** Describes each sample in a [sample sheet](../../GLOSSARY.md#sample-sheet), a tab-separated table with a `sample` column and, when known, `run`, `animal`, `species`, `origin`, and `group`. The default is no sheet, so each folder is a sample named after it and its other fields read **Not recorded**. Add one when you know each sample's animal or group, and let its `run` column name the folders so that each sample takes the sheet's id. For example, a row with `sample` as `donor1` and `run` as `PBMC_A` makes the folder `PBMC_A` the sample `donor1`. On the command line this is `--samples`.
 
-**Genomes.** Names each genome of a reference made of two or more genomes by the prefix of its gene ids, such as `hg19` and `mm10`, separated by commas or spaces. The default is empty, which suits a reference of one genome. Fill it for a mixed-species run, such as human and mouse cells counted on one combined reference. On the command line this is `--genome`.
+**Genomes.** Names each genome of a reference made of two or more genomes by the prefix of its gene ids, such as `hg19` and `mm10`, separated by commas or spaces. The default is empty, which suits a reference of one genome, so leave it empty for human-only data. Fill it for a mixed-species run, such as human and mouse cells counted on one combined reference. On the command line this is `--genome`.
 
 **Reference set.** Names a reference set whose not-host sequences, such as a virus, the import counts in each cell and in the ambient pool. The default is none, so the result holds no not-host counts. Choose one when you must count a virus or bacterium cell by cell, and then choose a BAM file for each sample. On the command line this is `--reference-set`.
 
@@ -216,7 +222,7 @@ Only the four rows that the single-cell plan adds are here. **Reference set**, *
 
 **Barcode list.** Supplies the preset's whole 10x list of valid cell barcodes as a file on your Mac, which the command checks by SHA-256 and never copies. The default is no file, so the plan reads the list in the tool image and refuses in words when the image holds none. Choose the list when the image lacks it, and place the file in the staging folder where the plan folder's README says. On the command line this is `--barcode-list`.
 
-**10x filter.** Names the 10x biotype list, the kinds of genes that 10x keeps in its references, that the adopted STARsolo index was built with, `mkgtf-3.0.0` or `gencode-2020-A`. The default is **None**, which suits an index with no 10x filter rule. Choose the list that you gave `rnaseq index-plan --tenx-filter` when you planned the index. On the command line this is `--tenx-filter`.
+**10x filter.** Names the 10x biotype list, the kinds of genes that 10x keeps in its references, that the adopted STARsolo index was built with, `mkgtf-3.0.0` or `gencode-2020-A`. The default is **None**, which suits an index with no 10x filter rule. Choose the list that you gave `rnaseq index-plan --tenx-filter` when you planned the index, or ask whoever built the index. On the command line this is `--tenx-filter`.
 
 **Expected cells.** Sets the number of cells that STARsolo's EmptyDrops_CR filter expects, the filter that tells droplets with a cell from empty ones. The default is 3,000 cells, STARsolo's own default. Set it near the number of cells the lab aimed to capture in the library. On the command line this is `--expected-cells`.
 
@@ -232,7 +238,7 @@ Only the four rows that the single-cell plan adds are here. **Reference set**, *
 
 ### Single-cell export settings
 
-A single-cell export uses four controls. **Design**, **Contrasts**, **Adjusted p-value cutoff**, **Fold-change bar**, and **Batch** stay at their defaults, as [Export RNA-seq Counts settings](03-reading-and-exporting-bulk-counts.md#export-rna-seq-counts-settings) explains.
+A single-cell export uses four controls, which follow. It leaves five at their defaults, **Design** (the model's columns), **Contrasts** (the comparisons), **Adjusted p-value cutoff** (the significance bar), **Fold-change bar** (the smallest change that counts), and **Batch** (the column that names each sample's batch, with **Batch correction** on **None**). [Export RNA-seq Counts settings](03-reading-and-exporting-bulk-counts.md#export-rna-seq-counts-settings) explains all five.
 
 **RNA-seq results.** Chooses the results to export, and a single-cell result must be the only one. It starts as **No RNA-seq results selected**, and **Run** stays off until you choose one. To export several samples of one experiment together, import their folders as one result first.
 
@@ -246,13 +252,13 @@ A single-cell export uses four controls. **Design**, **Contrasts**, **Adjusted p
 
 ### The single-cell view
 
-Select a single-cell result under **Analyses** to open it. A header lists five facts from the result's manifest, the file that describes it. **Route** names the counting route, the tool and every setting that changes counts, and for the STARsolo cut reads `starsolo-gene-filtered-matrix, STARsolo Not recorded`, since a STARsolo folder states no version.
+Select a single-cell result under **Analyses** to open it. A header lists five facts from the result's manifest, the file that describes it. They are **Name**, **Modality**, **Origin**, **Route**, and **Samples**. **Route** names the counting route, the tool and every setting that changes counts, and for the STARsolo cut reads `starsolo-gene-filtered-matrix, STARsolo Not recorded`, since a STARsolo folder states no version.
 
 Below the header, the top pane holds the summary and the plots, and the bottom pane holds the cells table. The view computes no number itself, and opening the result changes nothing in it.
 
 <!-- SHOT: single-cell-view -->
 
-**Cell summary** comes first, with each sample's **Cells**, **Features** (genes), and **Entries** (the values of the matrix that are not zero), then the **Tool**, its **Version**, and the total **Cells**. Its last line, "To see these cells on an embedding, use Import Embedding…", leads to [Import an embedding with Import Embedding](05-the-cell-map.md#import-an-embedding-with-import-embedding), and its info button names the two commands that make a cell map.
+**Cell summary** comes first, with each sample's **Cells**, **Features** (genes), and **Entries** (the values of the matrix that are not zero), then the **Tool**, its **Version**, and the total **Cells**. Its last line leads to [Import an embedding with Import Embedding](05-the-cell-map.md#import-an-embedding-with-import-embedding).
 
 | Row | STARsolo cut | Cell Ranger cut |
 |---|---|---|
@@ -272,17 +278,19 @@ Below the header, the top pane holds the summary and the plots, and the bottom p
 | The middle value of genes per cell | `Median Gene per Cell` | 1917 | `Median Genes per Cell` | 1,919 |
 | The share of reads whose barcode is on 10x's list | `Reads With Valid Barcodes` | 0.975933 | `Valid Barcodes` | 97.4% |
 
+Compare **Estimated Number of Cells** with the number of cells the lab aimed to capture and, for a whole run, with the total **Cells** of the **Cell summary**, which should usually match it. The two median rows depend on cell type and sequencing depth, so this chapter gives no range for them. 10x's [guide to its web summary](https://www.10xgenomics.com/analysis-guides/quality-assessment-using-the-cell-ranger-web-summary), the report page that Cell Ranger writes, treats a **Valid Barcodes** value under 75 percent as a possible sequencing or library problem.
+
 The histograms **UMIs per cell** and **Genes per cell** count the cells in each bin, with the tallest bar's count of cells at the top left. **Not-host UMIs per cell** comes next. The fixture was imported with no reference set, so it reads "This result holds no not-host counts. To count them, import the folder again with a reference set and a not-host BAM for each sample."
 
 ### The rank plot of cells by UMIs
 
-The [rank plot](../../GLOSSARY.md#rank-plot), headed **Cells ranked by UMIs**, puts each cell's rank on the horizontal **Rank** axis, starting at rank 1 for the cell with the most UMIs, and its UMIs on the vertical **UMIs** axis. Both axes are logarithmic, with a tick at each power of ten, so the fixture's 200 cells span the ticks 1, 10, 100, and 1000 along **Rank**. Each flat step is a run of cells that hold the same number of UMIs.
+The [rank plot](../../GLOSSARY.md#rank-plot), headed **Cells ranked by UMIs**, puts each cell's rank on the horizontal **Rank** axis, starting at rank 1 for the cell with the most UMIs, and its UMIs on the vertical **UMIs** axis. Both axes are logarithmic, so each tick is ten times the one before and the fixture's 200 cells span the ticks 1, 10, 100, and 1000 along **Rank**. Each flat step is a run of cells that hold the same number of UMIs.
 
-Cell Ranger's own rank plot also draws the barcodes that are not cells, as a long tail after a steep drop. LGE's plot leaves them out, since the result keeps no list of them, as the info button beside the heading says. Judge where the cells end from the counting program's own report. A long, low tail at the right of LGE's plot can mean that the cell call kept droplets with little RNA, such as empty or broken ones.
+Cell Ranger's own rank plot also draws the barcodes that are not cells, as a long tail after a steep drop, and 10x's guide reads that cliff and knee as the sign of a good sample. LGE's plot leaves the tail out, since the result keeps no list of those barcodes, as the info button beside the heading says. So it ends at the last cell, whose rank should match **Estimated Number of Cells** for a whole run.
 
 ### The cells table and its not-host flags
 
-The bottom pane lists one row per cell and reads the rows a page at a time, so even a large result scrolls without loading every cell. Every result has these five columns.
+The bottom pane lists one row per cell and reads the rows a page at a time, so even a large result scrolls without loading every cell. It has no sort or filter control, so the rows stay in cell order. To see where cells with not-host UMIs sit, color the cell map by a not-host column, as [Color cells by label or gene on the cell map](05-the-cell-map.md#color-cells-by-label-or-gene-on-the-cell-map) shows. Every result has these five columns.
 
 | Column | What it holds |
 |---|---|
@@ -298,7 +306,7 @@ A result imported with a reference set adds four columns for each extra sequence
 |---|---|
 | **&lt;extra&gt; UMIs** | Not-host UMIs of the extra with at least one alignment outside its rRNA mask |
 | **&lt;extra&gt; masked UMIs** | Not-host UMIs that fall only on the extra's ribosomal RNA genes |
-| **&lt;extra&gt; UMIs at nM 0 or 1** | How many of those UMIs had an alignment with 0 or 1 mismatches, shown as x of y |
+| **&lt;extra&gt; UMIs at nM 0 or 1** | How many of those UMIs had an alignment with 0 or 1 mismatches (nM, the number of mismatches between read and reference), shown as x of y |
 | **&lt;extra&gt; flag** | The words the import wrote for the cell |
 
 The flag column shows words such as these.
@@ -310,9 +318,7 @@ The flag column shows words such as these.
 | `not computed: <n> barcodes, too few for an ambient pool` | The raw matrix holds fewer than 45,000 barcodes with a UMI, so there is no pool |
 | `not computed: no rRNA mask for <extra>` | The bacterium came with no rRNA mask, so the test could not run |
 
-Under the histograms, a line for each extra's masked column says what its mask covers, or "No rRNA mask, none needed" for a virus or a spike-in, which has no ribosomal RNA to mask.
-
-An alignment counts only when it is primary, meaning the read's main placement, places the read at one spot (`NH:i:1`), and carries a cell barcode tag (`CB`) and a UMI tag (`UB`). On the command line, the import's summary line says how many cells were flagged above ambient. When a BAM gives no count, the line says how many alignments it left out and asks you to check the BAM's tags and barcodes.
+An alignment counts only when it is primary, meaning the read's main placement, places the read at one spot, and carries a cell barcode and a UMI. A BAM file stores these as two-letter tags, `NH:i:1` for one placement, `CB` for the cell barcode, and `UB` for the UMI, and a labmate can print one alignment's tags with `samtools view <bam> | head -n 1`. The view shows no total of flagged cells. The total is in the line that `lungfish-cli import rnaseq` prints, `<n> flagged above ambient`. When a BAM gives no count, that line says how many alignments it left out and asks you to check the BAM's tags and barcodes.
 
 ### The Seurat and Scanpy export folder
 
@@ -334,32 +340,31 @@ Both scripts take the same steps, and each writes its first file before it loads
 4. Leave a marked place for your own analysis, such as normalizing, clustering, and drawing an embedding.
 5. Write `lge-cell-map.tsv` once the object holds an embedding, and print the `lungfish-cli rnaseq cell-map import` command that reads it back, as [The Cell Map](05-the-cell-map.md) explains.
 
-With two or more samples, each cell is named `<sample>_<barcode>`. Seurat reads a cell's sample from the text before the first underscore, which would merge samples such as `cov_10` and `cov_11`. So `seurat.R` sets `orig.ident` and the default identity, `Idents`, from each cell's own sample in `samples.tsv` order, and keeps a `barcode` column in `meta.data`, the object's table of facts per cell. If the folders also hold antibody counts, both objects keep them beside the genes, so keep only the Gene Expression features before you normalize, which rescales each cell's counts for its depth.
+The rest is background for your labmate. With two or more samples each cell is named `<sample>_<barcode>`, and `seurat.R` takes each cell's sample from `samples.tsv` and not from that name. If the folders also hold antibody counts, both objects keep them beside the genes, so keep only the Gene Expression features before you normalize.
 
 ### The Inspector on a single-cell result
 
-While a single-cell result is open, the [Inspector](../../GLOSSARY.md#inspector)'s **Bundle** tab lists the header's five facts, **Name**, **Modality**, **Origin**, **Route**, and **Samples**, and its **Provenance** tab shows the import's record. No cell count, quality number, or plot appears in the Inspector, so read those in the view. [The Inspector on an RNA-seq result](03-reading-and-exporting-bulk-counts.md#the-inspector-on-an-rna-seq-result) covers the same tabs for a bulk result.
+While a single-cell result is open, the [Inspector](../../GLOSSARY.md#inspector)'s **Bundle** tab lists the header's five facts, and its **Provenance** tab shows the import's record. No cell count, quality number, or plot appears in the Inspector, so read those in the view. [The Inspector on an RNA-seq result](03-reading-and-exporting-bulk-counts.md#the-inspector-on-an-rna-seq-result) covers the same tabs for a bulk result.
 
 ## What good looks like
 
 Check these before you trust a result.
 
-- **The cell count fits the experiment.** The fixture's data set is named for 1,000 cells, and the two programs called 1,224 and 1,222 cells in the whole run. A count far from what the lab aimed for can point to a cell call that kept empty droplets or lost real cells.
-- **The two programs agree on the same cells.** On the fixture's 200 cells, STARsolo holds 17,692 entries and 212,629 UMIs, and Cell Ranger holds 17,708 entries and 212,733 UMIs, a gap of 104 UMIs, about 0.05 percent.
-- **Depth suits the cells.** The whole run's median is about 6,600 UMIs and 1,900 genes per cell, while the cut averages about 1,060 UMIs per cell because it keeps 1,353 of 33,538 genes. Enough depth depends on cell type, kit, and sequencing, so compare with runs of the same kit and tissue.
-- **The histograms have one main peak.** A second peak at very few UMIs often means that the cell call kept empty or broken droplets, and a few cells far above the rest may be two cells caught in one droplet.
-- **A pseudobulk adds up.** The kept groups, the group left out, and the cells with no label together hold the whole result. For the STARsolo cut they hold 172,079, 9,130, and 31,420 UMIs, which sum to 212,629.
+- **The cell count fits the experiment.** The fixture's data set is named for 1,000 cells, and the two programs called 1,224 and 1,222 cells in the whole run.
+- **The two programs agree on the same cells.** On the fixture's 200 cells, STARsolo holds 17,692 entries and 212,629 UMIs, and Cell Ranger holds 17,708 entries and 212,733 UMIs, about 0.05 percent more.
+- **Depth suits the cells.** The whole run's median is about 6,600 UMIs and 1,900 genes per cell, while the cut averages about 1,060 UMIs per cell because it keeps 1,353 of 33,538 genes.
+- **The histograms have one main peak.** A second peak, a separate hill near the left edge at very few UMIs, often means that the cell call kept empty or broken droplets, and a few cells far above the rest may be two cells caught in one droplet.
+- **A pseudobulk adds up.** The kept groups, the group left out, and the cells with no label together hold the whole result. For the STARsolo cut they hold 172,079, 9,130, and 31,420 UMIs, which sum to 212,629. Read each kept group's total in the **Counted** column of the pseudobulk result's **Quality** tab, in the bulk view. The record keeps the other two totals as `groupsLeftOut` and `cellsWithNoLabel`.
 
 ### Limits of the single-cell tools
 
 | Limit | What to do instead |
 |---|---|
-| The rank plot leaves out barcodes outside the cells, since the result keeps no raw barcode list | Judge the cell call from the counting program's own report |
 | LGE reads no `.h5`, `.h5ad`, or `.rds` file, and an import leaves out any `.h5` file and records its checksum | Import the Matrix Market folders, and open `.h5ad` files in Scanpy and `.rds` files in Seurat |
 | The globin share on a pseudobulk result's **Quality** tab reads **Not recorded**, since no rule names the globin genes yet | Sum the globin genes yourself from the exported counts |
 | The Inspector shows only the five header facts and the record | Read cell counts, quality numbers, and plots in the view |
 | LGE names no cell types and does not integrate samples | Do both in Seurat or Scanpy, then bring the labels back as a labels table |
-| The `outs` folder of `cellranger multi` and the folder the introns preset returns are refused | Import the `outs` folder of `cellranger count`, or the exon matrix as the plan's words say |
+| A `cellranger multi` folder and the folder the introns preset returns are refused | Ask for a `cellranger count` run, or import the exon matrix as the plan's words say |
 
 ### When an import or a plan refuses
 
@@ -368,14 +373,13 @@ The sheet, the dialog, or the Operations row shows each refusal in words that na
 | Words | Cause | What to do |
 |---|---|---|
 | "… is not a Cell Ranger or STARsolo folder." | The folder holds neither `filtered_feature_bc_matrix` nor `Solo.out` | Choose the `outs` folder, or the STARsolo folder that holds `Solo.out` |
-| "Cell Ranger and STARsolo count cells by two routes…" | One import holds folders of both programs | Import each program's folders in a run of its own |
 | "The BAM … has no index (.bai or .csi) beside it." | The BAM file was never indexed | Index it with `samtools index` and import again |
 | "The folder … has no raw matrix…" | The ambient pool needs the raw matrix | Import the folder as the program wrote it |
 | "… barcodes that the result does not hold…" | The labels table and the result disagree on the `-1` suffix | Use the labels table in the result's barcode form |
 
 ## On the command line
 
-This section is optional, since everything above works in the app's windows. The [RNA-seq](../appendices/cli-reference.md#rna-seq) part of the CLI Reference lists every flag, and [`import rnaseq`](../appendices/cli-reference.md#import-rnaseq) closes that part.
+This section is optional for the import, pseudobulk, and export, which work in the app's windows, but the plan route needs the command line. The [RNA-seq](../appendices/cli-reference.md#rna-seq) part of the CLI Reference lists every flag, and [`import rnaseq`](../appendices/cli-reference.md#import-rnaseq) closes that part.
 
 Set `PROJECT` to your project and `FIXTURE` to the downloaded fixture folder. The commands do not make the project folder, so `mkdir -p` makes it, as the fixture's README does.
 
