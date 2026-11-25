@@ -320,7 +320,10 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
 
     func testAnExtractionCallsTheWords() throws {
         let text = try body(from: "private func performExtraction(", upTo: "func createExtractionBundle(")
-        XCTAssertTrue(text.contains("presentGTFPartsNotJoinedWords(for: request"), "an extraction does not call the words")
+        XCTAssertTrue(
+            text.contains("presentGTFPartsNotJoinedWords(for: request, route: GTFPartsNotJoined.route(for: config.outputMode))"),
+            "the extraction's words do not take the route of its output mode"
+        )
     }
 
     // MARK: - The routes, driven for real (review of AFFECTED-ANNOT: B1, SF-1, SF-2, SF-3, AA-3)
@@ -492,29 +495,82 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
         )
     }
 
-    /// AA-3, Extract to a FASTA file: the same one-part rows get the words, in the extraction form. A selection of a
-    /// transcript, two CDS lines and a one-exon transcript gets one sheet for each sentence it earns, in selection order.
+    /// The hooks that the Extract Sequence dialog was given, one for each dialog a route opened. The dialog runs a hook
+    /// after the person's choice, and never after a Cancel.
+    private var extractionDialogHooks: [(() -> Void)?] = []
+
+    /// The reports a route that opens the Extract Sequence dialog presents before the person chooses anything, and
+    /// after they choose Save, Create, Copy or Share. A Cancel runs no hook, so `before` is what a Cancel leaves on
+    /// screen. `hooks` is the number of hooks the dialog was given.
+    private func reportsAroundThePrimary(
+        by viewer: SequenceViewerView, _ route: (SequenceViewerView) -> Void
+    ) -> (before: [FailureReport], after: [FailureReport], hooks: Int) {
+        extractionDialogHooks = []
+        viewer.viewController?.fastaSequenceExtractionDialogPresenterForTesting = { [weak self] _, _, afterPrimary in
+            self?.extractionDialogHooks.append(afterPrimary)
+        }
+        let recorder = WordsRecorder()
+        var before: [FailureReport] = []
+        ViewerRefusalSeam.$presenter.withValue(recorder) {
+            route(viewer)
+            before = recorder.reports
+            for hook in extractionDialogHooks { hook?() }
+        }
+        return (before, recorder.reports, extractionDialogHooks.compactMap { $0 }.count)
+    }
+
+    /// AA-3 and AFFECTED-ANNOT-3 SF-1, Extract to a FASTA file: the same one-part rows get the words, in the extraction
+    /// form, and only after the person chooses in the dialog, so a Cancel shows none. A selection of a transcript, two
+    /// CDS lines and a one-exon transcript gets one sheet for each sentence it earns, in selection order.
     func testExtractToAFASTAFileSaysSoForOnePartGTFRows() throws {
         let viewer = try makeViewerOnGTFBundle()
 
+        let cds = reportsAroundThePrimary(by: viewer) {
+            $0.presentAnnotationSequenceExtractionDialog([annotation("CDS", 150, 201, id: "T1")])
+        }
         XCTAssertEqual(
-            sentences(reportsShown(by: viewer) { $0.presentAnnotationSequenceExtractionDialog([annotation("CDS", 150, 201, id: "T1")]) }),
-            [cdsExtractionWords], "one CDS line of an old GTF track extracted to a file with no words"
+            sentences(cds.before), [], "the words show before the person has chosen, so a Cancel leaves them on screen"
         )
+        XCTAssertEqual(cds.hooks, 1, "the dialog is given one hook that shows the words after the choice")
         XCTAssertEqual(
-            sentences(reportsShown(by: viewer) {
-                $0.presentAnnotationSequenceExtractionDialog([annotation("transcript", 2000, 2500, id: "T2")])
-            }),
-            [], "a one-exon transcript gets no words"
+            sentences(cds.after), [cdsExtractionWords], "one CDS line of an old GTF track extracted to a file with no words"
         )
+
+        let oneExon = reportsAroundThePrimary(by: viewer) {
+            $0.presentAnnotationSequenceExtractionDialog([annotation("transcript", 2000, 2500, id: "T2")])
+        }
+        XCTAssertEqual(sentences(oneExon.after), [], "a one-exon transcript gets no words")
+
         let selection = [
             annotation("transcript", 2000, 2500, id: "T2"), annotation("transcript", 100, 900, id: "T1"),
             annotation("CDS", 150, 201, id: "T1"), annotation("CDS", 700, 850, id: "T1"),
         ]
-        XCTAssertEqual(
-            sentences(reportsShown(by: viewer) { $0.presentAnnotationSequenceExtractionDialog(selection) }),
-            [transcriptWords, cdsExtractionWords]
-        )
+        let several = reportsAroundThePrimary(by: viewer) { $0.presentAnnotationSequenceExtractionDialog(selection) }
+        XCTAssertEqual(sentences(several.before), [], "a selection shows no words before the choice")
+        XCTAssertEqual(sentences(several.after), [transcriptWords, cdsExtractionWords])
+    }
+
+    /// AFFECTED-ANNOT-3 SF-2: a selection asks the track for the words of the first row of each kind, and for no other
+    /// row. Seven rows of three kinds are asked about at index 0 (the first CDS) and index 3 (the first transcript). A
+    /// row that gets no words leaves the next row of its kind to be asked.
+    func testASelectionAsksTheTrackOncePerKindOfSentence() {
+        let types: [AnnotationType] = [.cds, .cds, .cds, .transcript, .mRNA, .gene, .cds]
+        var asked: [Int] = []
+        let shown = GTFPartsNotJoined.sentences(forTypes: types) { index in
+            asked.append(index)
+            return types[index] == .cds
+                ? GTFPartsNotJoined.cdsWords(for: .extraction) : GTFPartsNotJoined.transcriptWords(for: .extraction)
+        }
+        XCTAssertEqual(shown, [cdsExtractionWords, transcriptWords])
+        XCTAssertEqual(asked, [0, 3], "the track is asked once for each kind of sentence")
+
+        var askedAboutQuietRows: [Int] = []
+        let quiet = GTFPartsNotJoined.sentences(forTypes: [.transcript, .mRNA]) { index in
+            askedAboutQuietRows.append(index)
+            return nil
+        }
+        XCTAssertEqual(quiet, [])
+        XCTAssertEqual(askedAboutQuietRows, [0, 1], "a row that gets no words leaves the next row of its kind to be asked")
     }
 
     /// AA-3, the FASTQ/FASTA operation: the dialog opens, and the words follow it in the extraction form. A one-exon

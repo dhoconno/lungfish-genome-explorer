@@ -153,6 +153,9 @@ public class ViewerViewController: NSViewController {
     /// A test's search in place of `blast submit` (`fastaBlastRunner(plan:operationID:override:)`). Nil runs the route.
     var fastaBlastVerificationRunner: FASTABlastVerificationRunner?
     var fastaOperationDialogPresenterForTesting: FASTAOperationDialogPresenter?
+    /// A test's stand-in for the Extract Sequence dialog (records, suggested name, the hook that runs after the person's
+    /// choice). Nil runs the route.
+    var fastaSequenceExtractionDialogPresenterForTesting: (([String], String, (() -> Void)?) -> Void)?
 
     var activeOverlappingReadsExtractionTask: Task<Void, Never>?
 
@@ -1757,6 +1760,10 @@ public class ViewerViewController: NSViewController {
     }
 
     func presentFASTASequenceExtractionDialog(records: [String], suggestedName: String) {
+        if let fastaSequenceExtractionDialogPresenterForTesting {
+            fastaSequenceExtractionDialogPresenterForTesting(records, suggestedName, nil)
+            return
+        }
         presentFASTASequenceExtractionDialog(records: records, suggestedName: suggestedName, annotationsByRecord: [:])
     }
 
