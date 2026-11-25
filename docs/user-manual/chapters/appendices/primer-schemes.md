@@ -37,7 +37,7 @@ A scheme can come from three places. Eight ship inside the application, you can 
 
 ## Shipped schemes
 
-LGE ships eight SARS-CoV-2 schemes inside the application. You never browse to them, because every one already appears in the **Primer Scheme** menu of the Primer Trim dialog and of the Viral Recon wizard. The schemes are viral because these kits are, and the format itself assumes nothing about the organism.
+LGE ships eight SARS-CoV-2 schemes inside the application. You never browse to them, because every one already appears in the **Primer Scheme** menu of the Primer Trim dialog and in the **Scheme** menu of the **Primer scheme** section of the Viral Recon wizard. The schemes are viral because these kits are, and the format itself assumes nothing about the organism.
 
 All eight target SARS-CoV-2 with [canonical accession](../../GLOSSARY.md#canonical-accession) `MN908947.3` and [equivalent accession](../../GLOSSARY.md#equivalent-accession) `NC_045512.2`. An accession is the identifier a public sequence database gives one record. The canonical accession is the one the coordinates were written against, and an equivalent accession names the same sequence deposited under a second identifier.
 
@@ -54,13 +54,13 @@ All eight target SARS-CoV-2 with [canonical accession](../../GLOSSARY.md#canonic
 
 The display name is what the menu shows. The manifest `name` is the file-safe identifier, which is also the folder name and the key the Primer Trim menu sorts on, which is why ARTIC V3 sits fourth there. The Viral Recon wizard sorts by display name instead.
 
-Each amplicon needs a primer at each end, so the primer count should run to about twice the amplicon count. QIAseq Direct, ARTIC V4.1, and ARTIC V3 sit above that on purpose, because they carry extra primers. QIAseq Direct's 563 primers over 223 amplicons include its Booster A primers, added on top of the base design. The two ARTIC versions carry spare primers that restore amplicons the original design lost as the virus mutated where those primers bind. Both NEB VarSkip schemes carry spare primers too, but their manifests count some spares as amplicons of their own, so NEB VarSkip Long reads 29 amplicons where it has 25.
+Each amplicon needs a primer at each end, so the primer count should run to about twice the amplicon count. QIAseq Direct, ARTIC V4.1, and ARTIC V3 sit above that on purpose, because they carry extra primers. QIAseq Direct's 563 primers over 223 amplicons include its Booster A primers, added on top of the base design. The two ARTIC versions carry spare primers that restore amplicons the original design lost as the virus mutated where those primers bind. Both NEB VarSkip schemes carry spare primers too, but the NEB VarSkip Long manifest counts some of its spares as amplicons of their own, so it reads 29 amplicons where it has 25.
 
 The right scheme is the one your wet-lab protocol used, read off the kit box rather than picked from the menu. Amplicon length is the practical difference between them. The four ARTIC versions and NEB VarSkip Short make amplicons of a few hundred bases, which suits short Illumina reads. Midnight 1200 bp V1 and NEB VarSkip Long make amplicons over a thousand bases, which suits the longer reads Oxford Nanopore produces.
 
 ## Bundle layout
 
-To look inside a bundle, right-click it in Finder and choose **Show Package Contents**. A bundle the importer wrote has this shape.
+To look inside a bundle, right-click it in the sidebar, choose **Show in Finder**, and open the folder that Finder selects. A bundle the importer wrote has this shape.
 
 ```text
 MacaqueMHC-v1.lungfishprimers/
@@ -98,15 +98,15 @@ The six columns are read as follows.
 |---|---|---|
 | 1 | Contig name | Must equal the manifest's canonical accession. At trim time LGE renames it to match an alignment that uses one of the equivalent accessions. |
 | 2 and 3 | Start and end | BED coordinates, so the first row's primer is 54 minus 30, or 24 bases. |
-| 4 | Primer name | Must end in `_LEFT` or `_RIGHT` for the amplicon count to work, as described below. |
+| 4 | Primer name | Must carry `_LEFT` or `_RIGHT` after the amplicon name, with an optional suffix such as `_alt1`, for the amplicon count to work, as described below. |
 | 5 | [Primer pool](../../GLOSSARY.md#primer-pool) | The number of the PCR tube the primer belongs to, copied from your vendor's own numbering. |
 | 6 | Strand | `+` for the forward primer of a pair and `-` for the reverse. |
 
-In a [tiling](../../GLOSSARY.md#tiling) scheme, meaning one whose amplicons overlap end to end to cover a whole region, the pool alternates between 1 and 2. Neighboring amplicons are then made in separate tubes, because two overlapping amplicons in one tube both amplify poorly.
+In a [tiling](../../GLOSSARY.md#tiling) scheme, meaning one whose amplicons overlap end to end to cover a whole region, the pool usually alternates between 1 and 2, and seven of the eight shipped schemes use those two pools while NEB VarSkip Short writes 0 on every row. Where it alternates, neighboring amplicons are made in separate tubes, because two overlapping amplicons in one tube both amplify poorly.
 
 ### How LGE counts primers and amplicons
 
-LGE counts every non-empty row that does not begin with `#` as one primer. It counts amplicons by removing the role tag `_LEFT`, `_RIGHT`, or `_PROBE` from each name in column 4, together with anything that follows the tag, and counting the distinct names left. A spare primer named `nCoV-2019_2_LEFT_alt1` and a designed variant named `d01afd1e_1_LEFT_2` therefore count as the same amplicon as their plain `_LEFT` partner.
+LGE counts every non-empty row that does not begin with `#` as one primer. It counts amplicons by removing the role tag `_LEFT`, `_RIGHT`, or `_PROBE` from each name in column 4, together with any underscore-separated suffix after the tag, such as `_alt1` or `_2`, and counting the distinct names left. A spare primer named `nCoV-2019_2_LEFT_alt1` and a designed variant named `d01afd1e_1_LEFT_2` therefore count as the same amplicon as their plain `_LEFT` partner.
 
 After removing the tag it also drops a dash followed by one or two digits, so a spare primer named `QIAseq_221-2_LEFT` counts as the same amplicon as `QIAseq_221_LEFT`. The dash must come before the tag, as it does in the QIAseq scheme. A name such as `QIAseq_221_LEFT-1`, or a dash followed by three or more digits, counts as an amplicon of its own and inflates the count without a warning. The manifests of the shipped schemes were written by the tools that built them rather than by this rule, and the NEB VarSkip Long manifest still reads 29 amplicons for a primer file that defines 25.
 
@@ -151,7 +151,7 @@ The sheet writes no description, organism, source link, or version into the mani
 
 The new scheme appears in the sidebar under **Primer Schemes**, without its `.lungfishprimers` extension. Clicking it shows the scheme in the Inspector, with the display name at the top, the description when there is one, the primer and amplicon counts side by side, the reference accession and any equivalents, the organism, source, and version when the manifest has them, and a list of attachments at the foot.
 
-The Inspector only displays a scheme. To change a field, import the scheme again under a new name, or open the bundle with **Show Package Contents** and edit `manifest.json` in a text editor.
+The Inspector only displays a scheme. To change a field, import the scheme again under a new name, or open the bundle in Finder and edit `manifest.json` in a text editor.
 
 ## Saving a designed scheme
 
@@ -159,7 +159,7 @@ A tiled design made in LGE becomes a scheme without a BED file of its own. In th
 
 Only a tiled result can be saved. PrimalScheme, Olivar and tiled varVAMP designs qualify, and Primer3 candidate pairs and varVAMP qPCR assays do not, because they are alternatives rather than one scheme, which is what the disabled button's caption says. A result whose primers sit on more than one reference, such as a combined PrimalScheme panel, is refused, because a bundle names one reference, so save each single-reference result instead. Probe oligos are left out of the BED, because trimming applies to primers only, and a note in the result says how many were left out.
 
-A designed scheme differs from an imported one in four ways.
+A designed scheme differs from an imported one in at least four ways.
 
 - Its manifest `source` reads `designed`, beside `built-in` for the shipped schemes and `imported` for the importer's.
 - Its `display_name` joins the analysis name and the result's label with a centered dot, as in `Mamu-A1 tiled PrimalScheme · mamu-a1-panel`, and the **Scheme name** field sets the folder name.
@@ -206,15 +206,15 @@ The square brackets hold the list and each pair of curly braces holds one record
 
 LGE writes a [provenance](../../GLOSSARY.md#provenance) record beside every result, holding the command, the tool version, and a [checksum](../../GLOSSARY.md#checksum) of each file, and [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read it.
 
-An imported scheme's `PROVENANCE.md` has nine lines under its heading, naming the workflow, the tool version, the command, the start time, the BED source, the FASTA source or the words "not provided", the output bundle, the reference accession, and the exit status. A window import records the command as the app ran it rather than as you typed it. The `provenance/` folder holds the same run in machine-readable form, with a checksum and byte size for every input and output. It also records your macOS user name and macOS version, which is worth knowing before you share a bundle outside your group.
+An imported scheme's `PROVENANCE.md` has nine lines under its heading, naming the workflow, the tool version, the command, the start time, the BED source, the FASTA source or the words "not provided", the output bundle, the reference accession, and the exit status. A window import records the command as the app ran it rather than as you typed it. The `provenance/` folder holds the same run in machine-readable form, with a checksum and byte size for every input and output. It also records your macOS version and processor type but never your account name. `PROVENANCE.md` does list the full path of your BED file and of the bundle, which usually holds your account name, so read it before you share a bundle outside your group.
 
-A shipped scheme's `PROVENANCE.md` was written by a different program and is longer. Its Reference Verification table gives a checksum of each declared accession's sequence as fetched from NCBI, and matching checksums on the canonical and equivalent rows show the two accessions hold the same sequence.
+Seven of the eight shipped schemes have a `PROVENANCE.md` that was written by a different program and is longer. Its Reference Verification table gives a checksum of each declared accession's sequence as fetched from NCBI, and matching checksums on the canonical and equivalent rows show the two accessions hold the same sequence. The QIAseq Direct file is a short prose note with no such table.
 
 To confirm that two copies of a scheme are the same, compare the checksum of `primers.bed` in their provenance records, as [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#what-good-looks-like) describes. Compare `primers.bed` rather than `manifest.json`, because the importer copies the BED unchanged while the manifest's `created` and `imported` times differ on every import.
 
 ## On the command line
 
-The window route above does everything this one does except add attachments, so read this section only if you script your imports. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
+The window route above does everything this one does for a scheme inside a project except add attachments, so read this section only if you script your imports or need a bundle outside a project. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
 
 ```bash
 lungfish-cli primers import \
@@ -227,7 +227,7 @@ lungfish-cli primers import \
   --attachment kit-notes.txt
 ```
 
-The file names and the accession here stand in for your own kit's. Only `--bed` and `--output` are required. Left off, `--reference-accession` is taken from the BED file's first column, and `--display-name` defaults to the output name. `--equivalent-accession` and `--attachment` may each be given more than once. With `--project`, a relative `--output` lands in that project's `Primer Schemes/` folder, which is where the Primer Scheme menus look, and `.lungfishprimers` is added when you leave it off.
+The file names and the accession here stand in for your own kit's. Only `--bed` and `--output` are required. Left off, `--reference-accession` is taken from the BED file's first column, and `--display-name` defaults to the output name. `--equivalent-accession` and `--attachment` may each be given more than once. With `--project`, an `--output` given as a bare name lands in that project's `Primer Schemes/` folder, which is where the Primer Scheme menus look, and `.lungfishprimers` is added when you leave it off.
 
 A second import to the same place does not overwrite the first. It stops with a message that a primer scheme bundle already exists there, so a rerun of a setup script cannot replace a scheme other results were trimmed against. `lungfish-cli primers` has no subcommand that lists or prints a scheme, so read `manifest.json` directly.
 
@@ -235,4 +235,4 @@ A second import to the same place does not overwrite the first. It stops with a 
 
 Go to [Primer Trimming an Alignment](../04-alignments/03-primer-trimming.md) to apply a scheme to a mapped alignment, or to [The Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md) to run one through the whole SARS-CoV-2 pipeline. To design a scheme of your own rather than import one, see [Designing a Tiled Amplicon Scheme](../10-primer-design/03-designing-a-tiled-amplicon-scheme.md).
 
-A designed viral scheme's downstream is that trimming chapter and then [Calling Variants from Amplicons](../05-variants/01-calling-variants-from-amplicons.md). A designed MHC panel's downstream is [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md), which reads amplicons against an allele library and needs no primer scheme, so save a scheme there only if you also want the primer positions trimmed out of the reads first.
+A designed viral scheme's downstream is that trimming chapter and then [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md). A designed MHC panel's downstream is [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md), which reads amplicons against an allele library and needs no primer scheme, so save a scheme there only if you also want the primer positions trimmed out of the reads first.
