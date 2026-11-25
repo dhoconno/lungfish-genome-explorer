@@ -1977,7 +1977,7 @@ lungfish-cli fastq export sample-barcodes [<options>] <bundle-path> --tab <tab> 
 
 ## Demultiplexing and Oxford Nanopore runs
 
-[Demultiplexing](../../GLOSSARY.md#demultiplex) splits one pooled run into per-sample files by the short barcode sequence each sample was tagged with. The window covers this ground in [Oxford Nanopore Runs](../03-reads/07-ont-runs.md). A kit name in `--kit` stands for a fixed set of barcodes.
+[Demultiplexing](../../GLOSSARY.md#demultiplex) splits one pooled run into per-sample files by the short barcode sequence each sample was tagged with. The window covers this ground in [Demultiplexing by Barcode](../03-reads/09-demultiplexing-barcodes.md). A kit name in `--kit` stands for a fixed set of barcodes.
 
 Run this from the hg002-long-reads practice folder. It imports the small Oxford Nanopore run folder as one bundle per barcode.
 
@@ -1987,7 +1987,7 @@ lungfish-cli fastq import-ont ont-run/fastq_pass -o ont-imported
 
 ### `fastq demultiplex`
 
-Splits pooled reads into one bundle per barcode, by searching the read sequences with cutadapt or an exact matcher, or by reading the index in the read names. Explained in [Oxford Nanopore Runs](../03-reads/07-ont-runs.md).
+Splits pooled reads into one bundle per barcode, by searching the read sequences with cutadapt or an exact matcher, or by reading the index in the read names. Explained in [Demultiplexing by Barcode](../03-reads/09-demultiplexing-barcodes.md).
 
 ```text
 lungfish-cli fastq demultiplex [<options>] <input> --kit <kit> --output <output>
@@ -2017,7 +2017,7 @@ The built-in kits are `truseq-single-a`, `truseq-single-b`, `truseq-ht-dual`, `n
 
 ### `fastq scout`
 
-Scans a subset of reads against a barcode kit and writes a `scout-result.json` with hit counts and a suggested accept or reject for each barcode. Explained in [Oxford Nanopore Runs](../03-reads/07-ont-runs.md).
+Scans a subset of reads against a barcode kit and writes a `scout-result.json` with hit counts and a suggested accept or reject for each barcode. Explained in [Demultiplexing by Barcode](../03-reads/09-demultiplexing-barcodes.md).
 
 Like `fastq demultiplex`, it runs only inside a project, so run it from within your `.lungfish` project folder, and pass the FASTQ file rather than a `.lungfishfastq` bundle, which fails with a provenance error that is a [known defect](troubleshooting.md#known-defects-in-this-release).
 
