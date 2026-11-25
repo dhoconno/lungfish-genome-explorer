@@ -138,6 +138,12 @@ final class AnnotationDrawerMissingTracksLayoutTests: XCTestCase {
             viewer.view.setFrameSize(NSSize(width: pane, height: viewer.view.frame.height))
             viewer.view.layoutSubtreeIfNeeded()
             try assertFootLineHasItsHeight(in: drawer, "one long-named missing track, pane \(Int(pane)) pt wide")
+            let needed = Self.neededHeight(of: label)
+            XCTAssertLessThanOrEqual(
+                label.frame.height, needed + 1,
+                "one long-named missing track, pane \(Int(pane)) pt wide: the foot line is \(label.frame.height) pt tall and its "
+                    + "words need only \(needed) pt at its width of \(label.frame.width) pt, so it kept the height of a narrower pane"
+            )
             widths.append(label.frame.width)
         }
         XCTAssertGreaterThan(
