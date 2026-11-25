@@ -106,7 +106,7 @@ The Sequence Read Archive, NCBI's public store of raw sequencing data and usuall
 @D00360:94:H2YT5BCXX:1:1101:1582:14700   (in the R2 file, 249 bases)
 ```
 
-The two mates need not be the same length. Each read is trimmed on its own, so 250 and 249 in one pair is ordinary.
+The two mates need not be the same length, so 250 and 249 in one pair is ordinary.
 
 Pairing is worth the second file for two reasons. A read that could fit two places in the genome can often be placed correctly, because its mate narrows down where it sits. And a [variant caller](../../GLOSSARY.md#variant-caller), the program that compares aligned reads to a reference and reports the differences, can count a pair as one observation. The two mates came from one fragment, so counting them as two would inflate the support for a call.
 

@@ -94,7 +94,7 @@ A FASTA record is a header line that starts with `>` followed by the bases on th
 
 A GenBank record carries the same bases together with a list of features, each with a type such as gene, exon, or CDS and a location on the sequence. The `join(70595..70686,70817..71039,71890..72018)` above is GenBank's way of writing a feature that comes in pieces. The `NG_000007.3` record in the demo project arrived as GenBank, which is why its genes and exons appear beneath the bases.
 
-A GFF3 file is a table of features with nine tab-separated columns, among them the sequence name, the feature type, its start and end counted from 1 and inclusive, and its strand. It holds no bases, so it only means something beside the FASTA whose sequence names it uses. LGE turns an imported GenBank record into a FASTA with a GFF3 track of its features, and it can attach a GFF3 file you bring to a FASTA you already have, as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) shows.
+A GFF3 file is a table of features with nine tab-separated columns, among them the sequence name, the feature type, its start and end counted from 1 and inclusive, and its strand. It holds no bases, so it only means something beside the FASTA whose sequence names it uses. LGE turns an imported GenBank record into a FASTA with an annotation track of its features, and it can attach a GFF3 file you bring to a FASTA you already have, as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md) shows.
 
 ## Linear, circular, and segmented genomes
 

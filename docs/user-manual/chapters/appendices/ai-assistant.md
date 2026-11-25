@@ -58,17 +58,17 @@ Allow about twenty minutes, most of it spent creating the provider account.
 
 ### Open the AI Services settings tab
 
-Choose **Settings...** (Cmd-,) from the application menu, the menu named after the app at the left of the menu bar, and click **AI Services**. Leave it open for the next two steps.
+Choose **Settings…** (Cmd-comma) from the application menu, the menu named after the app at the left of the menu bar, and click **AI Services**. Leave it open for the next two steps.
 
 ### Turn on AI search
 
-Turn on the toggle at the top of the tab, labelled `Enable AI-powered search`. It is off on a new installation, and turning it on sends nothing, because no question has been asked yet. While it is off, the Assistant tab is hidden and **View > AI Assistant** raises an alert headed "AI Assistant Disabled".
+Turn on **Enable AI-powered search** at the top of the tab. It is off on a new installation, and turning it on sends nothing, because no question has been asked yet. While it is off, the Assistant tab is hidden and **View > AI Assistant** raises an alert headed "AI Assistant Disabled".
 
 ### Choose a default provider and enter its key
 
-Choose a company from the `Default provider:` picker, whose options read "Anthropic Claude", "OpenAI", and "Google Gemini". Find the section for that company further down the tab and type or paste your key into its **API Key** field. The grey placeholder text shows the shape each company's keys take, `sk-ant-...` for Anthropic, `sk-...` for OpenAI, and `AIza...` for Google Gemini, and the prefix is already part of the key the provider gives you.
+Choose a company from the **Default provider** picker, whose options read "Anthropic Claude", "OpenAI", and "Google Gemini". Find the section for that company further down the tab and type or paste your key into its **API Key** field. The grey placeholder text shows the shape each company's keys take, `sk-ant-...` for Anthropic, `sk-...` for OpenAI, and `AIza...` for Google Gemini, and the prefix is already part of the key the provider gives you.
 
-Type the key only into that field. LGE writes it into the macOS [Keychain](../../GLOSSARY.md#keychain), the system store that holds passwords under the protection of your login, and never into your project folder, so a colleague who receives your project does not receive your key. The key saves as you type, and "Saving API key changes to Keychain…" appears under the form while it is written.
+Type the key only into that field. LGE writes it into the macOS [Keychain](../../GLOSSARY.md#keychain), the system store that holds passwords under the protection of your login, and never into your project folder, so a colleague who receives your project does not receive your key. The key saves as you type, and "Saving API key changes to Keychain…" appears under the form while it is written. If the Keychain refuses the change, a red message and a **Retry Saving Keys** button appear there instead.
 
 An indicator to the left of each key field reports what LGE knows about that key, and it is your only confirmation.
 
@@ -78,6 +78,8 @@ An indicator to the left of each key field reports what LGE knows about that key
 | Orange hourglass | A key is entered but not yet checked, with the caption "Key entered. Enter a full key to validate automatically.", or is being checked, with the caption "Validating API key and quota...". |
 | Green checkmark | The provider accepted the key, with the caption "Key is valid and ready for AI queries." |
 | Red cross | The check failed, with a caption that opens with the words "Validation failed" and names the reason. |
+
+A used-up account also gets the red cross. When OpenAI credits run out, an Anthropic spend limit is reached, or a Gemini daily quota is used, the caption goes on from "Validation failed" with "AI provider quota exceeded" and then the provider's own words. That is a billing limit rather than a wrong key, so add credits or raise the limit on the provider's website.
 
 You may fill in more than one provider. LGE tries your default first and falls back to the others when it cannot answer, which [Settings](#settings) explains.
 
@@ -97,7 +99,7 @@ The popover names the fallback order and states that only providers whose keys p
 
 ### Ask a question
 
-Click the field at the bottom of the tab, which reads "Ask about your genome data...", type a question, and press Return. An indicator spins while the provider works, usually for a few seconds. Each request to a provider times out after 150 seconds. LGE then tries the next provider, and reports a failure only when none is left.
+Click the field at the bottom of the tab, which reads "Ask about your genome data...", type a question, and press Return. An indicator spins while the provider works, usually for a few seconds. Each request to a provider times out after 150 seconds. LGE then tries the next provider, as it also does when a provider reports its quota used up, and reports a failure only when none is left.
 
 For the `NG_000007.3` record, try "Which genes does this record hold, and where does HBB start and end?" The record's own feature table answers it, so you can check the reply against the ruler. In a view that holds a variant track, "What are the variants I have selected?" works once you have clicked a row in the Variants tab.
 
@@ -111,7 +113,7 @@ Click **Clear**. The messages disappear, the welcome message returns, and the su
 
 Every control below lives in **Settings > AI Services**. **Restore Defaults** at the foot of the tab returns every AI setting to the values described here, including turning AI search off, and leaves your keys in the Keychain.
 
-**`Enable AI-powered search`.** Turns the AI Assistant on and adds its tab to the Inspector. The default is off, so a new installation sends nothing until you choose otherwise. Turn it on once you have a key, and turn it off whenever you work on data that must not leave the machine. This setting has no command-line flag.
+**Enable AI-powered search.** Turns the AI Assistant on and adds its tab to the Inspector. The default is off, so a new installation sends nothing until you choose otherwise. Turn it on once you have a key, and turn it off whenever you work on data that must not leave the machine. This setting has no command-line flag.
 
 **Default provider.** Chooses which company is tried first, from "Anthropic Claude", "OpenAI", and "Google Gemini". The default is "Anthropic Claude". Change it when your account or your lab's agreement is with another company. LGE then tries the other two in the fixed order Anthropic, OpenAI, Google Gemini with your default removed, so choosing "OpenAI" gives OpenAI, then Anthropic, then Google Gemini. A provider with an empty key field, or with a key that failed its check, is skipped. This setting has no command-line flag.
 
@@ -145,7 +147,7 @@ The assistant can run these lookups:
 - Search PubMed for papers. The search terms go to NCBI, which the **Data sent…** popover does not list.
 - Move the view to a gene or to a region you name, the only change it can make anywhere in LGE.
 
-It works in rounds, running lookups and reading the answers before it replies, and it stops after eight rounds. A single clear question usually takes one or two. Some replies come from LGE rather than the model. Two you may meet are these. "No configured AI provider has a valid API key with available credits." means no key passed its check, which is a settings problem. A reply beginning "I reached the maximum analysis steps without a final text response" means the eight rounds ran out before the model wrote any answer, so split the question into parts.
+It works in rounds, running lookups and reading the answers before it replies, and it stops after eight rounds. A single clear question usually takes one or two. Some replies come from LGE rather than the model. Three you may meet are these. A reply that ends "No configured AI provider has a valid API key with available credits." means no key passed its check, which is a settings problem. A reply beginning "AI provider quota exceeded" means the account behind the key is out of credits or over its spend limit or daily quota, and the rest of the reply is the provider's own explanation. Add credits or raise the limit on the provider's website, or fill in a second provider for the fallback. A reply beginning "I reached the maximum analysis steps without a final text response" means the eight rounds ran out before the model wrote any answer, so split the question into parts.
 
 When a gene, variant, or region comes up, the assistant also suggests wet-lab follow-ups such as assays and reagents, shaped by the loaded organism, with separate guidance for rhesus macaque, human, and mouse. This cannot be turned off. Treat every reagent it names as a lead to check against the vendor's datasheet and current literature, never as a validated choice.
 
@@ -160,7 +162,7 @@ Four checks separate a reply you can act on from one to set aside.
 
 ## On the command line
 
-The AI Assistant has no command-line counterpart. No `lungfish-cli` command opens a chat or sends a question to a provider. `lungfish-cli search` looks for a text pattern in a FASTA file and involves no model. `lungfish-cli genotype ai-haplotyping` does call a model, for genotyping work, with its own provider flags listed in [CLI Reference](cli-reference.md).
+The AI Assistant has no command-line counterpart. No `lungfish-cli` command opens a chat or sends a question to a provider. `lungfish-cli search` looks for a text pattern in a FASTA file and involves no model. `lungfish-cli genotype ai-haplotyping` does call a model, for genotyping work, with its own provider flags listed in [CLI Reference](cli-reference.md). It retries a dropped connection or a rate limit up to the number `--max-provider-retries` sets, 2 by default, but a used-up quota stops the run at once with an error that ends "AI provider quota is exhausted. Check provider billing or use another configured provider."
 
 ## Next
 

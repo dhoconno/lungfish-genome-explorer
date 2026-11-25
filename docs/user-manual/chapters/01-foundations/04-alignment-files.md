@@ -139,7 +139,7 @@ When you import an alignment, LGE sorts a copy into the bundle and indexes it, s
 
 The coverage track draws depth along the reference as a curve, so its height at each position is the number of reads stacked there. How the viewport draws and scales that curve, and what its shape says about a library, is covered in [The coverage curve](../04-alignments/02-reading-an-alignment.md#the-coverage-curve).
 
-Take the fixture's figures one at a time. Mean depth is the average depth over every position, and across the 500,001-base slice it is 44.7. The deepest single position has 79 reads over it. Breadth is 99.99 percent, which leaves 31 positions with no reads at all. [Mapped %](../../GLOSSARY.md#mapped-percent), the share of the alignment's records the mapper placed anywhere on the reference, is 99.77 percent, which the Inspector rounds to 99.8%.
+Take the fixture's figures one at a time. Mean depth is the average depth over every position, and across the 500,001-base slice it is 44.7. The deepest single position has 79 reads over it. Breadth is 99.99 percent, which leaves 31 positions with no reads at all. [Mapped %](../../GLOSSARY.md#mapped-percent), the share of the reads the mapper placed anywhere on the reference, each read counted once, is 99.77 percent, which the Inspector rounds to 99.8%.
 
 ### How much depth is enough
 
@@ -183,7 +183,7 @@ The variant callers suited to each kind differ, and [Nanopore Variant Calling](.
 
 Four checks settle whether a BAM is worth building on. [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) shows where LGE reports each figure.
 
-First, Mapped %, the share of records placed anywhere on the reference. The fixture reaches 99.77 percent, which is what you expect when reads and reference come from the same species and region. Above about 95 percent is healthy. Between 80 and 95 percent says the reference is close but not exact, or that the library carries DNA from another source. Below about 80 percent usually means the wrong reference.
+First, Mapped %, the share of reads placed anywhere on the reference. The fixture reaches 99.77 percent, which is what you expect when reads and reference come from the same species and region. Above about 95 percent is healthy. Between 80 and 95 percent says the reference is close but not exact, or that the library carries DNA from another source. Below about 80 percent usually means the wrong reference.
 
 Second, mean depth. The fixture's 44.7 is ample for small-variant calling in a human sample. When the mean runs thin, pileups struggle to tell a real difference from a sequencing error, and [The coverage curve](../04-alignments/02-reading-an-alignment.md#the-coverage-curve) gives the working line.
 
