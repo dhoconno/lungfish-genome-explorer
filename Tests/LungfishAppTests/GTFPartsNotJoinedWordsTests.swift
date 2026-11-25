@@ -8,9 +8,11 @@
 // show, the one query that counts the sibling rows, the track databases it reads, the report, and that the three
 // routes call it.
 
+import AppKit
 import XCTest
 import SQLite3
-import LungfishCore
+@testable import LungfishCore
+@testable import LungfishIO
 import LungfishKit
 import LungfishTestSupport
 @testable import LungfishApp
@@ -21,6 +23,9 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
 
     override func setUp() async throws {
         try await super.setUp()
+        // A route that shows its words with no recorder bound would run an alert no test answers, so a test stops at
+        // its first failed assertion.
+        continueAfterFailure = false
         scratch = try TestTempDirectory.make(prefix: "gtf-parts-not-joined")
     }
 
@@ -296,5 +301,213 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
     func testAnExtractionCallsTheWords() throws {
         let text = try body(from: "private func performExtraction(", upTo: "func createExtractionBundle(")
         XCTAssertTrue(text.contains("presentGTFPartsNotJoinedWords(for: request"), "an extraction does not call the words")
+    }
+
+    // MARK: - The routes, driven for real (review of AFFECTED-ANNOT: B1, SF-1, SF-2, SF-3, AA-3)
+
+    /// Records the words a route shows, so no alert opens and the test reads them.
+    @MainActor
+    private final class WordsRecorder: ViewerRefusalPresenting {
+        private(set) var reports: [FailureReport] = []
+
+        func present(_ report: FailureReport, in window: NSWindow?) {
+            reports.append(report)
+        }
+    }
+
+    private let chromosome = "chr1"
+    /// 3,006 bases of in-frame codons, so a one-part CDS translates and no stop codon cuts it short.
+    private let bases = String(repeating: "ATGGCTAAA", count: 334)
+    private var retainedController: ViewerViewController?
+    private var operationDialogs = 0
+
+    /// The ruling's sentences for each route, written out in full so a change to one word fails here. The CDS forms are
+    /// in the review of AFFECTED-ANNOT, SF-2. The transcript form for a copy puts "copy it" where the ruling says "extract it".
+    private let cdsTranslationWords = "This CDS is one of several parts in a GTF track that an older version stored separately, so this protein is only part of it. Attach the GTF file again to join the parts, then copy the translation again."
+    private let cdsCopyWords = "This CDS is one of several parts in a GTF track that an older version stored separately, so this sequence is only part of it. Attach the GTF file again to join the parts, then copy it again."
+    private let cdsExtractionWords = "This CDS is one of several parts in a GTF track that an older version stored separately, so this sequence is only part of it. Attach the GTF file again to join the parts, then extract it again."
+    private let transcriptCopyWords = "This transcript came from a GTF track that an older version stored as one part, so this sequence includes its introns. Attach the GTF file again to join its exons, then copy it again."
+
+    /// A viewer on a reference bundle with a sequence and one GTF track, `genes`, as an older version stored it: a
+    /// `transcript` row of one part and each `CDS` line its own row, all with their `transcript_id`. T1 has two exons and
+    /// two CDS lines. T2 has one exon, with the transcript's own span.
+    private func makeViewerOnGTFBundle() throws -> SequenceViewerView {
+        let bundleURL = scratch.appendingPathComponent("gtf.lungfishref", isDirectory: true)
+        let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("annotations", isDirectory: true), withIntermediateDirectories: true
+        )
+        let header = ">\(chromosome)\n"
+        try "\(header)\(bases)\n".write(
+            to: genomeDir.appendingPathComponent("sequence.fa"), atomically: true, encoding: .utf8
+        )
+        try "\(chromosome)\t\(bases.count)\t\(header.utf8.count)\t\(bases.count)\t\(bases.count + 1)\n"
+            .write(to: genomeDir.appendingPathComponent("sequence.fa.fai"), atomically: true, encoding: .utf8)
+        _ = try writeDatabase("gtf.lungfishref/annotations/genes.db", rows: [
+            ("transcript", chromosome, 100, 900, "gene_id=G;transcript_id=T1"),
+            ("exon", chromosome, 100, 200, "gene_id=G;transcript_id=T1"),
+            ("exon", chromosome, 700, 900, "gene_id=G;transcript_id=T1"),
+            ("CDS", chromosome, 150, 201, "gene_id=G;transcript_id=T1"),
+            ("CDS", chromosome, 700, 850, "gene_id=G;transcript_id=T1"),
+            ("transcript", chromosome, 2000, 2500, "gene_id=G;transcript_id=T2"),
+            ("exon", chromosome, 2000, 2500, "gene_id=G;transcript_id=T2"),
+        ])
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "GTF words",
+            identifier: "org.lungfish.tests.gtf-words",
+            source: SourceInfo(organism: "Test organism", assembly: "gtf-words"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: Int64(bases.count),
+                chromosomes: [
+                    ChromosomeInfo(
+                        name: chromosome, length: Int64(bases.count), offset: Int64(header.utf8.count),
+                        lineBases: bases.count, lineWidth: bases.count + 1
+                    )
+                ]
+            ),
+            annotations: [
+                AnnotationTrackInfo(
+                    id: "genes", name: "genes", path: "annotations/genes.bb",
+                    databasePath: "annotations/genes.db", featureCount: 7
+                )
+            ]
+        )
+        try manifest.save(to: bundleURL)
+        let controller = ViewerViewController()
+        controller.loadView()
+        retainedController = controller
+        // The FASTQ/FASTA operation dialog is counted and not shown.
+        controller.fastaOperationDialogPresenterForTesting = { [weak self] _, _, _, _ in self?.operationDialogs += 1 }
+        let viewer = try XCTUnwrap(controller.viewerView)
+        viewer.viewController = controller
+        viewer.setReferenceBundle(ReferenceBundle(url: bundleURL, manifest: manifest))
+        return viewer
+    }
+
+    /// A row of the track as the viewer builds it from the database, with no track id.
+    private func annotation(_ type: String, _ start: Int, _ end: Int, id: String) -> SequenceAnnotation {
+        AnnotationDatabaseRecord(
+            name: "\(id) \(type)", type: type, chromosome: chromosome, start: start, end: end, strand: "+",
+            attributes: "gene_id=G;transcript_id=\(id)"
+        ).toAnnotation()
+    }
+
+    /// The reports a route presents, with a recording presenter bound and the clipboard put back as it was.
+    private func reportsShown(by viewer: SequenceViewerView, _ route: (SequenceViewerView) -> Void) -> [FailureReport] {
+        let recorder = WordsRecorder()
+        let board = NSPasteboard.general
+        let before = board.string(forType: .string)
+        defer {
+            board.clearContents()
+            if let before { board.setString(before, forType: .string) }
+        }
+        ViewerRefusalSeam.$presenter.withValue(recorder) { route(viewer) }
+        return recorder.reports
+    }
+
+    private func sentences(_ reports: [FailureReport]) -> [String] {
+        reports.map { $0.whatHappened + " " + $0.nextStep }
+    }
+
+    /// B1 and SF-3: a real annotation row from the track database, taken through the real Copy as FASTA route and its
+    /// own request, so a call that moves ahead of the clipboard write, into a dead branch or after a refusal shows here.
+    /// The dialog sends no tick for a one-part row, so the transcript words must show with none.
+    func testAOnePartGTFTranscriptAndCDSGetTheirWordsFromTheRealRequestAndAnOneExonTranscriptGetsNone() throws {
+        let viewer = try makeViewerOnGTFBundle()
+
+        let transcript = sentences(reportsShown(by: viewer) {
+            $0.copyAnnotationAsFASTAImpl(annotation("transcript", 100, 900, id: "T1"))
+        })
+        XCTAssertEqual(transcript, [transcriptCopyWords], "a one-part transcript of an old GTF track copied with its introns and no words")
+
+        let cds = sentences(reportsShown(by: viewer) {
+            $0.copyAnnotationAsFASTAImpl(annotation("CDS", 150, 201, id: "T1"))
+        })
+        XCTAssertEqual(cds, [cdsCopyWords], "one CDS line of an old GTF track copied as the whole CDS and no words")
+
+        let oneExon = sentences(reportsShown(by: viewer) {
+            $0.copyAnnotationAsFASTAImpl(annotation("transcript", 2000, 2500, id: "T2"))
+        })
+        XCTAssertEqual(oneExon, [], "a true one-exon transcript is one part and gets no words")
+    }
+
+    /// SF-1: the sheet's title is true after a copy that worked. It says what could not be joined, for a transcript, an
+    /// mRNA and a CDS, and never "Could not copy".
+    func testTheSheetTitleNamesTheJoinThatDidNotHappenForEachType() throws {
+        let viewer = try makeViewerOnGTFBundle()
+
+        for type in ["transcript", "mRNA"] {
+            let reports = reportsShown(by: viewer) { $0.copyAnnotationAsFASTAImpl(annotation(type, 100, 900, id: "T1")) }
+            XCTAssertEqual(reports.map(\.title), ["Could not join the exons of this transcript"], type)
+        }
+        let copy = reportsShown(by: viewer) { $0.copyAnnotationAsFASTAImpl(annotation("CDS", 150, 201, id: "T1")) }
+        XCTAssertEqual(copy.map(\.title), ["Could not join the parts of this CDS"])
+        let translation = reportsShown(by: viewer) {
+            $0.copyAnnotationTranslationAsFASTAImpl(annotation("CDS", 150, 201, id: "T1"))
+        }
+        XCTAssertEqual(translation.map(\.title), ["Could not join the parts of this CDS"])
+    }
+
+    /// SF-2: each route says what it did. Copy translation says protein and "copy the translation again". A copy of the
+    /// nucleotides says sequence and "copy it again". An extraction says sequence and "extract it again".
+    func testEachRoutesWordsAreTheRulingsFormForThatRoute() throws {
+        let viewer = try makeViewerOnGTFBundle()
+        let transcript = annotation("transcript", 100, 900, id: "T1")
+        let cds = annotation("CDS", 150, 201, id: "T1")
+
+        XCTAssertEqual(sentences(reportsShown(by: viewer) { $0.copyAnnotationAsFASTAImpl(transcript) }), [transcriptCopyWords])
+        XCTAssertEqual(sentences(reportsShown(by: viewer) { $0.copyAnnotationAsFASTAImpl(cds) }), [cdsCopyWords])
+        XCTAssertEqual(
+            sentences(reportsShown(by: viewer) { $0.copyAnnotationTranslationAsFASTAImpl(cds) }), [cdsTranslationWords]
+        )
+        XCTAssertEqual(
+            sentences(reportsShown(by: viewer) { $0.runAnnotationFASTAOperationImpl(transcript) }), [transcriptWords]
+        )
+        XCTAssertEqual(
+            sentences(reportsShown(by: viewer) { $0.runAnnotationFASTAOperationImpl(cds) }), [cdsExtractionWords]
+        )
+    }
+
+    /// AA-3, Extract to a FASTA file: the same one-part rows get the words, in the extraction form. A selection of a
+    /// transcript, two CDS lines and a one-exon transcript gets one sheet for each sentence it earns, in selection order.
+    func testExtractToAFASTAFileSaysSoForOnePartGTFRows() throws {
+        let viewer = try makeViewerOnGTFBundle()
+
+        XCTAssertEqual(
+            sentences(reportsShown(by: viewer) { $0.presentAnnotationSequenceExtractionDialog([annotation("CDS", 150, 201, id: "T1")]) }),
+            [cdsExtractionWords], "one CDS line of an old GTF track extracted to a file with no words"
+        )
+        XCTAssertEqual(
+            sentences(reportsShown(by: viewer) {
+                $0.presentAnnotationSequenceExtractionDialog([annotation("transcript", 2000, 2500, id: "T2")])
+            }),
+            [], "a one-exon transcript gets no words"
+        )
+        let selection = [
+            annotation("transcript", 2000, 2500, id: "T2"), annotation("transcript", 100, 900, id: "T1"),
+            annotation("CDS", 150, 201, id: "T1"), annotation("CDS", 700, 850, id: "T1"),
+        ]
+        XCTAssertEqual(
+            sentences(reportsShown(by: viewer) { $0.presentAnnotationSequenceExtractionDialog(selection) }),
+            [transcriptWords, cdsExtractionWords]
+        )
+    }
+
+    /// AA-3, the FASTQ/FASTA operation: the dialog opens, and the words follow it in the extraction form. A one-exon
+    /// transcript opens the dialog and gets none.
+    func testTheFASTQFASTAOperationSaysSoForOnePartGTFRows() throws {
+        let viewer = try makeViewerOnGTFBundle()
+
+        let quiet = reportsShown(by: viewer) { $0.runAnnotationFASTAOperationImpl(annotation("transcript", 2000, 2500, id: "T2")) }
+        XCTAssertEqual(operationDialogs, 1, "the operation dialog opens for a one-exon transcript")
+        XCTAssertEqual(sentences(quiet), [])
+
+        let words = reportsShown(by: viewer) { $0.runAnnotationFASTAOperationImpl(annotation("CDS", 150, 201, id: "T1")) }
+        XCTAssertEqual(operationDialogs, 2, "the operation dialog opens for the CDS line")
+        XCTAssertEqual(sentences(words), [cdsExtractionWords])
     }
 }
