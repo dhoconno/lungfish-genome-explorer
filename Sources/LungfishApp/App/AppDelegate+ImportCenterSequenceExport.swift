@@ -190,6 +190,26 @@ extension AppDelegate {
         return "\(lead): \(named.joined(separator: ", ")). \(AnnotationDatabase.LeftOutWords.remedy) \(again)"
     }
 
+    /// Runs `export` for each bundle in order and keeps each file's left-out tracks with its file name. A bundle with
+    /// no target is skipped.
+    nonisolated static func exportBatchNamingLeftOutTracks(
+        bundleURLs: [URL], targets: [URL: URL],
+        beforeEach: (Int, URL, URL) async -> Void,
+        export: (URL, URL) async throws -> SequenceExportRoute.Outcome
+    ) async throws -> (count: Int, leftOut: [(file: String, tracks: [AnnotationDatabase.LeftOutTrack])]) {
+        var count = 0
+        var leftOut: [(file: String, tracks: [AnnotationDatabase.LeftOutTrack])] = []
+        for (index, bundleURL) in bundleURLs.enumerated() {
+            try Task.checkCancellation()
+            guard let outputURL = targets[bundleURL] else { continue }
+            await beforeEach(index, bundleURL, outputURL)
+            let outcome = try await export(bundleURL, outputURL)
+            count += outcome.count
+            leftOut.append((outputURL.lastPathComponent, outcome.leftOutTracks))
+        }
+        return (count, leftOut)
+    }
+
     nonisolated static func batchSequenceExportTargets(
         for bundleURLs: [URL],
         outputFolder: URL,

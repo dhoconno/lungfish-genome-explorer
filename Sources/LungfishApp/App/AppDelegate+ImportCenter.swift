@@ -886,28 +886,28 @@ extension AppDelegate {
             ) { opID in
                 let task = Task.detached { [weak self] in
                     do {
-                        var count = 0
-                        var leftOutByFile: [(file: String, tracks: [AnnotationDatabase.LeftOutTrack])] = []
-                        for (index, bundleURL) in bundleURLs.enumerated() {
-                            try Task.checkCancellation()
-                            guard let outputURL = targets[bundleURL] else { continue }
-                            await appPerformOnMainRunLoop {
-                                let detail = "Exporting \(index + 1) of \(bundleURLs.count): \(bundleURL.deletingPathExtension().lastPathComponent)"
-                                _ = OperationCenter.shared.update(
-                                    id: opID,
-                                    progress: Double(index) / Double(max(bundleURLs.count, 1)),
-                                    detail: detail
-                                )
-                                OperationCenter.shared.log(id: opID, level: .info, message: "\(detail) -> \(outputURL.lastPathComponent)")
+                        let done = try await AppDelegate.exportBatchNamingLeftOutTracks(
+                            bundleURLs: bundleURLs,
+                            targets: targets,
+                            beforeEach: { index, bundleURL, outputURL in
+                                await appPerformOnMainRunLoop {
+                                    let detail = "Exporting \(index + 1) of \(bundleURLs.count): \(bundleURL.deletingPathExtension().lastPathComponent)"
+                                    _ = OperationCenter.shared.update(
+                                        id: opID,
+                                        progress: Double(index) / Double(max(bundleURLs.count, 1)),
+                                        detail: detail
+                                    )
+                                    OperationCenter.shared.log(id: opID, level: .info, message: "\(detail) -> \(outputURL.lastPathComponent)")
+                                }
+                            },
+                            export: { bundleURL, outputURL in
+                                try await self?.performSequenceExportNamingLeftOutTracks(
+                                    inputs: [bundleURL], outputURL: outputURL, format: format, compression: compression
+                                ) ?? SequenceExportRoute.Outcome(count: 0, leftOutTracks: [])
                             }
-                            let outcome = try await self?.performSequenceExportNamingLeftOutTracks(
-                                inputs: [bundleURL], outputURL: outputURL, format: format, compression: compression
-                            ) ?? SequenceExportRoute.Outcome(count: 0, leftOutTracks: [])
-                            count += outcome.count
-                            leftOutByFile.append((outputURL.lastPathComponent, outcome.leftOutTracks))
-                        }
+                        )
                         let words = AppDelegate.batchSequenceExportCompletionWords(
-                            fileCount: bundleURLs.count, sequenceCount: count, folderName: outputFolder.lastPathComponent, leftOut: leftOutByFile
+                            fileCount: bundleURLs.count, sequenceCount: done.count, folderName: outputFolder.lastPathComponent, leftOut: done.leftOut
                         )
 
                         DispatchQueue.main.async {
