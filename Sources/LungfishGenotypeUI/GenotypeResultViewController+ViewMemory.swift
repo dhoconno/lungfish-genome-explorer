@@ -327,13 +327,19 @@ extension GenotypeResultViewController {
 
     /// Shows word 2 or 3 at the top of the viewport. The viewer's controls and content follow the top safe area, so
     /// the line's height there moves them below it and it covers nothing (BIO SF-2).
+    ///
+    /// The line's bottom is the safe-area top, so it fills its room right below the band the view inherits. The
+    /// surface keeps the default pin at the container's edge, which in the main window is under the title bar and
+    /// toolbar, and a line at the view's own top sat there unseen (2026.11.17 walk, F5 C, VS-GENO-LINE). With no
+    /// toolbar the band is empty and the line is at the top. Its height comes from its own words, so the room set from
+    /// it moves the line and changes no size: no constraint loop.
     private func showViewMemoryLine(_ words: String, in session: GenotypeViewMemorySession) {
         session.line?.removeFromSuperview()
         setViewMemoryLineRoom(top: 0)
         let line = ViewMemoryResetLineView(words: words)
         view.addSubview(line)
         NSLayoutConstraint.activate([
-            line.topAnchor.constraint(equalTo: view.topAnchor),
+            line.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             line.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             line.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
