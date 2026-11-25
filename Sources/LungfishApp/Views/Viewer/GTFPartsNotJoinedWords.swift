@@ -230,16 +230,31 @@ extension SequenceViewerView {
     }
 
     /// Says so for a selection of annotations that a route took: one sheet for each sentence the selection earns, in
-    /// selection order, so a long selection of old CDS lines gets one. The words go through `ViewerRefusalSeam`, so a
-    /// test binds a recording presenter and no alert opens.
+    /// selection order, so a long selection of old CDS lines gets one. The track is asked once for each kind of
+    /// sentence (`GTFPartsNotJoined.sentences(forTypes:wordsFor:)`). The words go through `ViewerRefusalSeam`, so a test
+    /// binds a recording presenter and no alert opens.
     func presentGTFPartsNotJoinedWords(for annotations: [SequenceAnnotation], route: GTFPartsNotJoined.Route) {
-        var shown: [String] = []
-        for annotation in annotations {
-            guard let words = gtfPartsNotJoinedWords(for: annotation, route: route), !shown.contains(words) else { continue }
-            shown.append(words)
-            ViewerRefusalSeam.present(GTFPartsNotJoined.report(words: words), in: window)
-            // A transcript and a CDS are the two sentences, so a third annotation cannot add one.
-            if shown.count == 2 { break }
+        let sentences = GTFPartsNotJoined.sentences(forTypes: annotations.map(\.type)) {
+            gtfPartsNotJoinedWords(for: annotations[$0], route: route)
         }
+        for words in sentences {
+            ViewerRefusalSeam.present(GTFPartsNotJoined.report(words: words), in: window)
+        }
+    }
+}
+
+extension GTFPartsNotJoined {
+    /// The distinct sentences a selection earns, at most one for exons and one for CDS lines. `wordsFor` runs the track
+    /// query for the annotation at an index, and a part type whose sentence is found is not asked again.
+    static func sentences(forTypes types: [AnnotationType], wordsFor: (Int) -> String?) -> [String] {
+        var shown: [String] = []
+        var done: Set<String> = []
+        for (index, type) in types.enumerated() {
+            guard let part = partType(of: type), !done.contains(part), let words = wordsFor(index) else { continue }
+            done.insert(part)
+            shown.append(words)
+            if done.count == 2 { break }
+        }
+        return shown
     }
 }
