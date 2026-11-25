@@ -117,7 +117,7 @@ The exit status often sits in the failure report's error line, in words such as 
 
 Exit 64 covers both a run started without a required setting and a run whose tool failed, so read the message rather than assuming a typing mistake.
 
-An analysis step has no time limit unless you set one, so a long run keeps going until it finishes, fails, or you cancel it. On the command line, eight commands, among them `map`, `assemble`, `classify`, and `variants call`, take `--time-limit <minutes>`, which stops any step that runs longer than that many minutes. A step stopped that way usually reports that it "timed out after" a number of seconds, which is your minutes times 60. It stopped at the limit you chose, so raise the number, or leave the option out, and run again. A task chapter that states how long its example takes puts that figure under **Before you start**.
+An analysis step has no time limit unless you set one, so a long run keeps going until it finishes, fails, or you cancel it. On the command line, eight commands, among them `map`, `assemble`, `classify`, and `variants call`, take `--time-limit <minutes>`, which stops any step that runs longer than that many minutes. A step stopped that way usually reports that it "timed out after" a number of seconds, which is your minutes times 60. It stopped at the limit you chose, so raise the number, or leave the option out, and run again. Many task chapters say how long their example takes, in **Before you start** or in the steps that run it.
 
 | Symptom | What it means | What to do | Chapter |
 |---|---|---|---|
