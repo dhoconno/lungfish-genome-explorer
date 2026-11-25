@@ -99,12 +99,22 @@ enum AnnotationDrawerIndexHandoff {
         // collapsed drawer keeps its own layout.
         let tableGivesRoom = drawer.scrollView.bottomAnchor.constraint(lessThanOrEqualTo: label.topAnchor, constant: -4)
         tableGivesRoom.priority = NSLayoutConstraint.Priority(NSLayoutConstraint.Priority.defaultHigh.rawValue + 1)
+        // The label holds the height its words need one priority above `tableGivesRoom`. At its default of 750 it tied
+        // with the table's pin and nothing set its height, so it shrank to 2 pt (walk row W2, build 14643).
+        let holdsItsHeight = NSLayoutConstraint.Priority(tableGivesRoom.priority.rawValue + 1)
+        label.setContentCompressionResistancePriority(holdsItsHeight, for: .vertical)
+        // A drawer made as short as it goes leaves the label less room than its words need, and with nothing above it
+        // the label would draw over the viewer. This floor outranks the height, so the label gives height up there, and
+        // it stays below the host's own 999 height, so a collapsed drawer keeps its frame.
+        let staysInDrawer = label.topAnchor.constraint(greaterThanOrEqualTo: drawer.topAnchor)
+        staysInDrawer.priority = NSLayoutConstraint.Priority(holdsItsHeight.rawValue + 1)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: drawer.scrollView.leadingAnchor, constant: 12),
             label.trailingAnchor.constraint(lessThanOrEqualTo: drawer.scrollView.trailingAnchor, constant: -12),
             label.widthAnchor.constraint(lessThanOrEqualToConstant: noticeMaximumWidth),
             label.bottomAnchor.constraint(equalTo: drawer.bottomAnchor, constant: -4),
             tableGivesRoom,
+            staysInDrawer,
         ])
     }
 
