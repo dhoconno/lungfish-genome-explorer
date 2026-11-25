@@ -43,48 +43,66 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
 
     // MARK: - The pure function
 
+    /// The ruling's sentence for a transcript, the ruling's for a translation of a CDS, and the three forms of the
+    /// review of AFFECTED-ANNOT, SF-2, each written out in full in this file.
     func testTheWordsAreTheRulingsExactSentences() {
-        XCTAssertEqual(GTFPartsNotJoined.transcriptWords, transcriptWords)
-        XCTAssertEqual(GTFPartsNotJoined.cdsWords, cdsWords)
+        XCTAssertEqual(GTFPartsNotJoined.transcriptWords(for: .extraction), transcriptWords)
+        XCTAssertEqual(GTFPartsNotJoined.transcriptWords(for: .copy), transcriptCopyWords)
+        XCTAssertEqual(GTFPartsNotJoined.transcriptWords(for: .translation), transcriptWords, "no transcript has a protein")
+        XCTAssertEqual(GTFPartsNotJoined.cdsWords(for: .translation), cdsWords)
+        XCTAssertEqual(GTFPartsNotJoined.cdsWords(for: .translation), cdsTranslationWords)
+        XCTAssertEqual(GTFPartsNotJoined.cdsWords(for: .copy), cdsCopyWords)
+        XCTAssertEqual(GTFPartsNotJoined.cdsWords(for: .extraction), cdsExtractionWords)
     }
 
     /// A one-part transcript or mRNA row with a `transcript_id`, in a track that holds a sibling exon row, gets the
-    /// transcript words once exons are to be joined.
+    /// transcript words.
     func testAOnePartTranscriptWithSiblingExonsGetsTheTranscriptWordsWhenExonsAreJoined() {
         for type in [AnnotationType.transcript, .mRNA] {
             XCTAssertEqual(
-                GTFPartsNotJoined.words(
-                    type: type, partCount: 1, attributes: gtfAttributes, concatenateExons: true, siblingCount: 3
-                ),
+                GTFPartsNotJoined.words(type: type, partCount: 1, attributes: gtfAttributes, siblingCount: 3),
                 transcriptWords, "\(type)"
             )
         }
     }
 
-    /// Without the tick for joined exons the transcript sequence is the span the person asked for, so the words stay
-    /// away, and the query for the sibling rows is never run.
-    func testATranscriptWithoutJoinedExonsGetsNoWordsAndRunsNoQuery() {
-        var queries = 0
+    /// B1: the Extract Sequence dialog sends no tick for joined exons for a row of one part, so the transcript words
+    /// show with none. The query for the sibling rows runs only for a row that can get the words.
+    func testAOnePartTranscriptWithSiblingExonsGetsTheTranscriptWordsWithNoTick() {
         for type in [AnnotationType.transcript, .mRNA] {
-            let words = GTFPartsNotJoined.words(
-                type: type, partCount: 1, attributes: gtfAttributes, concatenateExons: false,
-                siblingCount: { queries += 1; return 3 }()
+            XCTAssertEqual(
+                GTFPartsNotJoined.words(type: type, partCount: 1, attributes: gtfAttributes, siblingCount: 3),
+                transcriptWords, "\(type)"
             )
-            XCTAssertNil(words, "\(type)")
         }
+        var queries = 0
+        XCTAssertNil(GTFPartsNotJoined.words(
+            type: .transcript, partCount: 3, attributes: gtfAttributes, siblingCount: { queries += 1; return 3 }()
+        ))
+        XCTAssertNil(GTFPartsNotJoined.words(
+            type: .transcript, partCount: 1, attributes: ["gene_id": "G1"], siblingCount: { queries += 1; return 3 }()
+        ))
         XCTAssertEqual(queries, 0, "the query ran for a feature that cannot get the words")
     }
 
-    /// A one-part CDS row with a sibling CDS row gets the CDS words, ticked or not, since each CDS line is a piece.
-    func testAOnePartCDSWithASiblingCDSGetsTheCDSWords() {
-        for concatenate in [true, false] {
+    /// A one-part CDS row with a sibling CDS row gets the CDS words of its route, since each CDS line is a piece.
+    func testAOnePartCDSWithASiblingCDSGetsTheCDSWordsOfItsRoute() {
+        let forRoute = [
+            (GTFPartsNotJoined.Route.translation, cdsTranslationWords), (.copy, cdsCopyWords), (.extraction, cdsExtractionWords),
+        ]
+        for (route, expected) in forRoute {
             XCTAssertEqual(
-                GTFPartsNotJoined.words(
-                    type: .cds, partCount: 1, attributes: gtfAttributes, concatenateExons: concatenate, siblingCount: 1
-                ),
-                cdsWords, "concatenate \(concatenate)"
+                GTFPartsNotJoined.words(type: .cds, partCount: 1, attributes: gtfAttributes, route: route, siblingCount: 1),
+                expected, "\(route)"
             )
         }
+    }
+
+    /// The output modes of the Extract Sequence dialog take the routes whose words say what they did.
+    func testTheOutputModesTakeTheRoutesOfTheirWords() {
+        XCTAssertEqual(GTFPartsNotJoined.route(for: .clipboardNucleotide), .copy)
+        XCTAssertEqual(GTFPartsNotJoined.route(for: .clipboardProtein), .translation)
+        XCTAssertEqual(GTFPartsNotJoined.route(for: .newBundle), .extraction)
     }
 
     /// A true one-exon transcript has no other exon row, and a CDS of one line has no other CDS row.
@@ -92,7 +110,7 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
         for type in [AnnotationType.transcript, .mRNA, .cds] {
             XCTAssertNil(
                 GTFPartsNotJoined.words(
-                    type: type, partCount: 1, attributes: gtfAttributes, concatenateExons: true, siblingCount: 0
+                    type: type, partCount: 1, attributes: gtfAttributes, siblingCount: 0
                 ),
                 "\(type)"
             )
@@ -105,16 +123,16 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
         var queries = 0
         let ncbi = ["ID": "rna-NM_1", "Parent": "gene-A", "transcript_id": "NM_1"]
         XCTAssertNil(GTFPartsNotJoined.words(
-            type: .mRNA, partCount: 3, attributes: ncbi, concatenateExons: true,
+            type: .mRNA, partCount: 3, attributes: ncbi,
             siblingCount: { queries += 1; return 3 }()
         ))
         XCTAssertNil(GTFPartsNotJoined.words(
-            type: .cds, partCount: 2, attributes: ncbi, concatenateExons: true,
+            type: .cds, partCount: 2, attributes: ncbi,
             siblingCount: { queries += 1; return 3 }()
         ))
         let ensembl = ["ID": "transcript:ENST1", "Parent": "gene:ENSG1"]
         XCTAssertNil(GTFPartsNotJoined.words(
-            type: .mRNA, partCount: 1, attributes: ensembl, concatenateExons: true,
+            type: .mRNA, partCount: 1, attributes: ensembl,
             siblingCount: { queries += 1; return 3 }()
         ))
         XCTAssertEqual(queries, 0, "a GFF3 row ran the query")
@@ -125,7 +143,7 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
         for type in [AnnotationType.gene, .exon, .region] {
             XCTAssertNil(
                 GTFPartsNotJoined.words(
-                    type: type, partCount: 1, attributes: gtfAttributes, concatenateExons: true, siblingCount: 3
+                    type: type, partCount: 1, attributes: gtfAttributes, siblingCount: 3
                 ),
                 "\(type)"
             )
@@ -262,8 +280,10 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
     /// The ruling's two sentences become what happened and the next step of the report, and put together read as given.
     func testTheReportSplitsTheTwoSentencesIntoWhatHappenedAndTheNextStep() {
         for words in [transcriptWords, cdsWords] {
-            let report = GTFPartsNotJoined.report(words: words, step: "Copy the translation as FASTA")
-            XCTAssertEqual(report.failedStep, "Copy the translation as FASTA")
+            let report = GTFPartsNotJoined.report(words: words)
+            XCTAssertEqual(
+                report.title, words == cdsWords ? "Could not join the parts of this CDS" : "Could not join the exons of this transcript"
+            )
             XCTAssertEqual(report.whatHappened + " " + report.nextStep, words)
             XCTAssertTrue(report.whatHappened.hasSuffix("."), report.whatHappened)
             XCTAssertTrue(report.nextStep.hasPrefix("Attach the GTF file again"), report.nextStep)

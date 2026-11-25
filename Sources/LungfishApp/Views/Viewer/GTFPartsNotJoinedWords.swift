@@ -15,15 +15,55 @@ import SQLite3
 ///
 /// The words show only when the selected feature is a `transcript`, `mRNA` or `CDS` row of one part, its attributes hold
 /// a `transcript_id`, and the same track holds another row of the part type with that `transcript_id`: `exon` for a
-/// transcript or mRNA, `CDS` for a CDS. A transcript row shows its words only when exons are to be joined, since
-/// without that the sequence is the span the person asked for. A GFF3 row never matches: its mRNA holds blocks and its
-/// CDS is merged by `ID`, and its exons carry `Parent` and no `transcript_id` in the stored text. A true one-exon
-/// transcript is quiet, because its one exon row has the transcript's own span and so is no other part.
+/// transcript or mRNA, `CDS` for a CDS. A transcript or mRNA row of one part with sibling exon rows is what the old import
+/// wrote, so its sequence is the span with its introns whether or not exons are to be joined. A GFF3 row never matches:
+/// its mRNA holds blocks and its CDS is merged by `ID`, and its exons carry `Parent` and no `transcript_id` in the stored
+/// text. A true one-exon transcript is quiet, because its one exon row has the transcript's own span and so is no other part.
 enum GTFPartsNotJoined {
-    /// A transcript or mRNA row, with exons to be joined.
-    static let transcriptWords = "This transcript came from a GTF track that an older version stored as one part, so this sequence includes its introns. Attach the GTF file again to join its exons, then extract it again."
-    /// A CDS row, on Copy translation or an extraction.
-    static let cdsWords = "This CDS is one of several parts in a GTF track that an older version stored separately, so this protein is only part of it. Attach the GTF file again to join the parts, then copy the translation again."
+    /// Where the words show. The last words of each sentence name what the person did, so a copy of the nucleotides is
+    /// not told to copy the translation again.
+    enum Route {
+        /// Copy translation, and Extract as protein.
+        case translation
+        /// Copy as FASTA, and Extract with the nucleotides copied.
+        case copy
+        /// Extract to a new bundle or a file, and the FASTQ/FASTA operation.
+        case extraction
+    }
+
+    /// The route that an output mode of the Extract Sequence dialog takes.
+    static func route(for outputMode: ExtractionOutputMode) -> Route {
+        switch outputMode {
+        case .clipboardNucleotide: return .copy
+        case .clipboardProtein: return .translation
+        case .newBundle: return .extraction
+        }
+    }
+
+    /// The words for a transcript or mRNA row. The ruling's sentence ends "then extract it again.", and a copy of the
+    /// nucleotides ends "then copy it again." A translation cannot reach a transcript, since only a CDS has a protein, so
+    /// it takes the extraction ending.
+    static func transcriptWords(for route: Route) -> String {
+        switch route {
+        case .copy:
+            return "This transcript came from a GTF track that an older version stored as one part, so this sequence includes its introns. Attach the GTF file again to join its exons, then copy it again."
+        case .translation, .extraction:
+            return "This transcript came from a GTF track that an older version stored as one part, so this sequence includes its introns. Attach the GTF file again to join its exons, then extract it again."
+        }
+    }
+
+    /// The words for a CDS row. A translation says protein and to copy the translation again, as the ruling gives it. A
+    /// copy or an extraction of the nucleotides says sequence, and to copy it or extract it again.
+    static func cdsWords(for route: Route) -> String {
+        switch route {
+        case .translation:
+            return "This CDS is one of several parts in a GTF track that an older version stored separately, so this protein is only part of it. Attach the GTF file again to join the parts, then copy the translation again."
+        case .copy:
+            return "This CDS is one of several parts in a GTF track that an older version stored separately, so this sequence is only part of it. Attach the GTF file again to join the parts, then copy it again."
+        case .extraction:
+            return "This CDS is one of several parts in a GTF track that an older version stored separately, so this sequence is only part of it. Attach the GTF file again to join the parts, then extract it again."
+        }
+    }
 
     /// The `transcript_id` of a row, or nil when it holds none.
     static func transcriptID(in attributes: [String: String]) -> String? {
@@ -46,24 +86,27 @@ enum GTFPartsNotJoined {
     ///   - type: The type of the selected row.
     ///   - partCount: The number of intervals the row holds. A row of several parts was joined and gets no words.
     ///   - attributes: The row's attributes by key.
-    ///   - concatenateExons: Whether exons are to be joined. A transcript or mRNA row needs it, and a CDS row does not.
+    ///   - route: Where the words show, which sets their last words.
     ///   - siblingCount: The number of other rows of the part type with the row's `transcript_id` in its track, not
-    ///     counting a row of the same span. It runs only when the row can get the words.
+    ///     counting a row of the same span. It runs only when the row can get the words. A transcript or mRNA row of one
+    ///     part with sibling exon rows is what the old import wrote, so its sequence is the span with its introns whether
+    ///     or not exons are to be joined.
     static func words(
         type: AnnotationType,
         partCount: Int,
         attributes: [String: String],
-        concatenateExons: Bool,
+        route: Route = .extraction,
         siblingCount: @autoclosure () -> Int
     ) -> String? {
         guard partCount == 1, partType(of: type) != nil, transcriptID(in: attributes) != nil else { return nil }
-        if type != .cds, !concatenateExons { return nil }
         guard siblingCount() >= 1 else { return nil }
-        return type == .cds ? cdsWords : transcriptWords
+        return type == .cds ? cdsWords(for: route) : transcriptWords(for: route)
     }
 
-    /// The report that carries `words`: the first sentence says what is so, and the rest says what to do.
-    static func report(words: String, step: String) -> FailureReport {
+    /// The report that carries `words`: the first sentence says what is so, and the rest says what to do. The copy or the
+    /// extraction itself worked, so the sheet's title names the join that did not happen and never says "Could not copy".
+    static func report(words: String) -> FailureReport {
+        let step = words.hasPrefix("This CDS") ? "Join the parts of this CDS" : "Join the exons of this transcript"
         let split = words.range(of: ". ")
         let whatHappened = split.map { String(words[..<$0.lowerBound]) + "." } ?? words
         let nextStep = split.map { String(words[$0.upperBound...]) } ?? ""
@@ -157,8 +200,8 @@ enum GTFPartsNotJoined {
 // MARK: - The viewer's routes
 
 extension SequenceViewerView {
-    /// The words for a selected annotation, or nil when it gets none or the viewer holds no reference bundle.
-    func gtfPartsNotJoinedWords(for annotation: SequenceAnnotation, concatenateExons: Bool) -> String? {
+    /// The words for a selected annotation on `route`, or nil when it gets none or the viewer holds no reference bundle.
+    func gtfPartsNotJoinedWords(for annotation: SequenceAnnotation, route: GTFPartsNotJoined.Route) -> String? {
         guard let bundle = currentReferenceBundle else { return nil }
         var attributes: [String: String] = [:]
         for (key, qualifier) in annotation.qualifiers {
@@ -170,7 +213,7 @@ extension SequenceViewerView {
             type: annotation.type,
             partCount: annotation.intervals.count,
             attributes: attributes,
-            concatenateExons: concatenateExons,
+            route: route,
             siblingCount: GTFPartsNotJoined.siblingCount(
                 for: annotation,
                 attributes: attributes,
@@ -180,10 +223,23 @@ extension SequenceViewerView {
     }
 
     /// Says so after a copy or an extraction of `request` when its annotation is a GTF row an older version stored in
-    /// parts. `step` names the route and starts with a verb, as `FailureReport.failedStep` asks. A region gets nothing.
-    func presentGTFPartsNotJoinedWords(for request: ExtractionRequest, step: String) {
-        guard case .annotation(let annotation) = request.source,
-              let words = gtfPartsNotJoinedWords(for: annotation, concatenateExons: request.concatenateExons) else { return }
-        FailurePresenter.present(GTFPartsNotJoined.report(words: words, step: step), in: window)
+    /// parts. A region gets nothing.
+    func presentGTFPartsNotJoinedWords(for request: ExtractionRequest, route: GTFPartsNotJoined.Route) {
+        guard case .annotation(let annotation) = request.source else { return }
+        presentGTFPartsNotJoinedWords(for: [annotation], route: route)
+    }
+
+    /// Says so for a selection of annotations that a route took: one sheet for each sentence the selection earns, in
+    /// selection order, so a long selection of old CDS lines gets one. The words go through `ViewerRefusalSeam`, so a
+    /// test binds a recording presenter and no alert opens.
+    func presentGTFPartsNotJoinedWords(for annotations: [SequenceAnnotation], route: GTFPartsNotJoined.Route) {
+        var shown: [String] = []
+        for annotation in annotations {
+            guard let words = gtfPartsNotJoinedWords(for: annotation, route: route), !shown.contains(words) else { continue }
+            shown.append(words)
+            ViewerRefusalSeam.present(GTFPartsNotJoined.report(words: words), in: window)
+            // A transcript and a CDS are the two sentences, so a third annotation cannot add one.
+            if shown.count == 2 { break }
+        }
     }
 }

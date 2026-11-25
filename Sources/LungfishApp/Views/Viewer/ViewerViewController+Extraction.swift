@@ -105,7 +105,7 @@ extension SequenceViewerView {
             pasteboard.clearContents()
             pasteboard.setString(fasta, forType: .string)
             extractionLogger.info("Copied FASTA for '\(annotation.name)' (\(result.nucleotideSequence.count) bp) to clipboard")
-            presentGTFPartsNotJoinedWords(for: request, step: "Copy the annotation as FASTA")
+            presentGTFPartsNotJoinedWords(for: request, route: .copy)
         } catch {
             extractionLogger.error("Failed to extract sequence for FASTA: \(error.localizedDescription)")
             presentExtractionFailure(step: "Copy the annotation as FASTA", error: error)
@@ -121,6 +121,7 @@ extension SequenceViewerView {
         // An annotation whose extraction throws is left out of the dialog, and the person is told which (review of
         // FASTAREAD, finding 1).
         var leftOut: [(name: String, error: any Error)] = []
+        var extracted: [SequenceAnnotation] = []
         let records = annotations.compactMap { annotation -> String? in
             guard let provider = makeSequenceProvider(for: annotation) else { return nil }
             let chromLength = chromosomeLengthForAnnotation(annotation)
@@ -131,6 +132,7 @@ extension SequenceViewerView {
                     sequenceProvider: provider,
                     chromosomeLength: chromLength
                 )
+                extracted.append(annotation)
                 return SequenceExtractor.formatFASTA(result)
             } catch {
                 extractionLogger.error("Failed to prepare annotation extraction for '\(annotation.name)': \(error.localizedDescription)")
@@ -143,8 +145,11 @@ extension SequenceViewerView {
             return
         }
         let suggestedName = annotations.count == 1 ? annotations[0].name : "selected-annotations"
+        let kept = extracted
         presentLeftOutAnnotations(leftOut, of: annotations.count) { [weak self] in
             self?.viewController?.presentFASTASequenceExtractionDialog(records: records, suggestedName: suggestedName)
+            // The dialog is the window's sheet by now, so the words queue behind it and do not stop it from opening.
+            self?.presentGTFPartsNotJoinedWords(for: kept, route: .extraction)
         }
     }
 
@@ -167,6 +172,7 @@ extension SequenceViewerView {
                 records: [SequenceExtractor.formatFASTA(result)],
                 suggestedName: annotation.name
             )
+            presentGTFPartsNotJoinedWords(for: request, route: .extraction)
         } catch {
             extractionLogger.error("Failed to prepare annotation for FASTQ/FASTA operation: \(error.localizedDescription)")
             presentExtractionFailure(step: "Prepare the annotation for a FASTQ/FASTA operation", error: error)
@@ -203,7 +209,7 @@ extension SequenceViewerView {
             pasteboard.clearContents()
             pasteboard.setString(proteinFASTA, forType: .string)
             extractionLogger.info("Copied protein FASTA for '\(annotation.name)' to clipboard")
-            presentGTFPartsNotJoinedWords(for: request, step: "Copy the translation as FASTA")
+            presentGTFPartsNotJoinedWords(for: request, route: .translation)
         } catch {
             extractionLogger.error("Failed to extract translation for FASTA: \(error.localizedDescription)")
             presentExtractionFailure(step: "Copy the translation as FASTA", error: error)
@@ -470,7 +476,7 @@ extension SequenceViewerView {
                 )
             }
 
-            presentGTFPartsNotJoinedWords(for: request, step: "Extract the annotation")
+            presentGTFPartsNotJoinedWords(for: request, route: GTFPartsNotJoined.route(for: config.outputMode))
         } catch {
             extractionLogger.error("Extraction failed: \(error.localizedDescription)")
             presentExtractionFailure(step: "Extract the sequence", error: error)
