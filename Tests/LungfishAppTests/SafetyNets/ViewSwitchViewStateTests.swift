@@ -1206,10 +1206,14 @@ final class ViewSwitchViewStateTests: XCTestCase {
         let left = try driver.readingAfterRestore(changed: changed, in: harness)
         XCTAssertEqual(try driver.read(in: harness), driver.readingAfterChangedBundle(changed: left), driver.kind)
         XCTAssertEqual(driver.resetLineWords(in: harness), driver.lineAfterChangedBundle, "\(driver.kind): the one line")
-        if let hostLine = harness.split.viewerController.surfaceHost.resetLine {
+        let hostLine = harness.split.viewerController.surfaceHost.resetLine
+        if let hostLine {
             try assertHostLineStartsBelowTheToolbar(hostLine, in: harness, driver.kind)
         }
-        assertOwnLinesShowBelowTheToolbar(in: harness, driver.kind)
+        let ownRead = assertOwnLinesShowBelowTheToolbar(in: harness, driver.kind)
+        if hostLine == nil, driver.resetLineWords(in: harness) != nil {
+            XCTAssertGreaterThan(ownRead, 0, "\(driver.kind): a line shows and the host draws none, so the read must find it")
+        }
     }
 
     /// Reads where each line a viewer draws itself, outside the host, sits: the genotype viewer's reset line and word
@@ -1217,10 +1221,11 @@ final class ViewSwitchViewStateTests: XCTestCase {
     /// window each one on show has a frame, starts at or below the viewer's safe-area top, under the toolbar, and ends
     /// above the window's foot (VS-GENO-LINE, UX-F1-R17). The 2026.11.17 walk (F5 C, build 14701) found the genotype
     /// line under the toolbar, which the host's read never reached.
+    @discardableResult
     func assertOwnLinesShowBelowTheToolbar(
         in harness: ViewSwitchWindowHarness, _ kind: String, file: StaticString = #filePath, line: UInt = #line
-    ) {
-        guard let content = harness.window.contentView else { return }
+    ) -> Int {
+        guard let content = harness.window.contentView else { return 0 }
         content.layoutSubtreeIfNeeded()
         let hostLine = harness.split.viewerController.surfaceHost.resetLine
         var ownLines: [NSView] = []
@@ -1230,7 +1235,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
             for subview in view.subviews { collect(subview) }
         }
         collect(content)
-        guard !ownLines.isEmpty else { return }
+        guard !ownLines.isEmpty else { return 0 }
         let viewer = harness.split.viewerController.view
         XCTAssertGreaterThan(viewer.safeAreaInsets.top, 0,
                              "the window has no toolbar inset, so this read cannot tell the two pins apart", file: file, line: line)
@@ -1245,6 +1250,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
                                      file: file, line: line)
             XCTAssertGreaterThanOrEqual(frame.minY, foot - 0.5, "\(name) ends below the window's foot", file: file, line: line)
         }
+        return ownLines.count
     }
 
     /// Reads where the host's line sits, never its words: in the harness's real window, which draws its content under
