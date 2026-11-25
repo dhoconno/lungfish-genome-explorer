@@ -308,6 +308,81 @@ final class ViewportHostViewMemoryTests: XCTestCase {
         XCTAssertTrue(fixture.itemFiles().isEmpty)
     }
 
+    // MARK: - Where the line sits (VS-HOST-LINE, UX-F1-R17)
+
+    /// A host whose 400x300 container has a 40 pt safe area at its top, as a window's title bar and toolbar give the
+    /// viewer. The stand-in keeps the default pin, the container's edge, as 12S and nine more adopters do.
+    private func makeInsetHost(store: ViewMemoryStore) -> (ViewportHost, NSViewController) {
+        let (host, parent) = makeHost(store: store)
+        parent.view.additionalSafeAreaInsets = NSEdgeInsets(top: 40, left: 0, bottom: 0, right: 0)
+        return (host, parent)
+    }
+
+    /// Reads the line's frame, never its words: its top sits at the safe-area top, 260 pt, not at the container's
+    /// edge, 300 pt, where a window's toolbar covers it, and the surface starts at or below its bottom.
+    private func assertLineStartsAtTheSafeAreaTop(
+        _ host: ViewportHost, in parent: NSViewController, file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        parent.view.layoutSubtreeIfNeeded()
+        let resetLine = try XCTUnwrap(host.resetLine, file: file, line: line)
+        let surface = try XCTUnwrap(host.activeViewport?.viewController.view, file: file, line: line)
+        XCTAssertFalse(resetLine.isHiddenOrHasHiddenAncestor, file: file, line: line)
+        XCTAssertGreaterThan(resetLine.frame.height, 0, file: file, line: line)
+        XCTAssertEqual(resetLine.frame.maxY, 260, accuracy: 0.5,
+                       "the line's top is at the safe-area top, found \(resetLine.frame.maxY) pt", file: file, line: line)
+        XCTAssertLessThanOrEqual(surface.frame.maxY, resetLine.frame.minY + 0.5,
+                                 "the surface starts below the line", file: file, line: line)
+    }
+
+    func testANewFolderAtThePathDrawsItsLineAtTheSafeAreaTop() throws {
+        let (host, parent) = makeInsetHost(store: loadedStore())
+        try show(host, .init(url: fixture.bundle)).filter = "Salmo"
+        try show(host, .init(url: other))
+        try FileManager.default.removeItem(at: fixture.bundle)
+        try FileManager.default.createDirectory(at: fixture.bundle, withIntermediateDirectories: true)
+
+        try show(host, .init(url: fixture.bundle))
+        try assertLineStartsAtTheSafeAreaTop(host, in: parent)
+    }
+
+    func testAChangedDataKeyDrawsItsLineAtTheSafeAreaTop() throws {
+        let (host, parent) = makeInsetHost(store: loadedStore())
+        let first = try show(host, .init(url: fixture.bundle))
+        first.filter = "Salmo"
+        first.selection = ["sample-1|target-3"]
+        try show(host, .init(url: other))
+
+        try show(host, .init(url: fixture.bundle, dataKey: "data-2"))
+        try assertLineStartsAtTheSafeAreaTop(host, in: parent)
+    }
+
+    func testASelectionPastItsCapDrawsItsLineAtTheSafeAreaTop() throws {
+        var caps = ViewMemoryStore.Caps.standard
+        caps.maxSelectionIdentities = 1
+        let store = fixture.store(caps: caps)
+        store.loadProject(at: fixture.project)
+        let (host, parent) = makeInsetHost(store: store)
+        let first = try show(host, .init(url: fixture.bundle))
+        first.filter = "Salmo"
+        first.selection = ["sample-1|target-3", "sample-2|target-3"]
+        try show(host, .init(url: other))
+
+        try show(host, .init(url: fixture.bundle))
+        try assertLineStartsAtTheSafeAreaTop(host, in: parent)
+    }
+
+    func testALateApplyDrawsItsLineAtTheSafeAreaTop() throws {
+        let (host, parent) = makeInsetHost(store: loadedStore())
+        let first = try show(host, .init(url: fixture.bundle))
+        first.filter = "Salmo"
+        first.selection = ["sample-1|target-3"]
+        try show(host, .init(url: other))
+
+        let late = try show(host, .init(url: fixture.bundle, dataKey: "data-2", pending: true))
+        late.viewMemoryHandle?.applyPending()
+        try assertLineStartsAtTheSafeAreaTop(host, in: parent)
+    }
+
     // MARK: - The view reaches the surface's listeners (SWIFT SF-1)
 
     /// The host restores inside `show` and a route wires the surface's callbacks after `show` returns, in the same

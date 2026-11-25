@@ -160,6 +160,34 @@ final class ViewSwitchViewStateTests: XCTestCase {
         try await assertChangedBundle(TwelveSViewStateDriver())
     }
 
+    /// The walk's C on 12S (2026.11.17 row F1 C1b, build 14643): a copy moved in at the bundle's path opens at its start
+    /// view, and the line that says so starts below the toolbar and above the result (VS-HOST-LINE, UX-F1-R17). The
+    /// route twin of `AssemblyResultSurfaceRouteTests.testAssemblyContentStartsBelowTheToolbar`.
+    func testTwelveSLineAfterACopyMovedInStartsBelowTheToolbar() async throws {
+        let driver = TwelveSViewStateDriver()
+        let (fixture, other) = try await fixtures(for: driver)
+        let harness = try ViewSwitchWindowHarness()
+        defer { harness.close() }
+        harness.keepViews(in: loadedStore())
+        try await show(fixture, in: harness, driver: driver)
+        try await driver.change(in: harness)
+        await driver.settle(in: harness)
+        try await leave(for: other, in: harness, driver: driver)
+        let bundle = try XCTUnwrap(fixture.item.url)
+        let copy = bundle.deletingLastPathComponent().appendingPathComponent("copy-\(bundle.lastPathComponent)")
+        try FileManager.default.copyItem(at: bundle, to: copy)
+        try FileManager.default.removeItem(at: bundle)
+        try FileManager.default.moveItem(at: copy, to: bundle)
+        try await show(fixture, in: harness, driver: driver)
+
+        let viewer = try XCTUnwrap(harness.split.viewerController)
+        let line = try XCTUnwrap(viewer.surfaceHost.resetLine, "the host draws the line")
+        try assertHostLineStartsBelowTheToolbar(line, in: harness, driver.kind)
+        let surface = try XCTUnwrap(viewer.installedSurface?.viewController.view)
+        XCTAssertLessThanOrEqual(surface.convert(surface.bounds, to: nil).maxY,
+                                 line.convert(line.bounds, to: nil).minY + 0.5, "the 12S result starts below the line")
+    }
+
     /// The route wires the Inspector after the show that restores the view, so the restored filter text, row count
     /// and selected row reach it only through the host's announce (SWIFT SF-1).
     func testTwelveSInspectorFollowsTheKeptView() async throws {
@@ -1177,6 +1205,28 @@ final class ViewSwitchViewStateTests: XCTestCase {
         let left = try driver.readingAfterRestore(changed: changed, in: harness)
         XCTAssertEqual(try driver.read(in: harness), driver.readingAfterChangedBundle(changed: left), driver.kind)
         XCTAssertEqual(driver.resetLineWords(in: harness), driver.lineAfterChangedBundle, "\(driver.kind): the one line")
+        if let hostLine = harness.split.viewerController.surfaceHost.resetLine {
+            try assertHostLineStartsBelowTheToolbar(hostLine, in: harness, driver.kind)
+        }
+    }
+
+    /// Reads where the host's line sits, never its words: in the harness's real window, which draws its content under
+    /// a toolbar, its top is at or below the viewer's safe-area top and it shows (VS-HOST-LINE, UX-F1-R17). The read
+    /// of `AssemblyResultSurfaceRouteTests.testAssemblyContentStartsBelowTheToolbar`.
+    func assertHostLineStartsBelowTheToolbar(
+        _ resetLine: ViewMemoryResetLineView, in harness: ViewSwitchWindowHarness, _ kind: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        let viewer = try XCTUnwrap(harness.split.viewerController, file: file, line: line)
+        harness.window.contentView?.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(viewer.view.safeAreaInsets.top, 0,
+                             "the window has no toolbar inset, so this read cannot tell the two pins apart", file: file, line: line)
+        XCTAssertFalse(resetLine.isHiddenOrHasHiddenAncestor, "\(kind): the line shows", file: file, line: line)
+        let frame = resetLine.convert(resetLine.bounds, to: nil)
+        XCTAssertFalse(frame.isEmpty, "\(kind): the line has a frame, found \(frame)", file: file, line: line)
+        let safeTop = viewer.view.convert(viewer.view.safeAreaRect, to: nil).maxY
+        XCTAssertLessThanOrEqual(frame.maxY, safeTop + 0.5,
+                                 "\(kind): the line starts \(frame.maxY - safeTop) points above the safe area", file: file, line: line)
     }
 
     // MARK: - FASTQ, assembly and FASTA collection (VS-DATA)
