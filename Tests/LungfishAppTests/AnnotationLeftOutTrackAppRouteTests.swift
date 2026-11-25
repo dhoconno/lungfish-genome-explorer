@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: MIT
 //
 // ANNOT-EXPORT-MISSING-TRACK (BIO-EXPORT-MISSING-TRACK-17 rows 4 and 8). The drawer's table export reads the drawer's
-// index, which holds only the databases that opened, so a track whose database is missing left the file with no
+// index, which holds only the databases that opened, so a track whose database was missing left the file with no
 // words (S1). Go to Gene searches the same index and said only that no annotation matched (S2). The index now keeps,
 // through the shared reader, the tracks it could not read, and both routes name them.
+//
+// ANNOT-EXPORT-3 (BIO and UX review SF-1). The sidebar GFF3 export loads the annotations in the app, and with every
+// database missing it stopped at its own "has no annotations" alert, so the leaf's refusal never showed.
 
 import XCTest
 @testable import LungfishApp
@@ -39,7 +42,9 @@ final class AnnotationLeftOutTrackAppRouteTests: XCTestCase {
         )
         XCTAssertTrue(words.hasPrefix("Exported 3 rows to NG-4tracks.tsv."), words)
         XCTAssertTrue(words.contains("two-parent c"), "the completion words name the missing track. \(words)")
-        XCTAssertTrue(words.contains("Reopen the bundle, and if this repeats, import those annotations again."), words)
+        XCTAssertTrue(
+            words.contains("Reopen the bundle, and if this repeats, import those annotations again. Then export again."), words
+        )
         XCTAssertEqual(
             AnnotationTableDrawerView.tableExportCompletionWords(rowCount: 1, fileName: "t.tsv", leftOut: []),
             "Exported 1 row to t.tsv",
@@ -47,7 +52,8 @@ final class AnnotationLeftOutTrackAppRouteTests: XCTestCase {
         )
     }
 
-    /// Row 8. Go to Gene for a gene on the track whose database is missing says that the track was not searched.
+    /// Row 8. Go to Gene for a gene on the track whose database is missing says that the track was not searched. The
+    /// words keep the remedy alone, since nothing was written and there is no step to repeat.
     func testGoToGeneNotFoundWordsNameTheTrackThatWasNotSearched() async throws {
         let index = try buildIndex(removing: ["track-c"])
         let found = await index.searchOffMain(query: "geneA", limit: 50)
@@ -59,10 +65,36 @@ final class AnnotationLeftOutTrackAppRouteTests: XCTestCase {
         XCTAssertTrue(words.hasPrefix("No annotation matching \"geneC\" was found in the current dataset."), words)
         XCTAssertTrue(words.contains("two-parent c"), "the words name the track that was not searched. \(words)")
         XCTAssertTrue(words.contains("not searched"), words)
+        XCTAssertTrue(words.hasSuffix("import those annotations again."), "Go to Gene keeps the remedy alone. \(words)")
         XCTAssertEqual(
             AppDelegate.geneNotFoundMessage(query: "geneZ", leftOut: []),
             "No annotation matching \"geneZ\" was found in the current dataset.",
             "a healthy bundle keeps the base's words"
+        )
+    }
+
+    /// Row 1, BIO and UX review SF-1. With every database missing the app loads no annotations, and the alert named no
+    /// track and said the bundle has none. It names each listed track and says nothing was written, as the leaf's
+    /// refusal does, and a bundle that lists no annotation track keeps the plain words.
+    func testNoAnnotationsAlertNamesEveryTrackWhenEveryDatabaseIsMissing() throws {
+        _ = try buildIndex(removing: Set(Self.tracks.map(\.id)))
+        let bundleURL = root.appendingPathComponent("NG-4tracks.lungfishref", isDirectory: true)
+
+        let words = AppDelegate.noAnnotationsToExportWords(sourceName: "NG-4tracks", bundleURL: bundleURL)
+
+        for track in Self.tracks {
+            XCTAssertTrue(words.contains(track.name), "the alert names \(track.name). \(words)")
+        }
+        XCTAssertTrue(words.contains("Nothing was written"), words)
+        XCTAssertNotEqual(words, "NG-4tracks has no annotations.", "the bundle lists annotation tracks")
+
+        let bare = root.appendingPathComponent("Bare.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bare, withIntermediateDirectories: true)
+        try Self.manifest(name: "Bare").save(to: bare)
+        XCTAssertEqual(
+            AppDelegate.noAnnotationsToExportWords(sourceName: "Bare", bundleURL: bare),
+            "Bare has no annotations.",
+            "a bundle with no annotation track has none"
         )
     }
 
@@ -75,14 +107,10 @@ final class AnnotationLeftOutTrackAppRouteTests: XCTestCase {
         ("track-d", "genes d", "geneD", 36, 48),
     ]
 
-    /// The drawer's index of a four-track bundle whose databases named in `removed` are deleted.
-    private func buildIndex(removing removed: Set<String>) throws -> AnnotationSearchIndex {
-        let bundleURL = root.appendingPathComponent("NG-4tracks.lungfishref", isDirectory: true)
-        let annotations = bundleURL.appendingPathComponent("annotations", isDirectory: true)
-        try FileManager.default.createDirectory(at: annotations, withIntermediateDirectories: true)
-        var manifest = BundleManifest(
+    private static func manifest(name: String) -> BundleManifest {
+        BundleManifest(
             formatVersion: "1.0",
-            name: "NG-4tracks",
+            name: name,
             identifier: "org.lungfish.tests.left-out-track-app",
             source: SourceInfo(organism: "Test organism", assembly: "test"),
             genome: GenomeInfo(
@@ -92,6 +120,14 @@ final class AnnotationLeftOutTrackAppRouteTests: XCTestCase {
                 chromosomes: [ChromosomeInfo(name: "chr1", length: 60, offset: 6, lineBases: 60, lineWidth: 61)]
             )
         )
+    }
+
+    /// The drawer's index of a four-track bundle whose databases named in `removed` are deleted.
+    private func buildIndex(removing removed: Set<String>) throws -> AnnotationSearchIndex {
+        let bundleURL = root.appendingPathComponent("NG-4tracks.lungfishref", isDirectory: true)
+        let annotations = bundleURL.appendingPathComponent("annotations", isDirectory: true)
+        try FileManager.default.createDirectory(at: annotations, withIntermediateDirectories: true)
+        var manifest = Self.manifest(name: "NG-4tracks")
         for track in Self.tracks {
             let bed = root.appendingPathComponent("\(track.id).bed")
             try [

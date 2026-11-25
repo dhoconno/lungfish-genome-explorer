@@ -7,6 +7,9 @@
 // alert. The in-process extraction pipeline returned only the bundle's URL. The Call Variants row ended on the track's
 // name alone, though the run's notes say codon merging was off. Each completion now carries the words the CLI's route
 // says, from `AnnotationDatabase.LeftOutWords` and the run's notes.
+//
+// ANNOT-EXPORT-3. The batch GenBank export names each left-out track with its file (BIO and UX review B1), each
+// completion ends on the step to repeat (SF-3), and the sidebar GFF3 export's alert is pinned (SWIFT and ARCH SF-2 a).
 
 import XCTest
 @testable import LungfishApp
@@ -31,7 +34,7 @@ final class AnnotationLeftOutTrackCompletionTests: XCTestCase {
             AppDelegate.sequenceExportCompletionWords(count: outcome.count, fileName: "NG-4tracks.gb", leftOut: outcome.leftOutTracks),
             "Exported 1 sequence(s) to NG-4tracks.gb. 1 annotation track is not in this file, because its annotation "
                 + "database is missing or cannot be read: two-parent c. "
-                + "Reopen the bundle, and if this repeats, import those annotations again."
+                + "Reopen the bundle, and if this repeats, import those annotations again. Then export again."
         )
     }
 
@@ -47,6 +50,71 @@ final class AnnotationLeftOutTrackCompletionTests: XCTestCase {
         )
     }
 
+    // MARK: - Row 2, the batch GenBank export (BIO and UX review B1)
+
+    /// Each file of a batch can lack a track, so the words name each left-out track with its file.
+    func testBatchExportWordsNameEachLeftOutTrackWithItsFile() throws {
+        let two: [(file: String, tracks: [AnnotationDatabase.LeftOutTrack])] = [
+            ("a.gb", [AnnotationDatabase.LeftOutTrack(id: "track-c", name: "two-parent c")]),
+            ("b.gb", [AnnotationDatabase.LeftOutTrack(id: "g", name: "Genes")]),
+        ]
+
+        let words = try XCTUnwrap(AppDelegate.batchSequenceExportLeftOutWords(two))
+
+        XCTAssertTrue(words.contains("2 annotation tracks are not in their files"), words)
+        XCTAssertTrue(words.contains("two-parent c (a.gb)"), words)
+        XCTAssertTrue(words.contains("Genes (b.gb)"), words)
+        XCTAssertTrue(
+            words.hasSuffix("Reopen the bundle, and if this repeats, import those annotations again. Then export again."), words
+        )
+        let one: [(file: String, tracks: [AnnotationDatabase.LeftOutTrack])] = [("NG-4tracks.gb", missing)]
+        XCTAssertEqual(
+            AppDelegate.batchSequenceExportLeftOutWords(one),
+            "1 annotation track is not in its file, because its annotation database is missing or cannot be read: "
+                + "two-parent c (NG-4tracks.gb). Reopen the bundle, and if this repeats, import those annotations again. "
+                + "Then export again."
+        )
+        XCTAssertNil(AppDelegate.batchSequenceExportLeftOutWords([]))
+        XCTAssertNil(AppDelegate.batchSequenceExportLeftOutWords([("a.gb", [])]))
+    }
+
+    /// The row's detail and the alert of the batch: a healthy batch keeps its words byte for byte.
+    func testBatchExportCompletionKeepsTheHealthyWordsAndAddsTheLeftOutWordsAfterThem() {
+        let healthy = AppDelegate.batchSequenceExportCompletionWords(
+            fileCount: 2, sequenceCount: 5, folderName: "Exports", leftOut: [("a.gb", []), ("b.gb", [])]
+        )
+        XCTAssertEqual(healthy.detail, "Exported 2 file(s) with 5 sequence(s)")
+        XCTAssertEqual(healthy.alert, "Exported 2 file(s) with 5 sequence(s) to Exports.")
+
+        let damaged = AppDelegate.batchSequenceExportCompletionWords(
+            fileCount: 2, sequenceCount: 3, folderName: "Exports", leftOut: [("NG-4tracks.gb", missing), ("b.gb", [])]
+        )
+        let words = "1 annotation track is not in its file, because its annotation database is missing or cannot be read: "
+            + "two-parent c (NG-4tracks.gb). Reopen the bundle, and if this repeats, import those annotations again. "
+            + "Then export again."
+        XCTAssertEqual(damaged.detail, "Exported 2 file(s) with 3 sequence(s). " + words)
+        XCTAssertEqual(damaged.alert, "Exported 2 file(s) with 3 sequence(s) to Exports. " + words)
+    }
+
+    // MARK: - Row 1, the sidebar GFF3 export's alert (SWIFT and ARCH review SF-2 a)
+
+    func testSidebarGFF3ExportCompletionWordsNameTheLeftOutTracksAndKeepTheHealthyWords() {
+        XCTAssertEqual(
+            AppDelegate.annotationGFF3ExportCompletionWords(
+                count: 110, sourceName: "NG-4tracks", fileName: "NG-4tracks.gff3", leftOut: missing
+            ),
+            "Exported 110 annotations from NG-4tracks to NG-4tracks.gff3. 1 annotation track is not in this file, because "
+                + "its annotation database is missing or cannot be read: two-parent c. "
+                + "Reopen the bundle, and if this repeats, import those annotations again. Then export again."
+        )
+        XCTAssertEqual(
+            AppDelegate.annotationGFF3ExportCompletionWords(
+                count: 114, sourceName: "NG-4tracks", fileName: "NG-4tracks.gff3", leftOut: []
+            ),
+            "Exported 114 annotations from NG-4tracks to NG-4tracks.gff3."
+        )
+    }
+
     // MARK: - Row 3, the in-process extraction pipeline
 
     func testExtractionPipelineCompletionWordsNameTheLeftOutTracks() {
@@ -57,16 +125,17 @@ final class AnnotationLeftOutTrackCompletionTests: XCTestCase {
         XCTAssertEqual(
             outcome.completionMessage,
             "Bundle ready. 1 annotation track is not in this bundle, because its annotation database is missing or "
-                + "cannot be read: two-parent c. Reopen the bundle, and if this repeats, import those annotations again."
+                + "cannot be read: two-parent c. Reopen the bundle, and if this repeats, import those annotations again. "
+                + "Then extract again."
         )
         XCTAssertEqual(SequenceExtractionPipeline.BuildOutcome(bundleURL: url, leftOutTracks: []).completionMessage, "Bundle ready")
     }
 
     // MARK: - Row 5, the Call Variants row
 
-    private let note = "Codon merging was off for this run, so its calls carry no codon or amino-acid change, because the "
-        + "annotation database of Genes, the bundle's first annotation track, is missing or cannot be read. "
-        + "Reopen the bundle, and if this repeats, import those annotations again."
+    private let note = "Codon merging was off for this run, because the annotation database of Genes, the bundle's first "
+        + "annotation track, is missing or cannot be read. So its calls carry no codon or amino-acid change. "
+        + "Reopen the bundle, and if this repeats, import those annotations again. Then call variants again."
 
     func testCallVariantsCompletionCarriesTheNotesTheCLIReports() throws {
         let encoded = String(decoding: try JSONEncoder().encode([note]), as: UTF8.self)

@@ -118,6 +118,55 @@ final class AnnotationLeftOutTrackCLITests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["left_out_tracks"], .array([.string("two-parent c")]))
     }
 
+    // MARK: - ANNOT-EXPORT-3, convert to FASTA and the extraction's JSON event
+
+    /// BIO and UX review SF-2. A FASTA file never holds annotations, so no track is missing from it. The app adds
+    /// `--include-annotations` to every bundle export, so `convert` reads the databases for a FASTA export too, and it
+    /// must not word the missing track as a loss in its message, on standard error, in its record or in its JSON.
+    func testConvertToFastaOfABundleWithAMissingDatabaseAddsNoLeftOutWords() throws {
+        let bundle = try Self.makeBundle(in: root, removing: ["track-c"])
+        let output = root.appendingPathComponent("NG-4tracks.fa")
+
+        let run = try runCLI(["convert", bundle.path, "--to", output.path, "--to-format", "fasta", "--include-annotations"])
+
+        XCTAssertEqual(run.status, 0, "\(run.stdout) \(run.stderr)")
+        XCTAssertFalse(run.stdout.contains("annotation track"), "a FASTA file holds no annotations. \(run.stdout)")
+        XCTAssertFalse(run.stderr.contains("warning:"), "no track is missing from a FASTA file. \(run.stderr)")
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: output)))
+        XCTAssertNil(envelope.options.resolvedDefaults["left_out_tracks"], "the record writes no left-out key")
+
+        let json = try runCLI([
+            "convert", bundle.path, "--to", output.path, "--to-format", "fasta", "--include-annotations",
+            "--force", "--format", "json", "--quiet",
+        ])
+        XCTAssertEqual(json.status, 0, "\(json.stdout) \(json.stderr)")
+        XCTAssertFalse(json.stdout.contains("leftOutTracks"), "the JSON has no left-out field. \(json.stdout)")
+    }
+
+    /// SWIFT and ARCH review SF-2 (c). The app's extraction row shows the `complete` event's message, so the event
+    /// stream of `extract sequence --bundle --format json` has to name the missing track and say to extract again
+    /// (BIO and UX review SF-3).
+    func testRegionBundleJSONCompleteEventNamesTheMissingTrack() throws {
+        let bundle = try Self.makeBundle(in: root, removing: ["track-c"])
+        let output = root.appendingPathComponent("Extractions/Json.lungfishref", isDirectory: true)
+
+        let run = try runCLI(
+            ["extract", "sequence", bundle.path, "chr1:1-60", "--bundle", "--output", output.path, "--format", "json"],
+            environment: ["LUNGFISH_CONDA_ROOT": try stubCondaRoot().path]
+        )
+
+        XCTAssertEqual(run.status, 0, "the extraction still writes. \(run.stdout) \(run.stderr)")
+        let messages = run.stdout.split(separator: "\n").compactMap { line -> String? in
+            let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            return object?["message"] as? String
+        }
+        // The run also reports "Bundle ready: <name>" as progress, so the complete event is the one with the period.
+        let complete = try XCTUnwrap(messages.first { $0.hasPrefix("Bundle ready.") }, "the complete event carries words. \(run.stdout)")
+        XCTAssertTrue(complete.contains("two-parent c"), "the complete event names the missing track. \(complete)")
+        XCTAssertTrue(complete.contains("Reopen the bundle"), complete)
+        XCTAssertTrue(complete.hasSuffix("Then extract again."), "the words tell the person to extract again. \(complete)")
+    }
+
     // MARK: - Fixture
 
     /// 60 bases of `chr1`.

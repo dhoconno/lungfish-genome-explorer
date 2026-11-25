@@ -73,7 +73,7 @@ final class AnnotationLeftOutTrackLeafTests: XCTestCase {
             run.value.message,
             "Exported 3 rows to NG-4tracks.tsv. 1 annotation track is not in this table, because its annotation "
                 + "database is missing or cannot be read: two-parent c. "
-                + "Reopen the bundle, and if this repeats, import those annotations again."
+                + "Reopen the bundle, and if this repeats, import those annotations again. Then export again."
         )
         XCTAssertTrue(
             run.standardError.contains(

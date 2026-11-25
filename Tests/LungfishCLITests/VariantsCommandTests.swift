@@ -920,9 +920,9 @@ final class VariantsCommandTests: XCTestCase {
     /// ANNOT-EXPORT-2 (BIO-EXPORT-MISSING-TRACK-17 row 5). The words the run reports about itself, such as iVar's codon
     /// merging being off because an annotation database could not be read, reach standard error and the completion.
     func testCallShowsTheRunsNotesOnStandardErrorAndInTheCompletion() async throws {
-        let note = "Codon merging was off for this run, so its calls carry no codon or amino-acid change, because the "
-            + "annotation database of Genes, the bundle's first annotation track, is missing or cannot be read. "
-            + "Reopen the bundle, and if this repeats, import those annotations again."
+        let note = "Codon merging was off for this run, because the annotation database of Genes, the bundle's first "
+            + "annotation track, is missing or cannot be read. So its calls carry no codon or amino-acid change. "
+            + "Reopen the bundle, and if this repeats, import those annotations again. Then call variants again."
         let command = try VariantsCommand.CallSubcommand.parse([
             "call", "--bundle", callBundleURL.path, "--alignment-track", "aln-1", "--caller", "lofreq", "--format", "json",
         ])
