@@ -158,7 +158,7 @@ samtools index trimmed.bam
 
 `-e` is fixed and keeps reads that match no primer instead of discarding them, so a read from a randomly fragmented library passing through an amplicon bundle is not lost.
 
-Before trimming, LGE matches the scheme's [accessions](../../GLOSSARY.md#accession) against the sequence names in the alignment's header, and stops with an error naming both when nothing matches. `--target-reference` overrides that match on the command line, as [Primer Scheme Bundles](primer-schemes.md#matching-the-scheme-to-your-alignment) explains.
+Before trimming, LGE matches the scheme's [accessions](../../GLOSSARY.md#accession) against the sequence names in the alignment's header, and stops with an error naming both when nothing matches. On the command line, `--target-reference` skips reading the alignment's header and, as [Primer Scheme Bundles](primer-schemes.md#matching-the-scheme-to-your-alignment) explains, only picks which of the scheme's own accessions to use.
 
 ## Trimming reads with fastp
 

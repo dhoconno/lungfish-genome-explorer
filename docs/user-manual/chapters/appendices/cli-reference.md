@@ -2265,7 +2265,7 @@ lungfish-cli bam primer-trim [<options>] --bundle <bundle> --alignment-track <al
 | `--alignment-track <alignment-track>` | Source alignment track identifier. |
 | `--scheme <scheme>` | Path to the `.lungfishprimers` bundle directory. |
 | `--name <name>` | Display name for the new primer-trimmed alignment track. |
-| `--target-reference <target-reference>` | Override the @SQ SN used to resolve the primer scheme (defaults to the primer scheme's canonical accession). |
+| `--target-reference <target-reference>` | Picks which of the scheme's accessions to use and skips reading the alignment's header. Without it, the command matches the scheme's accessions to the sequence names in that header. Either way the match is exact first, then ignores a trailing version number and letter case, and no match stops with an error. |
 | `--ivar-min-quality <ivar-min-quality>` | Minimum Phred quality for the sliding-window trim. The default is `20`. |
 | `--ivar-min-length <ivar-min-length>` | Minimum read length to retain after trimming. The default is `30`. |
 | `--ivar-sliding-window <ivar-sliding-window>` | Sliding-window width for ivar trim. The default is `4`. |
