@@ -8,7 +8,7 @@ task: Read what a `.lungfishprimers` bundle holds, list the schemes Lungfish Gen
 tags: [reference, primer-scheme, amplicon, bed, provenance, sars-cov-2]
 tools: []
 entry_points:
-  - "File > Import Center..."
+  - "File > Import Center…"
   - "CLI: lungfish-cli primers import"
 shots:
   - id: primer-scheme-import-card
@@ -18,8 +18,8 @@ shots:
   - id: primer-scheme-inspector
     caption: "A primer scheme selected in the sidebar, with the Inspector showing the display name, the primer and amplicon counts, and the reference and equivalent accessions."
 illustrations: []
-glossary_refs: [amplicon, bed, boolean, canonical-accession, checksum, contig, equivalent-accession, exit-status, ivar, json, manifest, primer-pool, primer-scheme, primer-trim, provenance, shotgun, snake-case, tiling]
-features_refs: []
+glossary_refs: [amplicon, bed, boolean, bundle, canonical-accession, checksum, contig, design-reference, equivalent-accession, exit-status, ivar, json, manifest, operations-panel, primer-pool, primer-scheme, primer-trim, provenance, shotgun, snake-case, tiling]
+features_refs: [import.primer-scheme, primer-analysis.scheme-from-analysis]
 fixtures_refs: []
 brand_reviewed: false
 lead_approved: false
@@ -73,7 +73,7 @@ MacaqueMHC-v1.lungfishprimers/
   .lungfish-provenance.json   # hidden, a record of the import itself
 ```
 
-`manifest.json`, `primers.bed`, and `PROVENANCE.md` are required. A bundle missing any of them is left out of the Primer Scheme menus without a message. The error appears only when you pick the bundle with **Choose Scheme...** or pass it to the command line, reading "Bundle is missing manifest.json.", "Bundle is missing primers.bed.", or "Bundle is missing PROVENANCE.md.". A manifest that is present but unreadable gives a message naming the parse failure instead. You meet these messages only if you assembled a bundle by hand, which works because the format is plain files, but the importer is the supported route.
+`manifest.json`, `primers.bed`, and `PROVENANCE.md` are required. A bundle missing any of them is left out of the Primer Scheme menus without a message. The error appears only when you pick the bundle with **Choose Scheme…** or pass it to the command line, reading "Bundle is missing manifest.json.", "Bundle is missing primers.bed.", or "Bundle is missing PROVENANCE.md.". A manifest that is present but unreadable gives a message naming the parse failure instead. You meet these messages only if you assembled a bundle by hand, which works because the format is plain files, but the importer is the supported route.
 
 `primers.fasta` holds the primer sequences and is optional, because the coordinates plus the reference genome already say what each primer's sequence is. Every route can add it. `attachments/` holds files that should travel with the scheme, vendor documentation, source spreadsheets or lab notes on an imported scheme, and on a designed scheme the [design reference](../../GLOSSARY.md#design-reference) the coordinates belong to. Both the command line and **Save as Primer Scheme…** write attachments, and only the import sheet cannot.
 
@@ -102,7 +102,7 @@ The six columns are read as follows.
 | 5 | [Primer pool](../../GLOSSARY.md#primer-pool) | The number of the PCR tube the primer belongs to, copied from your vendor's own numbering. |
 | 6 | Strand | `+` for the forward primer of a pair and `-` for the reverse. |
 
-In a [tiling](../../GLOSSARY.md#tiling) scheme, meaning one whose amplicons overlap end to end to cover a whole region, the pool alternates between 1 and 2. Neighbouring amplicons are then made in separate tubes, because two overlapping amplicons in one tube both amplify poorly.
+In a [tiling](../../GLOSSARY.md#tiling) scheme, meaning one whose amplicons overlap end to end to cover a whole region, the pool alternates between 1 and 2. Neighboring amplicons are then made in separate tubes, because two overlapping amplicons in one tube both amplify poorly.
 
 ### How LGE counts primers and amplicons
 
@@ -124,24 +124,24 @@ Both routes write the same bundle through the same code. The window route is com
 
 ### In the LGE window
 
-You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
+You need a project open, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows, because the scheme is written into the project's `Primer Schemes` folder. Without one, the card shows an alert titled **No Project Open** in place of the sheet.
 
 <!-- SHOT: primer-scheme-import-card -->
 
-1. Choose **File > Import Center...** and click the **Reference Sequences** tab.
-2. Click the **Primer Scheme** card, whose file hint reads `.bed (+ optional .fasta/.fa/.fna)`. A sheet titled **Import Primer Scheme** opens.
+1. Choose **File > Import Center…** and click the **Reference Sequences** tab.
+2. Click the **Primer Scheme** card, whose file hint reads `.bed (+ optional .fasta/.fa/.fna)`. A sheet titled **Import Primer Scheme** opens. Dropping a BED file on the card opens the same sheet with that file already chosen.
 3. In the **Files** section, click **Choose…** on the **BED** row and pick your BED file. If your vendor supplied a FASTA of the primer sequences, pick it on the **FASTA (optional)** row.
 4. In the **Identity** section, fill the four fields as the table below describes.
-5. Click **Import**, which stays disabled until a BED file, a name, and a canonical accession are set. LGE writes `Primer Schemes/<name>.lungfishprimers` into the project.
+5. Click **Import**, which stays disabled until a BED file, a name, and a canonical accession are set. LGE writes `Primer Schemes/<name>.lungfishprimers` into the project. A name already used there is refused with a message under the fields, so an earlier scheme is never replaced.
 
 <!-- SHOT: primer-scheme-import-sheet -->
 
 | Field | What to type |
 |---|---|
-| Name | A file-safe identifier such as `MacaqueMHC-v1`, which becomes the folder name. Use letters, digits, hyphens, and underscores. A slash is replaced with an underscore. |
-| Display name | The label you want in the Primer Scheme menu. Leave it empty to use the name for both. |
-| Canonical reference accession | The sequence name exactly as the alignment you will trim spells it. |
-| Equivalent accessions | Other names for the same sequence, separated by commas. Leave it empty when your reference has only one name. |
+| **Name (file-safe, e.g. QIASeqDIRECT-SARS2)** | A file-safe identifier such as `MacaqueMHC-v1`, which becomes the folder name. Use letters, digits, hyphens, and underscores. A slash is replaced with an underscore. |
+| **Display name (e.g. QIAseq Direct SARS-CoV-2)** | The label you want in the Primer Scheme menu. Leave it empty to use the name for both. |
+| **Canonical reference accession (e.g. MN908947.3)** | The sequence name exactly as the alignment you will trim spells it. |
+| **Equivalent accessions**, which the sheet marks comma-separated and optional | Other names for the same sequence, separated by commas. Leave it empty when your reference has only one name. |
 
 To find how your alignment spells its sequence name, select the reference bundle in the sidebar and read the sequence name the Inspector shows. A filled-in set for the Midnight scheme reads `Midnight-1200-V1`, `Midnight 1200 bp V1`, `MN908947.3`, and `NC_045512.2`.
 
@@ -155,18 +155,18 @@ The Inspector only displays a scheme. To change a field, import the scheme again
 
 ## Saving a designed scheme
 
-A tiled design made in LGE becomes a scheme without a BED file of its own. In the primer analysis viewer's Results tab, or in the Inspector's View tab, **Save as Primer Scheme…** writes `Primer Schemes/<scheme name>.lungfishprimers` into the same project, and `lungfish-cli primers scheme-from-analysis` writes the same bundle from the same code. [Save a tiled scheme as a primer scheme](../10-primer-design/05-reviewing-and-ordering-primers.md#save-a-tiled-scheme-as-a-primer-scheme) is the procedure.
+A tiled design made in LGE becomes a scheme without a BED file of its own. In the primer analysis viewer's Results tab, or in the Inspector's View tab, **Save as Primer Scheme…** writes `Primer Schemes/<scheme name>.lungfishprimers` into the same project, and `lungfish-cli primers scheme-from-analysis` writes the same bundle from the same code. **Copy CLI Command** on the save's row in the [Operations Panel](../../GLOSSARY.md#operations-panel) gives that command. [Save a tiled scheme as a primer scheme](../10-primer-design/05-reviewing-and-ordering-primers.md#save-a-tiled-scheme-as-a-primer-scheme) is the procedure.
 
 Only a tiled result can be saved. PrimalScheme, Olivar and tiled varVAMP designs qualify, and Primer3 candidate pairs and varVAMP qPCR assays do not, because they are alternatives rather than one scheme, which is what the disabled button's caption says. A result whose primers sit on more than one reference, such as a combined PrimalScheme panel, is refused, because a bundle names one reference, so save each single-reference result instead. Probe oligos are left out of the BED, because trimming applies to primers only, and a note in the result says how many were left out.
 
 A designed scheme differs from an imported one in four ways.
 
 - Its manifest `source` reads `designed`, beside `built-in` for the shipped schemes and `imported` for the importer's.
-- Its `display_name` joins the analysis name, the engine and the result's mode, as in `Mamu-A1 tiled PrimalScheme · mamu-a1-panel`, and the **Scheme name** field sets the folder name.
+- Its `display_name` joins the analysis name and the result's label with a centered dot, as in `Mamu-A1 tiled PrimalScheme · mamu-a1-panel`, and the **Scheme name** field sets the folder name.
 - It always carries `attachments/design-reference.fasta`, the sequence the engine designed on, with the description "Design reference the BED coordinates belong to. Map reads to this sequence before primer trimming."
 - Its canonical accession is that design reference's own name, which is the first alignment row's name for PrimalScheme and a generated name for the other two, such as `varVAMP_ambiguous_consensus`.
 
-That last point is the one to act on. An imported kit's coordinates belong to a database accession you can fetch, while a designed scheme's coordinates belong to whatever the engine designed on. For PrimalScheme that is the first alignment row without its gaps, so the scheme also records the row's internal identifier as an equivalent accession. For Olivar it is a reference Olivar generated, which is no single input sequence. For varVAMP it is an ambiguous consensus carrying IUPAC codes, which matches no real sequence at all, so a mapper scores those positions as mismatches. Import `attachments/design-reference.fasta` as a reference bundle and map your reads to it before trimming, as [Matching the scheme to your alignment](#matching-the-scheme-to-your-alignment) describes, and expect a low trim rate whenever reads went somewhere else instead.
+That last point is the one to act on. An imported kit's coordinates belong to a database accession you can fetch, while a designed scheme's coordinates belong to whatever the engine designed on. For PrimalScheme that is the first alignment row without its gaps, so the scheme also records the row's internal identifier as an equivalent accession. For Olivar it is a reference Olivar generated, which is no single input sequence. For varVAMP it is an ambiguous consensus carrying IUPAC codes, which matches no real sequence at all, so a mapper scores those positions as mismatches. Import `attachments/design-reference.fasta` as a reference bundle and map your reads to it before trimming, as [Matching the scheme to your alignment](#matching-the-scheme-to-your-alignment) describes, and expect the trim to stop with an error, or to trim little, whenever reads went somewhere else instead.
 
 ## Manifest fields
 
