@@ -19,19 +19,27 @@ lead_approved: false
 
 ## What it is
 
-Lungfish Genome Explorer (LGE) works with two kinds of file. The first kind is the standard bioinformatics formats that every genomics tool understands, such as FASTA for sequences and BAM for alignments, each defined in its own section below. The second kind is LGE's own bundle formats, which are ordinary folders. macOS shows the reference, alignment, tree, primer analysis, and MHC reference kinds as a single icon, and double-clicking one opens it in LGE rather than a folder window. The other kinds look like normal folders in the Finder, and in every kind the files inside are plain files any program can read.
+Lungfish Genome Explorer (LGE) works with two kinds of file. The first kind is the standard bioinformatics formats that every genomics tool understands, such as FASTA for sequences and BAM for alignments, each defined in its own section below. The second kind is LGE's own bundle formats, which are ordinary folders. macOS shows the reference, multiple sequence alignment, tree, primer analysis, and MHC reference kinds as a single icon, and double-clicking one opens it in LGE rather than a folder window. The other kinds look like normal folders in the Finder, and in every kind the files inside are ordinary files. A text editor shows most files, such as FASTA and JSON, while binary ones such as BAM and `.xlsx` need a program built for them, which [Sharing and inspecting bundles](#sharing-and-inspecting-bundles) names.
 
 This appendix covers the structure of every file and bundle format LGE reads or writes, and nothing else. Read one section at a time. Each says what one format holds, what LGE does with it, and how to look inside it.
 
 Two ideas recur throughout. An index is a small companion file that lets a program jump straight to one position in a large file instead of reading the whole thing from the start, and LGE writes one beside almost every data file it produces. A manifest is a small text file inside a bundle that describes what the bundle holds, and reading it is how you learn what a bundle actually contains rather than guessing from the folder name.
 
-The examples come from the manual's practice data and from two [demo projects](../../GLOSSARY.md#demo-project), which [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains how to download. Human Mapping and Variants (with results) supplies the mapping result, its alignment track, and its variant tracks. Genes and Sequences supplies the HBB record and, once you have run [Aligning Sequences](../02-sequences/04-aligning-sequences.md) and [Building Trees](../02-sequences/05-building-trees.md) in it, the alignment and tree bundles. Every line quoted here was read off disk rather than invented.
+The examples come from the manual's practice data and from two [demo projects](../../GLOSSARY.md#demo-project), which [Practice data for this manual](../01-foundations/06-the-lungfish-project.md#practice-data-for-this-manual) explains how to download. Human Mapping and Variants (with results) supplies the mapping result, its alignment [track](../../GLOSSARY.md#track), meaning one BAM file drawn under a reference sequence, and its variant tracks. Genes and Sequences supplies the HBB record and, once you have run [Aligning Sequences](../02-sequences/04-aligning-sequences.md) and [Building Trees](../02-sequences/05-building-trees.md) in it, the alignment and tree bundles. Every line quoted here was read off disk rather than invented.
 
 ## Before you type anything
 
 Most of this appendix inspects files with commands typed into Terminal, which [Before you type anything](cli-reference.md#before-you-type-anything) shows how to open and move into a folder. The `lungfish-cli` program ships inside LGE, and [Finding the program](cli-reference.md#finding-the-program) shows how to run it.
 
-Two of the programs used here are not `lungfish-cli`. Samtools reads alignment files and bcftools reads variant files. LGE installs both for its own use with the Required Setup pack, so typing either bare name at a fresh prompt may find nothing. Type the full path of LGE's copy instead, `~/.lungfish/conda/envs/samtools/bin/samtools` or `~/.lungfish/conda/envs/bcftools/bin/bcftools`, where `~` is your home folder. The Stable app keeps its tools under `~/.lungfish-stable` instead of `~/.lungfish`, as [Where LGE keeps its tools](../01-foundations/06-the-lungfish-project.md#where-lge-keeps-its-tools) explains. Each command block sets `PROJECT` to one demo project's folder first, following [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). A reader who works entirely in the window can skip every code block without losing anything.
+Two of the programs used here are not `lungfish-cli`. Samtools reads alignment files and bcftools reads variant files. LGE installs both with the [Required Setup pack](../../GLOSSARY.md#required-setup-pack), the Third-Party Tools card of the Welcome window, so typing either bare name at a fresh prompt may find nothing. The block below sets their full paths for the Stable app, `Lungfish.app`, which keeps its tools under `~/.lungfish-stable`, where `~` is your home folder. The Preview app, `Lungfish Preview.app`, uses `~/.lungfish` instead, as [Where LGE keeps its tools](../01-foundations/06-the-lungfish-project.md#where-lge-keeps-its-tools) explains, so change `.lungfish-stable` to `.lungfish` in its first line. Run the block once in each Terminal window, and later blocks call the programs as `$SAMTOOLS` and `$BCFTOOLS`.
+
+```bash
+TOOLS="$HOME/.lungfish-stable/conda/envs"
+SAMTOOLS="$TOOLS/samtools/bin/samtools"
+BCFTOOLS="$TOOLS/bcftools/bin/bcftools"
+```
+
+Each command block sets `PROJECT` to one demo project's folder first, following [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). A reader who works entirely in the window can skip every code block without losing anything.
 
 ## The format registry
 
@@ -39,9 +47,7 @@ LGE keeps an internal catalog of the formats it recognizes, called the format re
 
 A format LGE can read is one it can open and display. A format LGE can write is one LGE's own code produces directly. Many results are written by an outside tool such as samtools instead, so a format can be central to your work and still show No in the write column. BAM is the clearest case, since LGE's own code never writes a BAM, and the BAMs it shows were written by samtools or by the program that made your file.
 
-Two entries in the registry are detection only. LGE recognizes a BigWig or a BigBed file by its extension, or by its contents when the extension is missing, and labels it correctly in the interface, but it has no reader for either, so it cannot draw their contents. Seeing a BigWig track means converting it to bedGraph first, with a program such as the UCSC `bigWigToBedGraph` utility, which this manual does not cover.
-
-Detection only in the read column means LGE names the file type correctly and does nothing else with it.
+Two entries in the registry are detection only. LGE recognizes a BigWig or a BigBed file by its extension, or by its contents when the extension is missing, and labels it correctly in the interface, but it has no reader for either, so it cannot draw their contents. Seeing a BigWig track means converting it to bedGraph first with the UCSC `bigWigToBedGraph` utility, which you download from the [UCSC binary utilities directory](http://hgdownload.gi.ucsc.edu/admin/exe/) and which prints its usage when you run it with no arguments.
 
 | Format | Extensions | Category | LGE reads | LGE writes |
 |---|---|---|---|---|
@@ -71,19 +77,19 @@ Detection only in the read column means LGE names the file type correctly and do
 | TIFF | `.tiff`, `.tif` | Image | No | No |
 | SVG | `.svg` | Image | No | No |
 
-Text files that macOS cannot preview, such as Nextflow `.nf` and `nextflow.config`, Snakemake `.smk` and `Snakefile`, `.R` scripts, YAML and TOML files, and small extension-less text files, show in the viewer as read-only plain text. Files over 2 MB show their first 2 MB.
+Text files that macOS cannot preview, such as [Nextflow](../../GLOSSARY.md#nextflow) `.nf` and `nextflow.config`, [Snakemake](../../GLOSSARY.md#snakemake) `.smk` and `Snakefile`, `.R` scripts, [YAML](../../GLOSSARY.md#yaml) and TOML settings files, and small extension-less text files, show in the [viewport](../../GLOSSARY.md#viewport) as read-only plain text. Files over 2 MB show their first 2 MB.
 
 FASTA's seven extensions differ only in what the file holds. `.faa` holds protein sequence and the other six hold nucleotide sequence, and LGE treats all seven the same way.
 
-The document and image rows read No in both columns because LGE identifies those files so it can label an attachment or an export, not so it can open them. A PDF you attach to a sample stays a PDF that Preview opens.
+The document and image rows read No in both columns because LGE identifies those files so it can label an attachment or an export, not so it can open them. A PDF you attach to a sample stays a PDF that the macOS Preview app opens.
 
-Four more formats have a registry identifier without a full entry. The practical effect is that LGE can name the file type when it sees one but cannot open it as a track. They are EMBL (`.embl`), the European counterpart to GenBank, 2bit (`.2bit`), a packed binary sequence format from the UCSC genome browser, and the two index formats CSI (`.csi`) and tabix (`.tbi`), described under the alignment and variant sections below. EMBL is the one of the four you can actually get into the app, because `lungfish-cli import fasta` accepts an EMBL file.
+Four more formats are known to the registry by name only, with no row in the table above. The practical effect is that LGE can name the file type when it sees one but cannot open it as a track. They are EMBL (`.embl`), the European counterpart to GenBank, 2bit (`.2bit`), a packed binary sequence format from the UCSC genome browser, and the two index formats CSI (`.csi`) and tabix (`.tbi`), described under the alignment and variant sections below. EMBL is the one of the four you can actually get into the app, because `lungfish-cli import fasta` accepts an EMBL file.
 
 ## Standard sequence formats
 
-Every code block in this section shows a line as it sits in the file, shortened at the right edge where the real line runs wider than the page. A block that has been shortened says so once in the sentence introducing it.
+Every code block in this section shows lines as they sit in the file, and a block shortened at the right edge says so in the sentence introducing it.
 
-FASTA is the plainest sequence format there is. A record starts with a line beginning `>`, which holds a name and an optional description, and the sequence follows on the lines after it. Here are the first three lines of the human chromosome 20 slice from the `hg002-chr20` fixture. HG002 is a widely used reference human sample whose genome has been sequenced many times over, and the name `chr20_10.0-10.5Mb` was chosen by whoever cut the slice to record that it covers positions 10.0 to 10.5 megabases of chromosome 20.
+FASTA is the plainest sequence format there is. A record starts with a line beginning `>`, which holds a name and an optional description, and the sequence follows on the lines after it. Here are the first three lines of the human chromosome 20 slice from the `hg002-chr20` [fixture](../../GLOSSARY.md#fixture), one of the manual's practice data sets. HG002 is a widely used reference human sample whose genome has been sequenced many times over, and the name `chr20_10.0-10.5Mb` was chosen by whoever cut the slice to record that it covers positions 10.0 to 10.5 megabases of chromosome 20.
 
 ```fasta
 >chr20_10.0-10.5Mb
@@ -91,7 +97,7 @@ GAACAAGTTCCAGAAGATAGCTAGAGGATGGGAGCACATGAAGAGCAGAT
 CACAACCATCCCTGGGgagcccagcctggaccagctacagccacccgtct
 ```
 
-Lowercase bases are normal and need no action from you. They mark repeat-masked regions, meaning stretches a repeat-finding program flagged as repetitive, and they carry the same meaning as their uppercase equivalents when a tool reads the sequence. LGE's sequence viewport draws them like any other base rather than marking them out.
+Lowercase bases are normal and need no action from you. They mark repeat-masked regions, meaning stretches a repeat-finding program flagged as repetitive, and they carry the same meaning as their uppercase equivalents when a tool reads the sequence. LGE's [sequence viewport](../../GLOSSARY.md#sequence-viewport) draws them like any other base rather than marking them out.
 
 A FASTA index, extension `.fai`, is a plain-text table that lets a program fetch one region without reading the file from the start. The whole index for that half-megabase slice is a single line.
 
@@ -104,10 +110,10 @@ The line is the sequence name followed by four numbers. They are its length in b
 LGE writes a `.fai` for you whenever it imports a FASTA, so importing a reference never leaves you needing to make one. To make one by hand, run `samtools faidx` from the folder holding the FASTA.
 
 ```bash
-samtools faidx GRCh38.chr20.10.0-10.5Mb.fasta
+"$SAMTOOLS" faidx GRCh38.chr20.10.0-10.5Mb.fasta
 ```
 
-[FASTQ](../../GLOSSARY.md#fastq) stores each read as four lines, a name, the bases, a separator, and one quality character per base. A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand. Here is the first read of `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, shortened at the right edge. The read name is generated by the sequencing instrument, and its colon-separated fields record the machine, the run, and the position on the flow cell.
+[FASTQ](../../GLOSSARY.md#fastq) stores each read as four lines, a name, the bases, a separator, and one quality character per base. A [Phred score](../../GLOSSARY.md#phred-score) is a per-base quality on a logarithmic scale, where 20 means one wrong base in a hundred and 30 means one in a thousand. Here is the first read of `HG002.chr20.10.0-10.5Mb_R1.fastq.gz`, the file of first reads (R1) of each pair, shortened at the right edge. The read name is generated by the sequencing instrument, and its seven colon-separated fields record the instrument, the run, the [flow cell](../../GLOSSARY.md#flow-cell), the lane, the tile, and the x and y position of the read, as [The four-line FASTQ record](../01-foundations/02-sequencing-reads.md#the-four-line-fastq-record) tabulates.
 
 ```fastq
 @D00360:94:H2YT5BCXX:1:1101:1503:41403
@@ -118,7 +124,7 @@ GCTGGGATTACAGGCATGAGCCACCGCCCAGCCATTTCTGTTTTTTTAGATGTAGTCCTGCTTTATTGCCCA
 
 Reading those characters by eye is not expected of anyone. LGE plots them in the FASTQ viewport, which [Quality Control for Reads](../03-reads/03-quality-control.md#reading-the-results) reads card by card.
 
-GenBank is a richer sequence format that carries annotations and curator notes alongside the bases. LGE reads GenBank on import and converts each record into a FASTA plus a GFF3 annotation track, keeping the original record in a small database inside the bundle so nothing is lost. A GenBank file that LGE writes, such as one from the sidebar's **Export Sequences…**, keeps the key and location each imported feature arrived with, such as `CDS` and the partial markers `<` and `>`, unless you have changed the feature since. It leaves out the `_lf_` attributes LGE keeps for its own use, described under the annotation formats below.
+GenBank is a richer sequence format that carries annotations and curator notes alongside the bases. LGE reads GenBank on import and converts each record into a FASTA plus a GFF3 annotation track, keeping the original record in a small database inside the bundle so nothing is lost. A GenBank file that LGE writes, such as one from the sidebar's **Export Sequences…**, keeps the key and location each imported feature arrived with, unless you have changed the feature since. The key is the feature's type word, such as `CDS`, and a `<` or `>` in a location marks a feature that runs past the start or end of the record. It leaves out the `_lf_` attributes LGE keeps for its own use, described under the annotation formats below.
 
 The `import fasta` command accepts a compressed input directly and recognizes five compression suffixes, which are `.gz`, `.bgz`, `.bz2`, `.xz`, and `.zst`. All five are ordinary compression formats and LGE handles them the same way, with `.gz` the one you will meet almost every time. You do not have to decompress a reference before importing it.
 
@@ -130,7 +136,7 @@ LGE stores every nucleotide sequence with T and treats RNA as a label for the mo
 |---|---|
 | A FASTA reference or a GenBank record | **File > Import Center…**, `lungfish-cli import fasta`, or a download from NCBI |
 | An alignment | An imported alignment file, or the rows that MAFFT, the program LGE aligns sequences with, returns |
-| A primer scheme's primer FASTA | An imported primer scheme |
+| A [primer scheme](../../GLOSSARY.md#primer-scheme)'s primer FASTA | An imported primer scheme |
 
 Name lines are never changed. Anything that holds a letter found only in proteins, such as E or L, keeps its U, because in a protein U stands for [selenocysteine](../../GLOSSARY.md#selenocysteine), a rare amino acid. FASTQ reads are never rewritten. **View > Show as RNA (U instead of T)** draws U again when you want to read the RNA form, as [Importing and Viewing a Sequence](../02-sequences/01-importing-and-viewing.md#what-it-is) shows.
 
@@ -148,7 +154,7 @@ NG_000007	.	ncRNA	52070	53062	.	+	.	_lf_raw_genbank_location=52070..53062;...;ge
 
 Those attribute values are percent-encoded, meaning `%20` stands for a space and `%3B` for a semicolon, because the format reserves those characters as separators. Both codes appear in the `gene_synonym` value above. The `_lf_raw_genbank_location` attribute is LGE's own addition, preserving the original GenBank location string. That matters for a spliced feature, meaning one built from several separate pieces of sequence with the intervening stretches left out, which a single start and a single end cannot record. This particular feature is one unbroken stretch, so its location string is the plain `52070..53062`, and a spliced one would read as a list of ranges instead.
 
-A GFF3 file that LGE writes, from an annotation export in the window or from `lungfish-cli bundle export-gff3`, puts a dot in the source column and keeps each feature's imported `ID`. A feature that arrived without an `ID` gets one that starts `lungfish-row-`, the same in every export of the bundle. A list attribute such as `Parent=mRNA1,mRNA2` keeps its commas as separators, while a comma inside a `Note` is written `%2C`, so each note comes through whole.
+A GFF3 file that LGE writes, from **File > Export > Annotations (GFF3)…** or from `lungfish-cli bundle export-gff3`, puts a dot in the source column, keeps each feature's imported `ID`, and leaves any `_lf_` attributes in place, which another program reads as extra attributes to ignore. A feature that arrived without an `ID` gets one that starts `lungfish-row-`, the same in every export of the bundle. A list attribute such as `Parent=mRNA1,mRNA2`, where `Parent` names the features this one belongs to, keeps its commas as separators, while a comma inside a `Note` is written `%2C`, so each note comes through whole.
 
 GTF is an older relative of GFF3 that uses the same nine columns with a different attribute syntax. LGE reads GTF and converts it, and the registry marks GTF as read only because LGE never writes one back out.
 
@@ -165,7 +171,7 @@ Work the first BED row above through the conversion. It reads 27 and 51. To get 
 
 bedGraph is a four-column relative of BED whose fourth column is a numeric value per interval, used for coverage and signal tracks. LGE both reads and writes it.
 
-LGE keeps each file in its own convention on disk and shows you one-based inclusive coordinates everywhere in the window. The names LGE writes itself follow the window, as the table shows, so one habit covers everything LGE makes. [Counting from one and from zero](../02-sequences/03-extracting-and-comparing.md#counting-from-one-and-from-zero) teaches the rule with examples.
+LGE keeps each file in its own convention on disk and shows you one-based inclusive coordinates everywhere in the window. The names LGE writes itself follow the window, as the table shows. Only BED and bedGraph files, the `--start` and `--end` options in the table, and the values a provenance record labels `0-based half-open` count from 0, and every other coordinate you read counts from 1. [Counting from one and from zero](../02-sequences/03-extracting-and-comparing.md#counting-from-one-and-from-zero) teaches the rule with examples.
 
 | Where the coordinate appears | Convention | Example |
 |---|---|---|
@@ -175,28 +181,28 @@ LGE keeps each file in its own convention on disk and shows you one-based inclus
 | LGE's default names for extracted bundles | One-based, inclusive | `NG_000007_70545-72152` |
 | LGE's ORF feature names | One-based, inclusive | `ORF_+1_70659_71060` |
 | BED and bedGraph files | Zero-based, half-open | `27` and `51` for bases 28 to 51 |
-| The `--start` and `--end` of `lungfish-cli sequence annotate-orfs` | Zero-based, half-open | `--start 70544 --end 72152` for bases 70545 to 72152 |
+| The `--start` and `--end` of `lungfish-cli sequence annotate-orfs` and `sequence add-annotation` | Zero-based, half-open | `--start 70544 --end 72152` for bases 70545 to 72152 |
 
-So a coordinate you read on screen or in a name LGE wrote can be typed straight into a region box or a VCF query, and a coordinate copied out of a BED file needs 1 added to its start first. The provenance record of an extraction is the one place LGE stores the internal count from 0, and it labels those values `0-based half-open` beside them. [Sequence utilities](cli-reference.md#sequence-utilities) says which convention each command takes.
+So a coordinate you read on screen or in a name LGE wrote can be typed straight into a region box or a VCF query, and a coordinate copied out of a BED file needs 1 added to its start first. An extraction's provenance record keeps the internal count from 0 and labels those values `0-based half-open` beside them. [Sequence utilities](cli-reference.md#sequence-utilities) says which convention each command takes.
 
 ## Standard alignment formats
 
 An alignment file records where each sequencing read landed on a reference. SAM is the human-readable text form, BAM is the same information packed into a compressed binary form, and CRAM is a further-compressed form that stores only the differences from the reference. A CRAM therefore cannot be read at all without the exact reference it was written against, down to the version, so keep that FASTA beside it. LGE refuses to open a CRAM whose reference it cannot find rather than opening it with the sequence missing.
 
-LGE reads all three. Importing through the window sorts and indexes a copy inside the bundle, converting a SAM to a BAM with a `.bai` and keeping a CRAM as a CRAM with a `.crai`. The command-line `import bam` pointed at a plain folder instead copies the file as it is, indexing it only when no index sits beside it, and pointed at an existing `.lungfishref` bundle it attaches the file the way the window does. A mapping run inside LGE always ends as a sorted, indexed BAM. Sorted means the records are ordered by position along the reference, which is what makes an index possible at all, since an index is a shortcut into an ordered file. LGE's mapping pipeline runs any tool that emits SAM through `samtools sort` and `samtools index` and then deletes the intermediate text file, so no SAM survives as a result. That is a pipeline convention rather than a limit on format support.
+LGE reads all three. In the window, importing sorts and indexes a copy inside the bundle, converting a SAM to a BAM with a `.bai` and keeping a CRAM as a CRAM with a `.crai`, the CRAM's index. On the command line, `import bam` pointed at a plain folder instead copies the file as it is, indexing it only when no index sits beside it, and pointed at an existing `.lungfishref` bundle it attaches the file the way the window does. A mapping run inside LGE always ends as a sorted, indexed BAM. Sorted means the records are ordered by position along the reference, which is what makes an index possible at all, since an index is a shortcut into an ordered file. LGE's mapping pipeline runs any tool that emits SAM through `samtools sort` and `samtools index` and then deletes the intermediate text file, so no SAM survives as a result. That is a choice LGE's mapping step makes rather than a limit on format support.
 
 A `.bai` index lets a viewer jump to a region without scanning the file. CSI is the alternative index for a reference sequence longer than the roughly 512-megabase limit a `.bai` can point into. That limit is a property of the index format rather than something to judge your data by, and it matters only for a single chromosome longer than about half a gigabase, which no human chromosome is. LGE writes `.bai` for the BAMs it produces and reads a `.csi` that arrives beside an imported BAM.
 
-The Inspector's alignment summary shows the same figures the two commands below print, and [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) reads them. To get them at a prompt instead, run these two on the `HG002 minimap2` track in the Human Mapping and Variants (with results) demo project. The track lives in the reference bundle inside the mapping result, and its BAM is named `aln_` followed by eight characters LGE generated, which the `aln_*.bam` pattern matches without your typing them.
+The [Inspector](../../GLOSSARY.md#inspector)'s alignment summary shows the same figures the two commands below print, and [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results) reads them. To get them at a prompt instead, run these two on the `HG002 minimap2` track in the Human Mapping and Variants (with results) demo project. The track lives in the reference bundle inside the mapping result, and its BAM is named `aln_` followed by eight characters LGE generated, which the `aln_*.bam` pattern matches without your typing them, the star standing for those eight characters. The folder name `minimap2-2026-09-25T00-00-00` belongs to this demo project, so use the name your own run shows under `Analyses`.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants (with results).lungfish"
 REF="$PROJECT/Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref"
-samtools idxstats "$REF"/alignments/mapped/aln_*.bam
-samtools flagstat "$REF"/alignments/mapped/aln_*.bam
+"$SAMTOOLS" idxstats "$REF"/alignments/mapped/aln_*.bam
+"$SAMTOOLS" flagstat "$REF"/alignments/mapped/aln_*.bam
 ```
 
-The first prints one line per reference sequence giving the name, its length, the number of mapped reads, and the number of unmapped reads. An unmapped read whose mate mapped is counted on its mate's row, which is why the 213 unmapped reads below sit on the chromosome row. The final row, whose name is `*`, counts reads with no placement at all.
+The first prints one line per reference sequence giving the name, its length, the number of mapped reads, and the number of unmapped reads. An unmapped read whose [mate](../../GLOSSARY.md#mate), the other read of its pair, mapped is counted on its mate's row, which is why the 213 unmapped reads below sit on the chromosome row. The final row, whose name is `*`, counts reads with no placement at all.
 
 ```text
 chr20_10.0-10.5Mb	500001	90990	213
@@ -213,11 +219,11 @@ The second summarizes the whole file. Its first lines on that same BAM read as f
 0 + 0 duplicates
 ```
 
-Each line is written as two numbers joined by a plus sign. The first counts records that passed the instrument's own quality check and the second counts records that failed it, so a trailing `+ 0` means nothing failed. Primary counts one record per read, secondary counts extra places a read also matched, supplementary counts the pieces of a read split across two places, and duplicates counts reads flagged as PCR copies. What each category means in practice, and what a good mapping rate looks like, is read in [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results).
+Each line is written as two numbers joined by a plus sign. The first counts records that passed the instrument's own quality check and the second counts records that failed it, so a trailing `+ 0` means nothing failed. Primary counts one record per read, secondary counts extra places a read also matched, supplementary counts the pieces of a read split across two places, and duplicates counts reads flagged as PCR copies. Here 213 of the 91,203 records are unmapped, so about 99.8 percent mapped. What each category means in practice, and what a good mapping rate looks like, is read in [Mapping Reads to a Reference](../04-alignments/01-mapping-reads-to-a-reference.md#reading-the-results).
 
 ## Standard variant formats
 
-A variant is a position where a sample differs from the reference, and VCF is the format that records one. The header lines begin with `##` and declare the file version, the reference contigs, and the meaning of every field used below. A contig is one continuous stretch of reference sequence, which for a whole human genome means one chromosome and for this fixture means the single slice. The body has one variant per line. Here is the column header and the first rows of the HG002 benchmark VCF from the `hg002-chr20` fixture. Each data row is cut at the right edge for space, which is why the FORMAT and sample columns the header names do not appear.
+A variant is a position where a sample differs from the reference, and VCF is the format that records one. The header lines begin with `##` and declare the file version, the reference contigs, and the meaning of every field used below. A contig is one continuous stretch of reference sequence, which for a whole human genome means one chromosome and for this fixture means the single slice. The body has one variant per line. Here is the column header and the first rows of the HG002 [benchmark VCF](../../GLOSSARY.md#benchmark-vcf), a published answer key for that sample, from the `hg002-chr20` fixture. The ID, FILTER, and INFO columns hold a database identifier, the filters a row passed or failed, and `KEY=VALUE` facts about the row, as [The eight standard columns](../01-foundations/05-variants-and-vcf.md#the-eight-standard-columns-and-what-may-follow-them) explains. Each data row is cut at the right edge for space, which is why the FORMAT and sample columns the header names do not appear.
 
 ```text
 ##fileformat=VCFv4.2
@@ -230,13 +236,13 @@ LGE rejects a file written in VCF version 3, which has to be converted with an o
 
 A large VCF is normally stored bgzip-compressed as `.vcf.gz` with a tabix index as `.vcf.gz.tbi`. Bgzip is a form of gzip that compresses the file in separate blocks rather than as one continuous stream. That means a program can start reading in the middle of the file instead of decompressing everything before it, and tabix is the index that says which block holds which position. BCF is the binary form of VCF, which LGE reads with a `.csi` index beside it.
 
-The rows appear on the **Variants** tab of the [table drawer](../../GLOSSARY.md#table-drawer), which [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md#what-it-is) covers. To get the rows at a prompt instead, run bcftools on the `HG002 bcftools` track in the Human Mapping and Variants (with results) demo project. Its file is named `vc-` followed by a long identifier LGE generated when it made the track, so list the `variants/` folder, or read the bundle's `manifest.json`, whose `variants` list gives each track's display name, the caller under `source`, and the file under `path`. Copy the name out of the Finder rather than typing it. The `-H` flag prints the data rows and suppresses the header.
+The rows appear on the **Variants** tab of the [table drawer](../../GLOSSARY.md#table-drawer), which [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md#what-it-is) covers. To get the rows at a prompt instead, run bcftools on the `HG002 bcftools` track in the Human Mapping and Variants (with results) demo project. Its file is named `vc-` followed by a long identifier LGE generated when it made the track, so list the `variants/` folder, or read the bundle's `manifest.json`, a text file that any text editor opens and that [What an LGE bundle is](#what-an-lge-bundle-is) shows how to reach, whose `variants` list gives each track's display name, the caller under `source`, and the file under `path`. Copy the name out of the Finder rather than typing it. The `-H` flag prints the data rows and suppresses the header.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Human Mapping and Variants (with results).lungfish"
 REF="$PROJECT/Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref"
 ls "$REF/variants"
-bcftools view -H "$REF/variants/vc-<id>.vcf.gz"
+"$BCFTOOLS" view -H "$REF/variants/vc-<id>.vcf.gz"
 ```
 
 Replace `vc-<id>` with the bcftools track's file name. Bcftools prints a warning line about the track's `MQ` field being declared under the wrong type before the rows appear. That is a wrinkle in the header the calling step wrote and not a sign anything failed. The first rows of the bcftools track print as follows, cut at the right edge.
@@ -246,13 +252,13 @@ chr20_10.0-10.5Mb	2078	.	G	A	225.417	.	DP=63;AD=0,52;VDB=0.288208;SGB=-0.693147;
 chr20_10.0-10.5Mb	2162	.	A	T	222.402	.	DP=57;AD=23,28;VDB=0.966753;SGB=-0.693054
 ```
 
-`DP` is the read depth, meaning how many reads covered that position, and `AD` gives the reads supporting the reference base and then the alternate base. The other codes on the line are the caller's own internal statistics that you can skip. The sixth column is QUAL, the confidence of the [variant caller](../../GLOSSARY.md#variant-caller), the program that decided the sample differs there, on the Phred scale, where higher means more confident. The two blocks above show the same position twice with two different QUAL values, 50 in the benchmark file and 225.417 here, because two different programs wrote them. How to read QUAL is covered in [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md#what-it-is).
+`DP` is the read depth, meaning how many reads covered that position, and `AD` gives the reads supporting the reference base and then the alternate base. The other codes on the line are the caller's own internal statistics that you can skip. The sixth column is QUAL, the confidence of the [variant caller](../../GLOSSARY.md#variant-caller), the program that decided the sample differs there, on the Phred scale, where higher means more confident. The two blocks above show the same position twice with two different QUAL values, 50 in the benchmark file and 225.417 here, because two different programs wrote them, and each program estimates QUAL its own way, so compare QUAL only between rows from one program. [The eight standard columns](../01-foundations/05-variants-and-vcf.md#the-eight-standard-columns-and-what-may-follow-them) explains QUAL.
 
-Variants produced inside LGE do not get a bundle of their own. A variant track lives inside the reference bundle it was called against, under that bundle's `variants/` folder, as a `.vcf.gz` with a `.vcf.gz.tbi` index and a `.db` file beside it, a small SQLite database the Variants tab uses for fast filtering. After mapping, that bundle is the reference bundle inside the mapping result. Three routes are exceptions to that shape. The GATK HaplotypeCaller entries of the Call Variants dialog, which [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) covers, write to `variants/gatk/<track-id>.vcf.gz` with a SQLite sidecar. An imported VCF is stored as its database alone, `variants/<track-id>.db`, and its manifest entry names that database as the track's file. `lungfish-cli bundle create --variant` writes a `.bcf` with a `.csi` index. Nothing in the window marks the difference, since a track opens the same way whichever route made it, so the distinction matters only when you go looking at the files yourself.
+Variants produced inside LGE do not get a bundle of their own. A variant track lives inside the reference bundle it was called against, under that bundle's `variants/` folder, as a `.vcf.gz` with a `.vcf.gz.tbi` index and a `.db` file beside it, a small SQLite database (a database kept in one ordinary file) the Variants tab uses for fast filtering. After mapping, that bundle is the reference bundle inside the mapping result. Three routes are exceptions to that shape. The GATK HaplotypeCaller entries of the Call Variants dialog, which [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md) covers, write to `variants/gatk/<track-id>.vcf.gz` with a SQLite sidecar, a companion file kept beside it. An imported VCF is stored as its database alone, `variants/<track-id>.db`, and its manifest entry names that database as the track's file. `lungfish-cli bundle create --variant` writes a `.bcf` with a `.csi` index. Nothing in the window marks the difference, so it matters only when you look at the files yourself. To hand on a VCF from an imported track, send the file you imported, or write one with `lungfish-cli variants query`, which copies the matching rows of the bundle's first variant track into a new VCF, as [Reading the Variants Table](../05-variants/02-reading-the-variant-browser.md#on-the-command-line) shows. The Export button of the table drawer writes tables, never a VCF.
 
 ## Standard tree format
 
-A phylogenetic tree is a diagram of how a set of sequences are related by descent, and Newick is the compact text notation for one. Nested parentheses group the sequences that share a common ancestor, a number after a colon gives a branch length, measured in substitutions per aligned position, and a semicolon ends the tree. Here is the whole tree LGE inferred from the five primate mitochondrial genomes with the settings [Building Trees](../02-sequences/05-building-trees.md) uses, read from `Analyses/Phylogenetic Trees/primate-mito.lungfishtree/tree/primary.nwk` in the Genes and Sequences demo project after that chapter. The file holds it as one unbroken line, and it is broken across lines here so you can see the nesting. A number right after a closing bracket, such as the `100/100` before `:0.4476367467`, is the support of that grouping, written as the SH-aLRT value, a slash, and the ultrafast bootstrap value.
+A phylogenetic tree is a diagram of how a set of sequences are related by descent, and Newick is the compact text notation for one. Nested parentheses group the sequences that share a common ancestor, a number after a colon gives a branch length, measured in substitutions per aligned position, and a semicolon ends the tree. Here is the whole tree LGE inferred from the five primate mitochondrial genomes with the settings [Building Trees](../02-sequences/05-building-trees.md) uses, read from `Analyses/Phylogenetic Trees/primate-mito.lungfishtree/tree/primary.nwk` in the Genes and Sequences demo project after that chapter. The file holds it as one unbroken line, and it is broken across lines here so you can see the nesting. A number right after a closing parenthesis, such as the `100/100` before `:0.4476367467`, is the support of that grouping, written as the [SH-aLRT](../../GLOSSARY.md#sh-alrt) value, a slash, and the ultrafast [bootstrap](../../GLOSSARY.md#bootstrap) value. SH-aLRT is a likelihood test, scored strong at 80 or more, and the bootstrap value is the percentage of resampled trees that kept the grouping, strong at 95 or more.
 
 ```text
 (((Human_NC_012920.1:0.0601260596,
@@ -262,50 +268,67 @@ A phylogenetic tree is a diagram of how a set of sequences are related by descen
   CynomolgusMacaque_NC_012670.1:0.0298995923)100/100:0.4476367467);
 ```
 
-This tree is unrooted, meaning it records which sequences group together but not which lineage came first. LGE reads Newick produced by IQ-TREE, the tree program the phylogenetics plugin pack installs, and stores it inside a `.lungfishtree` bundle described below.
+This tree is rooted on the macaques, the [outgroup](../../GLOSSARY.md#outgroup) set when it was built, so its top split separates them from the apes and records which lineage branched off first. A tree built with no outgroup is unrooted and records only which sequences group together. LGE reads Newick produced by IQ-TREE, the tree program the phylogenetics [plugin pack](../../GLOSSARY.md#plugin-pack) installs, and stores it inside a `.lungfishtree` bundle described below.
 
 ## What an LGE bundle is
 
-A bundle is a folder with a fixed extension that LGE treats as one object in the sidebar, and macOS Finder draws some kinds, such as a reference bundle, as a single icon, yet at a Terminal prompt every kind is an ordinary folder whose files you can open with any tool. To browse one, right-click it in LGE's sidebar and choose **Show Package Contents**, which opens the folder in a Finder window. **Get Bundle Info** in the sidebar's menu shows the bundle's location and what its `manifest.json` names, such as the bundle's name and how many tracks it holds. Neither step is needed at a prompt, since every command in this appendix reaches inside a bundle directly.
+A bundle is a folder with a fixed extension that LGE treats as one object in the sidebar, and macOS Finder draws some kinds, such as a reference bundle, as a single icon, yet at a Terminal prompt every kind is an ordinary folder whose files you can open with any tool. To browse one, right-click it in LGE's sidebar and choose **Show Package Contents**, which opens the folder in a Finder window. The sidebar offers it for every kind it shows as one row, including the kinds the Finder draws as an ordinary folder. **Get Bundle Info** in the sidebar's menu shows the bundle's location and what its `manifest.json` names, such as the bundle's name and how many tracks it holds. Neither step is needed at a prompt, since every command in this appendix reaches inside a bundle directly.
 
 LGE remembers how you left each item's view, such as the region a reference was showing and its display settings. It keeps that memory on your Mac, in `~/Library/Application Support/Lungfish/ViewMemory/`, and never inside a bundle or a project, so a bundle you copy to a colleague carries your data but not your place in it.
 
-Every bundle except a plain read dataset carries a manifest at its root, and a manifest is a JSON file, meaning a plain-text format that stores data as named values. Each name is called a key. The manifest's shape is not shared across bundle kinds, so the practical rule is simple. Open the manifest and read it, rather than expecting a key you found in one bundle to appear in another.
+Every bundle except a plain read dataset carries a manifest at its root, and a manifest is a JSON file, meaning a plain-text format that stores data as named values. Each name is called a key, and its value is a number, a string of text, a list, or an object, a nested set of named values that some manifests call a map. The manifest's shape is not shared across bundle kinds, so the practical rule is simple. Open the manifest and read it, rather than expecting a key you found in one bundle to appear in another.
 
 The differences are mostly in how the key names are spelled. The reference bundle's manifest is `manifest.json` with snake_case keys such as `format_version`, meaning words joined by underscores. The alignment and tree bundles use `manifest.json` with camelCase keys such as `schemaVersion` and `bundleKind`, meaning words run together with each new word capitalized. The primer scheme's manifest uses `schema_version` and has no file map at all. The MHC amplicon reference does not use the name `manifest.json`, calling its manifest `mhc-reference.json` instead.
 
 Most bundles also carry provenance, which is a record of the command that produced a file, described in its own section below.
 
-Only three bundle extensions have identifiers in the format registry, which are `.lungfishref`, `.lungfish12sref`, and `.lungfishmhcref`. Nothing about that is visible while you work, since the other bundle kinds are recognized by their own commands and viewports instead, so a missing registry row never means a bundle is unsupported.
+Only three bundle extensions are known to the format registry by name, which are `.lungfishref`, `.lungfish12sref`, and `.lungfishmhcref`. Nothing about that is visible while you work, since the other bundle kinds are recognized by their own commands and viewports instead, so a missing registry row never means a bundle is unsupported.
 
 The table below lists every bundle kind LGE writes. ONT stands for Oxford Nanopore Technologies, the maker of the long-read sequencers LGE's genotyping runs use. CZ ID is an outside classification service that reports which organisms a sample holds, and 12S is a short stretch of a mitochondrial gene widely used to tell species apart.
 
-| Bundle kind | Extension | Holds |
-|---|---|---|
-| Reference or assembly | `.lungfishref` | A genome sequence, its indexes, annotations, alignment tracks, and variant tracks |
-| Read dataset | `.lungfishfastq` | One sample's reads, its statistics sidecar, and its metadata |
-| Multiple sequence alignment | `.lungfishmsa` | An aligned FASTA, per-row metadata, and a lookup index |
-| Phylogenetic tree | `.lungfishtree` | A Newick tree, its normalized form, and the inference tool's own artifacts |
-| Primer scheme | `.lungfishprimers` | A primer BED, an optional primer FASTA, and a manifest |
-| Primer design result | `.lungfishprimeranalysis` | One primer design run, with its stored inputs, the engine's own outputs, and a checksummed inventory |
-| Genotype result | `.lungfishgenotype` | MHC genotype calls, an annotation sidecar, and an XLSX workbook |
-| 12S amplicon result | `.lungfish12s` | A 12S metabarcoding run's species table and its supporting files |
-| 12S reference | `.lungfish12sref` | 12S amplicon reference sequences with their taxonomy metadata |
-| MHC reference | `.lungfishmhcref` | MHC amplicon reference sequences with allele and haplotype metadata |
-| CZ ID taxonomy | `.lungfishtax` | A CZ ID species list, rewritten into the shape LGE's own taxonomy viewport reads |
-| RNA-seq result | `.lungfishrnaseq` | One bulk or single-cell count result, or a cell map made from a single-cell result |
-| Workflow package | `.lungfishflowpkg` | An external pipeline file with a manifest describing it |
-| Workflow run | `.lungfishrun` | A recorded pipeline execution with its configuration and provenance |
+| Bundle kind | Extension | Manifest | Holds |
+|---|---|---|---|
+| Reference or assembly | `.lungfishref` | `manifest.json` | A genome sequence, its indexes, annotations, alignment tracks, and variant tracks |
+| Read dataset | `.lungfishfastq` | None | One sample's reads, a file of read statistics, and its metadata |
+| Multiple sequence alignment | `.lungfishmsa` | `manifest.json` | An aligned FASTA, per-row metadata, and a lookup index |
+| Phylogenetic tree | `.lungfishtree` | `manifest.json` | A Newick tree, its normalized form, and the files IQ-TREE itself wrote |
+| Primer scheme | `.lungfishprimers` | `manifest.json` | A primer BED, an optional primer FASTA, and a manifest |
+| Primer design result | `.lungfishprimeranalysis` | `manifest.json` | One primer design run, with its stored inputs, the design program's own output files, and a list of every file with its checksum |
+| Genotype result | `.lungfishgenotype` | `genotype-result.json` | MHC genotype calls, the review notes and settings kept apart from them, and an XLSX workbook |
+| 12S amplicon result | `.lungfish12s` | `12s-result.json` | A 12S metabarcoding run's species table and its supporting files |
+| 12S reference | `.lungfish12sref` | `12s-reference.json` | 12S amplicon reference sequences with their taxonomy metadata |
+| MHC reference | `.lungfishmhcref` | `mhc-reference.json` | MHC amplicon reference sequences with allele and haplotype metadata |
+| CZ ID taxonomy | `.lungfishtax` | `cz-id-manifest.json` | A CZ ID species list, rewritten into the shape LGE's own taxonomy viewport reads |
+| RNA-seq result | `.lungfishrnaseq` | `rnaseq-result.json` | One bulk or single-cell count result, or a cell map made from a single-cell result |
+| Workflow package | `.lungfishflowpkg` | `manifest.json` | An external pipeline file with a manifest describing it |
+| Workflow run | `.lungfishrun` | `manifest.json` | A recorded pipeline execution with its configuration and provenance |
 
 LGE no longer writes the `.lungfishflow` folders the retired Workflow Builder made, and [The workflow bundles](#the-workflow-bundles) says what happens to one it finds.
 
-Where each of these lands inside a project is a separate question from what it holds, and the sections below name the folder for each, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) does for the whole project. Note that results from the classifiers, meaning the programs that read a set of reads and report which organisms they came from, are not bundles. Kraken 2, EsViritu, TaxTriage, NAO-MGS, and NVD each write a plain result folder holding a result JSON and the tool's own output files. A classification run inside LGE writes its folder under `Analyses/`, and an imported Kraken 2, EsViritu, TaxTriage, NAO-MGS, or NVD result lands under `Analyses/` too. Only the CZ ID import produces a `.lungfishtax` bundle.
+Where each of these lands inside a project is a separate question from what it holds, and the sections below name the folder for each, as [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) does for the whole project. Note that results from the classifiers, meaning the programs that read a set of reads and report which organisms they came from, are not bundles. [Kraken 2](../../GLOSSARY.md#kraken2), [EsViritu](../../GLOSSARY.md#esviritu), [TaxTriage](../../GLOSSARY.md#taxtriage), [NAO-MGS](../../GLOSSARY.md#nao-mgs), and [NVD](../../GLOSSARY.md#nvd) each write a plain result folder holding a result JSON and the tool's own output files. The result JSON is `classification-result.json` for Kraken 2, `esviritu-result.json` for EsViritu, and `taxtriage-result.json` for TaxTriage, while NAO-MGS and NVD keep a `manifest.json` beside a `hits.sqlite` database. A classification run inside LGE writes its folder under `Analyses/`, and an imported Kraken 2, EsViritu, TaxTriage, NAO-MGS, or NVD result lands under `Analyses/` too. Only the CZ ID import produces a `.lungfishtax` bundle.
 
-An EsViritu result folder, for example, holds `<sample>.detected_virus.info.tsv`, the detection table the viewport reads, the other tables and consensus FASTA EsViritu writes beside it, the BAM under a `bams/` subfolder, and the `esviritu-result.json` record that lets LGE reopen the result. A Kraken 2 folder holds `classification.kreport`, the per-read `classification.kraken`, and `classification.bracken` when abundance estimates were requested.
+An EsViritu result folder, for example, holds `<sample>.detected_virus.info.tsv`, the detection table the viewport reads, the other tables and consensus FASTA EsViritu writes beside it, the BAM under a `bams/` subfolder, and the `esviritu-result.json` record that lets LGE reopen the result. A Kraken 2 folder holds `classification.kreport`, the per-taxon report, the per-read `classification.kraken`, and `classification.bracken` when abundance estimates were requested.
+
+### The project folder and a mapping run folder
+
+Two folders hold files of their own beside the bundles:
+
+- A project folder holds `.project.db`, a hidden database of the project's sequences and edit history, and `metadata.json`, the project's name, format version, and dates.
+- A mapping run folder under `Analyses/` holds `mapping-result.json`, the run's summary, `<sample>.sorted.bam` with its `.bai`, the mapper's sorted BAM and index, `analysis-metadata.json` and `mapping-provenance.json`, the run's kind and the mapper's steps, `.lungfish-provenance.json`, its provenance record, and the reference bundle inside the mapping result.
 
 ## The reference bundle
 
-An assembly and an imported reference are the same format kept in different places, which is why an assembly appears in every reference picker with no conversion step in between. A `.lungfishref` bundle holds a genome sequence together with everything built against it. It is created when you import a reference from a file, fetch one from NCBI, the US National Center for Biotechnology Information, extract a region or a set of contigs, map reads, or run an assembler, meaning a program that reconstructs a genome from overlapping reads without a reference to guide it. Each route has its folder. An imported reference and extracted contigs land in `Reference Sequences/`, a record fetched from NCBI in `Downloads/`, a region cut out of the viewport in `Extractions/`, and an assembly in the assembler's own run folder under `Analyses/`. Mapping reads writes a copy of the reference into the mapping result's folder, where the alignment and variant tracks attach, and this manual calls that copy the reference bundle inside the mapping result. [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) lists every destination.
+An assembly and an imported reference are the same format kept in different places, which is why an assembly appears in every reference picker with no conversion step in between. A `.lungfishref` bundle holds a genome sequence together with everything built against it. Five routes create one, and each has its folder.
+
+| Route | Folder |
+|---|---|
+| Import a reference from a file, or extract a set of contigs | `Reference Sequences/` |
+| Fetch a record from NCBI, the US National Center for Biotechnology Information | `Downloads/` |
+| Cut a region out of the viewport | `Extractions/` |
+| Run an assembler, a program that reconstructs a genome from overlapping reads without a reference to guide it | The assembler's own run folder under `Analyses/` |
+| Map reads | A copy of the reference in the mapping result's folder under `Analyses/` |
+
+The mapping copy is where the alignment and variant tracks attach, and this manual calls it the reference bundle inside the mapping result. [Where results land](../01-foundations/06-the-lungfish-project.md#where-results-land) lists every destination.
 
 Here is the layout of that copy in the Human Mapping and Variants (with results) demo project, `Analyses/minimap2-2026-09-25T00-00-00/GRCh38.chr20.10.0-10.5Mb.lungfishref`. Its reads were mapped with minimap2, variants were called on it twice, and the HG002 benchmark VCF was imported into it. The provenance sidecars are left out for room, since they have a section of their own below. The generated parts of each file name are written as `<id>`, because they differ in every copy.
 
@@ -331,7 +354,7 @@ GRCh38.chr20.10.0-10.5Mb.lungfishref/
     HG002.chr20.10.0-10.5Mb.benchmark.db
 ```
 
-Several details there are worth naming. The sequence is stored bgzip-compressed rather than as a plain FASTA, so it carries two indexes rather than one. The `.fai` points to sequence positions, exactly as the FASTA index section above describes, and the `.gzi` is an extra index the compression itself needs, pointing to the compressed blocks. Alignment tracks sit under `alignments/mapped/` rather than at the bundle root. The copy holds only the folders its manifest names, so it has no `annotations/`, `tracks/`, or `metadata/` folder, where a bundle imported from a file has all three even when they are empty.
+Several details there are worth naming. The sequence is stored bgzip-compressed rather than as a plain FASTA, so it carries two indexes rather than one. The `.fai` points to sequence positions, exactly as the FASTA index section above describes, and the `.gzi` is an extra index the compression itself needs, pointing to the compressed blocks. In this demo project the alignment track sits under `alignments/mapped/` with a `.bai` index and an `aln_<id>.stats.db` database of its read statistics, and a run made with today's LGE keeps the BAM directly under `alignments/` as `aln_<id>.sorted.bam`. Either way the manifest's `alignments` entry names the BAM under `source_path` and its index under `index_path`, so hand on those two files. The copy holds only the folders its manifest names, so it has no `annotations/`, `tracks/` (where a BigWig signal track would sit), or `metadata/` folder, where a bundle imported from a file has all three even when they are empty.
 
 The two called tracks make the naming point. Both are named by a generated track identifier rather than by the caller that produced them, so the file names cannot tell you which of the two came from bcftools. The manifest can. Its `variants` list gives each track's display name, such as `HG002 bcftools`, the caller under `source`, and the file under `path`. The window shows the same thing, with each track's display name on the Variants tab of the table drawer and the recorded command in the Inspector's provenance. The imported benchmark is stored as its database alone.
 
@@ -382,11 +405,11 @@ A reference bundle has a name, which the sidebar shows, and every sequence insid
 | Search NCBI dialog or `lungfish-cli fetch ncbi --bundle`, accession `NC_012920.1` | `NC_012920.1`, the accession with its version | `NC_012920.1`, with `NC_012920` from the LOCUS line accepted as a second name |
 | `lungfish-cli fetch genome NC_012920.1` | `NC_012920.1` | `NC_012920.1`, from the FASTA header line |
 
-`lungfish-cli import fasta --name` replaces only the bundle name. A second bundle of the same name gets a counter rather than overwriting the first, `NC_012920.1_1` from the dialog and `NG_000007.3_2` from `import fasta`. An extracted region takes the name you type in its sheet, which starts as the region written with an underscore, such as `NG_000007_70545-72152`, as [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md) shows.
+`lungfish-cli import fasta --name` replaces only the bundle name. A second bundle of the same name gets a counter rather than overwriting the first, so a second `NC_012920.1` becomes `NC_012920.1_1` from the dialog and `NC_012920.1_2` from `import fasta`. In the table, the LOCUS line is the first line of a GenBank record, an [accession](../../GLOSSARY.md#accession) is its permanent identifier, and a second name is an alias for the same sequence. An extracted region takes the name you type in its sheet, which starts as the region written with an underscore, such as `NG_000007_70545-72152`, as [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md) shows.
 
 ## The read dataset bundle
 
-A `.lungfishfastq` bundle holds one sample's sequencing reads. It lands in the project's `Imports/` folder when you import files or fetch reads from the SRA, the Sequence Read Archive at NCBI, or the ENA, the European Nucleotide Archive that mirrors it. It lands under `Analyses/` when a read operation such as trimming, meaning cutting low-quality bases and leftover adapter sequence off the ends of reads, produces a new dataset. Here is the whole of `Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq` from the Human Mapping and Variants (with results) demo project.
+A `.lungfishfastq` bundle holds one sample's sequencing reads. It lands in the project's `Imports/` folder when you import files or fetch reads from the SRA, the Sequence Read Archive at NCBI, or the ENA, the European Nucleotide Archive that mirrors it. It lands under `Analyses/` when a read operation such as trimming, meaning cutting low-quality bases and leftover adapter sequence off the ends of reads, produces a new dataset. Here is the whole of `Imports/HG002.chr20.10.0-10.5Mb.lungfishfastq` from the Human Mapping and Variants (with results) demo project. The Finder hides `.lungfish-provenance.json` because its name starts with a dot, until you press Cmd-Shift-Period in its window.
 
 ```text
 HG002.chr20.10.0-10.5Mb.lungfishfastq/
@@ -399,11 +422,11 @@ HG002.chr20.10.0-10.5Mb.lungfishfastq/
     HG002.chr20.10.0-10.5Mb.fastq.gz.lungfish-meta.json.lungfish-provenance.json
 ```
 
-Those three filenames under `provenance/` each end in two suffixes because LGE builds a provenance filename by appending `.lungfish-provenance.json` to the name of the file it describes. A doubled ending is the pattern working as intended rather than a typo.
+LGE builds a provenance filename by appending `.lungfish-provenance.json` to the name of the file it describes, and `bundle.lungfish-provenance.json` describes the bundle as a whole. The other two names therefore end in two suffixes, `.gz.lungfish-provenance.json` and `.json.lungfish-provenance.json`, which is the pattern working as intended rather than a typo.
 
-A paired-end import produces one interleaved file rather than two, and this bundle is one. Paired-end means the instrument read each DNA fragment from both ends, giving two reads per fragment. Interleaved means those two reads sit as consecutive records in a single file, and the sidecar's `ingestion` block records `pairingMode: interleaved` so LGE knows to read them back that way, together with the two file names the pair arrived as. The Pairing setting in the import dialog controls how LGE reads your files in. Whatever it is set to, LGE can always split the pairs apart again.
+A paired-end import produces one interleaved file rather than two, and this bundle is one. Paired-end means the instrument read each DNA fragment from both ends, giving two reads per fragment. Interleaved means those two reads sit as consecutive records in a single file, and the `ingestion` block of the `.lungfish-meta.json` sidecar records `pairingMode: interleaved` so LGE knows to read them back that way, together with the two file names the pair arrived as. The Pairing setting in the import dialog controls how LGE reads your files in. Whatever it is set to, `lungfish-cli fastq deinterleave` can split the pairs back into two files, taking the bundle as input, as [the read processing chapter](../03-reads/08-read-processing.md) shows.
 
-A file that holds pairs beside merged reads or reads whose mate is missing, such as an SRA run imported with its third file or the output of a merge recipe, records `pairingMode: single_end`, so no tool pairs its records by position. Beside it the sidecar's `readClassification` counts the reads by role, the two mates of each pair, the merged reads, and the reads without a mate. Every tool plans from those counts, so the pairs still reach each tool as pairs, and the Inspector's Pairing row names both kinds of read with their counts. Every importer and read operation follows this one rule, and a file of pairs alone records `interleaved`.
+A file that holds pairs beside merged reads or reads whose mate is missing, such as an SRA run imported with its third file or the output of a merge recipe, which joins overlapping mates into one longer read, records `pairingMode: single_end`, since only some records have a mate, so no tool pairs its records by position. Beside it the sidecar's `readClassification` counts the reads by role, the two mates of each pair, the merged reads, and the reads without a mate. Every tool plans from those counts, so the pairs still reach each tool as pairs, and the Inspector's Pairing row names both kinds of read with their counts. Every importer and read operation follows this one rule, and a file of pairs alone records `interleaved`.
 
 The `.lungfish-meta.json` sidecar is where the read statistics live. Its keys include `assemblyReadType`, naming the instrument class, and a `computedStatistics` block. That block holds `baseCount`, `gcContent`, `meanQuality`, `meanReadLength`, `medianReadLength`, `minReadLength`, `maxReadLength`, `n50ReadLength`, and a `perPositionQuality` array with one entry per read position. [N50](../../GLOSSARY.md#n50) is the length at which reads that long or longer hold half of all the bases, worked through for contigs in [When to Assemble](../07-assembly/01-when-to-assemble.md#what-the-numbers-mean). On the HG002 chromosome 20 reads that block opens as follows, with its later keys left out.
 
@@ -417,9 +440,9 @@ The `.lungfish-meta.json` sidecar is where the read statistics live. Its keys in
 }
 ```
 
-`meanQuality` is the error-probability mean the Mean Q card shows, which [Quality Control for Reads](../03-reads/03-quality-control.md) explains. The file stores `gcContent` with more decimal places than shown here.
+`meanQuality` is the error-probability mean the Mean Q card shows, which averages each base's chance of being wrong before converting back to a quality score, as [Quality Control for Reads](../03-reads/03-quality-control.md#mean-q-error-rate) explains, and 25.3 is about one wrong base in 340. `gcContent` is a fraction, so 0.394 means 39.4 percent G or C, stored with more decimal places than shown here.
 
-Some read bundles are virtual. A bundle written by [demultiplexing](../../GLOSSARY.md#demultiplex), the splitting of a pooled run into per-sample files, records its parent and the recipe for its reads, with a preview FASTQ of about a thousand reads so the viewport has something to show. It is a [virtual bundle](../../GLOSSARY.md#virtual-bundle), which stores a recipe for its reads rather than a copy, as [Virtual bundles and materialization](../03-reads/06-subsetting-and-extraction.md#virtual-bundles) explains. The Orient operation of the FASTQ/FASTA Operations window writes one too, holding a table of which reads to flip and a preview. Every other read operation writes a bundle that holds its reads outright. On disk, a derived bundle's manifest names its payload, `demuxedVirtual` with a list of read identifiers and a preview for a demultiplexed barcode, `orientMap` for an oriented set, and `full` for a bundle that holds its reads. For paired reads the list of a demultiplexed barcode names both mates of each pair, and the preview keeps each pair's mates together.
+Some read bundles are virtual. A bundle written by [demultiplexing](../../GLOSSARY.md#demultiplex), the splitting of a pooled run into per-sample files by [barcode](../../GLOSSARY.md#barcode), the short tag that marks each sample, records its parent and the recipe for its reads, with a preview FASTQ of about a thousand reads so the viewport has something to show. It is a [virtual bundle](../../GLOSSARY.md#virtual-bundle), which stores a recipe for its reads rather than a copy, as [Virtual bundles and materialization](../03-reads/06-subsetting-and-extraction.md#virtual-bundles) explains. The Orient operation of the FASTQ/FASTA Operations window writes one too, holding a table of which reads to flip and a preview. Every other read operation writes a bundle that holds its reads outright. On disk, a derived bundle's manifest names its payload, `demuxedVirtual` with a list of read identifiers and a preview for a demultiplexed barcode, `orientMap` for an oriented set, and `full` for a bundle that holds its reads. For paired reads the list of a demultiplexed barcode names both mates of each pair, and the preview keeps each pair's mates together.
 
 A demultiplex also writes `demux-manifest.json` in its output folder, naming each barcode, its read count, and the bundle that holds it. For paired input it carries a `mateCalls` object, absent for single reads, that says how the mates of each fragment were called.
 
@@ -440,11 +463,11 @@ lungfish-cli fastq materialize "$PROJECT/Imports/HG002.chr20.10.0-10.5Mb.lungfis
   --output "$HOME/Desktop/HG002.chr20.10.0-10.5Mb.fastq.gz"
 ```
 
-Per-bundle sample metadata is stored as `metadata.csv` inside the bundle, and folder-level metadata as `samples.csv` at the folder root. Both follow the PHA4GE specification, a community standard from the Public Health Alliance for Genomic Epidemiology that fixes the field names for describing a pathogen sample. It settles what the columns are called and does not restrict what you type into them. The `lungfish-cli metadata` command reads and writes both files, and `lungfish-cli metadata export-biosample` turns a folder of them into a TSV file you can submit to NCBI's BioSample portal.
+Per-bundle sample metadata is stored as `metadata.csv` inside the bundle, which the Inspector's **Sample Metadata** section writes, and folder-level metadata as `samples.csv` in the folder of bundles, which **Save** in **Edit Folder Sample Metadata…** writes, as [Editing sample metadata](../03-reads/01-importing-fastq.md#editing-sample-metadata) shows. Both follow the PHA4GE specification, a community standard from the Public Health Alliance for Genomic Epidemiology that fixes the field names for describing a pathogen sample. It settles what the columns are called and does not restrict what you type into them. The `lungfish-cli metadata` command reads and writes both files, and `lungfish-cli metadata export-biosample` turns a folder of them into a TSV file you can submit to NCBI's BioSample portal.
 
 ## The alignment and tree bundles
 
-A `.lungfishmsa` bundle holds a multiple sequence alignment. An alignment is a set of sequences padded with gap characters, written as dashes, so that positions descended from the same ancestral base line up in the same column. These bundles land under `Analyses/Multiple Sequence Alignments/`. Here is the layout of `primate-mito.lungfishmsa`, which [Aligning Sequences](../02-sequences/04-aligning-sequences.md) writes into the Genes and Sequences demo project, with the bundle's own provenance sidecar and its view-state file left out for room.
+A `.lungfishmsa` bundle holds a multiple sequence alignment (MSA). An MSA is a set of sequences padded with gap characters, written as dashes, so that positions descended from the same ancestral base line up in the same column. These bundles land under `Analyses/Multiple Sequence Alignments/`. Here is the layout of `primate-mito.lungfishmsa`, which [Aligning Sequences](../02-sequences/04-aligning-sequences.md) writes into the Genes and Sequences demo project, with the bundle's own provenance sidecar and its hidden `.viewstate.json` left out for room. That file holds the starting view the bundle was made with, not your saved view, which stays on your Mac.
 
 ```text
 primate-mito.lungfishmsa/
@@ -464,7 +487,7 @@ primate-mito.lungfishmsa/
     alignment-index.sqlite
 ```
 
-The aligned FASTA is `alignment/primary.aligned.fasta`, and the bundle keeps the unaligned input beside it so you can rerun the alignment with different settings. LGE's primer design engines read `primary.aligned.fasta` with its gaps, which is why a primer design needs the bundle rather than an exported file. The file named `source.original` in this bundle and in the tree bundle below is the file exactly as it arrived, kept unchanged so nothing about the import is lost, and it carries no extension because its original format varies.
+The aligned FASTA is `alignment/primary.aligned.fasta`, in a singular `alignment/` folder, not the BAM folder `alignments/` of a reference bundle, and the bundle keeps the unaligned input beside it so you can rerun the alignment with different settings. LGE's primer design engines, the programs it runs to design primers, read `primary.aligned.fasta` with its gaps, which is why a primer design needs the bundle rather than an exported file. The file named `source.original` in this bundle and in the tree bundle below is the file exactly as it arrived, kept unchanged so nothing about the import is lost, and it carries no extension because its original format varies.
 
 The manifest uses camelCase keys and records `bundleKind` as `multiple-sequence-alignment`, plus `alignedLength`, `rowCount`, `variableSiteCount`, `parsimonyInformativeSiteCount`, the computed `consensus` string, a `checksums` map, and a `fileSizes` map. On the primate alignment those counts are an aligned length of 17,247, five rows, 5,053 variable sites, and 2,709 parsimony-informative sites. A variable site is a column where the rows do not all agree, and a parsimony-informative site is a variable site where at least two different bases each appear in at least two rows, the kind of column that can group sequences on a tree.
 
@@ -503,11 +526,11 @@ QIASeqDIRECT-SARS2.lungfishprimers/
   PROVENANCE.md
 ```
 
-`PROVENANCE.md` is a plain Markdown note rather than the JSON sidecar every other bundle here carries, because the schemes included with LGE record where they came from as a citation for a person to read rather than as a machine record of a run.
+`PROVENANCE.md` is a plain Markdown note, ordinary text with light formatting marks, rather than the JSON sidecar every other bundle here carries, because the schemes included with LGE record where they came from as a citation for a person to read rather than as a machine record of a run.
 
-A project-local bundle adds an optional `primers.fasta` holding the primer sequences, an optional `attachments/` folder for vendor PDFs or lab notes, and a `provenance/` folder holding one machine-readable sidecar per file plus a `bundle.lungfish-provenance.json` for the import as a whole. The manifest names its version key `schema_version`. Apart from an `attachments` list of `{path, description}` entries for the files under `attachments/`, it does not list the bundle's filenames. The other names are fixed by convention, so renaming `primers.bed` breaks the bundle, and editing the manifest cannot repair it. The manifest's other keys include `attachments`, `name`, `display_name`, `description`, `organism`, `reference_accessions`, `primer_count`, `amplicon_count`, `source`, `source_url`, `version`, `created`, and `imported`. The `source` key says where the scheme came from. It reads `built-in` for a scheme that ships with LGE, `imported` for one brought in through the Import Center or `lungfish-cli primers import`, and `designed` for one saved from LGE's own primer design.
+A bundle saved in your own project adds an optional `primers.fasta` holding the primer sequences, an optional `attachments/` folder for vendor PDFs or lab notes, and a `provenance/` folder holding one machine-readable sidecar per file plus a `bundle.lungfish-provenance.json` for the import as a whole. The manifest names its version key `schema_version`. Apart from an `attachments` list of `{path, description}` entries for the files under `attachments/`, it does not list the bundle's filenames. The other names are fixed by convention, so renaming `primers.bed` breaks the bundle, and editing the manifest cannot repair it. The manifest's other keys include `attachments`, `name`, `display_name`, `description`, `organism`, `reference_accessions`, `primer_count`, `amplicon_count`, `source`, `source_url`, `version`, `created`, and `imported`. The `source` key says where the scheme came from. It reads `built-in` for a scheme that ships with LGE, `imported` for one brought in through the Import Center or `lungfish-cli primers import`, and `designed` for one saved from LGE's own primer design.
 
-A designed scheme also carries `attachments/design-reference.fasta`, the [design reference](../../GLOSSARY.md#design-reference) its primer coordinates are written against, which reads must be mapped to before the scheme can trim them. **Save as Primer Scheme…** in the primer analysis viewer writes it, as [Reviewing and Ordering Primers](../10-primer-design/05-reviewing-and-ordering-primers.md) shows.
+A designed scheme also carries `attachments/design-reference.fasta`, the [design reference](../../GLOSSARY.md#design-reference) its primer coordinates are written against. Reads must be mapped to that sequence before the scheme can trim them. **Save as Primer Scheme…** in the primer analysis viewer writes it, as [Reviewing and Ordering Primers](../10-primer-design/05-reviewing-and-ordering-primers.md) shows.
 
 LGE ships eight SARS-CoV-2 schemes, listed in [Shipped schemes](primer-schemes.md#shipped-schemes).
 
@@ -535,7 +558,7 @@ A `.lungfishgenotype` bundle holds one genotyping run of the MHC, the highly var
 
 That bundle holds `genotype-result.json` as the machine-readable calls, an XLSX workbook named for the run as the shareable report, XLSX being the Excel spreadsheet format. Beside them sit a demultiplexed BAM with its `.bai` index, per-sample and per-genotype CSV tables, the error logs each tool the run invoked wrote as it went, an `artifacts/` folder holding workbooks and projections, meaning saved views of the result cut down to one question, and a `provenance/` folder with one sidecar per output file. The annotation layer, which keeps manual review decisions and review settings such as the dropout thresholds apart from the calls themselves, is written as `annotations.json`. It appears the first time someone annotates the result or changes one of those settings.
 
-A `.lungfish12s` bundle holds a 12S metabarcoding run, meaning a run that identifies every species present in a mixed sample from one short marker sequence. It lands at `Analyses/12S amplicon results/<Result Name>.lungfish12s`, in a folder named for the category rather than for the time of the run. Its counts are counts of fragments, so an unmerged pair whose mates agree counts once, as [Fragments and unmerged pairs](../06-classification/10-twelve-s-metabarcoding.md#fragments-and-unmerged-pairs) explains. `samples.tsv` holds one row per sample with 13 columns, `sample`, `sample_name`, `sample_id`, `display_name`, `input_reads`, `exact_match_reads`, `unresolved_reads`, `ambiguous_exact_reads`, `chimera_candidate_reads`, `exact_match_percent`, `unresolved_percent`, `reassigned_reads`, and `discordant_pairs`, the last counting the pairs left out because their mates disagree. `read-fate.json` holds the run's totals under `totalReads`, `exactMatchReads`, `unresolvedReads`, `ambiguousExactReads`, `chimeraCandidateReads`, `pairedFragments`, `discordantPairs`, and `discordantPairsByReason`. `pairedFragments` counts the unmerged pairs the run read, discordant ones included, and is 0 for merged or single reads alone, which is how the viewport knows to call its counts fragments. `discordantPairsByReason` maps each reason, `different_targets`, `different_candidates`, `one_mate_unresolved`, or `one_mate_ambiguous`, to its count. A result made before LGE counted fragments reads as 0 for the two counts and an empty map for the reasons. The `note` column of `unresolved-sequences.tsv` reads `unmerged pairs, R1 shown` for a cluster fed by pairs, or `merged reads and unmerged pairs` when merged reads share it, and is empty otherwise.
+A `.lungfish12s` bundle holds a 12S metabarcoding run, meaning a run that identifies every species present in a mixed sample from one short marker sequence. It lands at `Analyses/12S amplicon results/<Result Name>.lungfish12s`, in a folder named for the category rather than for the time of the run. Its files include `12s-result.json`, the manifest, `reference.fa`, a copy of the reference sequences, `targets.tsv`, which names each target the run could match with its taxonomy, and `sample-target-counts.tsv`, the count for each target in each sample. Its counts are counts of fragments, so an unmerged pair whose mates agree counts once, as [Fragments and unmerged pairs](../06-classification/10-twelve-s-metabarcoding.md#fragments-and-unmerged-pairs) explains. `samples.tsv` holds one row per sample with 13 columns, `sample`, `sample_name`, `sample_id`, `display_name`, `input_reads`, `exact_match_reads`, `unresolved_reads`, `ambiguous_exact_reads`, `chimera_candidate_reads`, `exact_match_percent`, `unresolved_percent`, `reassigned_reads`, and `discordant_pairs`, the last counting the pairs left out because their mates disagree. `read-fate.json` holds the run's totals under `totalReads`, `exactMatchReads`, `unresolvedReads`, `ambiguousExactReads`, `chimeraCandidateReads`, `pairedFragments`, `discordantPairs`, and `discordantPairsByReason`. `pairedFragments` counts the unmerged pairs the run read, discordant ones included, and is 0 for merged or single reads alone, which is how the viewport knows to call its counts fragments. `discordantPairsByReason` maps each reason, `different_targets`, `different_candidates`, `one_mate_unresolved`, or `one_mate_ambiguous`, to its count. A result made before LGE counted fragments reads as 0 for the two counts and an empty map for the reasons. The `note` column of `unresolved-sequences.tsv` reads `unmerged pairs, R1 shown` for a cluster fed by pairs, or `merged reads and unmerged pairs` when merged reads share it, and is empty otherwise.
 
 A `.lungfishtax` bundle holds a CZ ID species list rewritten into the shape LGE's own taxonomy viewport reads. It is the one classifier result that is a bundle, and both the app route and the command-line route write it to `Classifications/<sample>.lungfishtax`.
 
@@ -543,7 +566,7 @@ The 12S and MHC amplicon reference bundles are inputs rather than results. A `.l
 
 ## The RNA-seq result bundle
 
-A `.lungfishrnaseq` bundle holds one RNA-seq result. RNA-seq reads the RNA in a sample to measure how active each gene is, and its result is a [count matrix](../../GLOSSARY.md#count-matrix), a table with one row per gene and one column per sample or per cell. Its entries are counts in one stated unit, such as reads, read pairs, or [UMIs](../../GLOSSARY.md#umi), the random tags that mark each captured molecule. A bulk result counts each sample as a whole, and a single-cell result counts each cell of a sample on its own. Each count result holds the counts of one [counting route](../../GLOSSARY.md#counting-route), meaning the tool, its version, and every setting that changes counts, on one [reference set](../../GLOSSARY.md#reference-set), the genome, annotation, and extra sequences LGE keeps together under one id. A count run in LGE, an import of a tool's own files, and an adopted Linux run all write the result under `Analyses/`, as [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) and [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) show.
+A `.lungfishrnaseq` bundle holds one RNA-seq result. RNA-seq reads the RNA in a sample to measure how active each gene is, and its result is a [count matrix](../../GLOSSARY.md#count-matrix), a table with one row per gene and one column per sample or per cell. Its entries are counts in one stated unit, such as reads, read pairs, or [UMIs](../../GLOSSARY.md#umi), the random tags that mark each captured molecule. A bulk result counts each sample as a whole, and a single-cell result counts each cell of a sample on its own. Each count result holds the counts of one [counting route](../../GLOSSARY.md#counting-route), meaning the tool, its version, and every setting that changes counts, on one [reference set](../../GLOSSARY.md#reference-set), the genome, annotation, and extra sequences LGE keeps together under one id. A count run in LGE, an import of a tool's own files, and an [adopted](../../GLOSSARY.md#adopt) Linux run, meaning one whose returned files LGE checked and imported, all write the result under `Analyses/`, as [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) and [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md) show.
 
 The layout below is drawn from the format rather than read off one result, and a result holds only the files its kind needs.
 
@@ -566,15 +589,15 @@ The layout below is drawn from the format rather than read off one result, and a
 
 | Item | What it holds |
 |---|---|
-| `rnaseq-result.json` | The manifest, which names the modality (`bulk`, `single-cell`, or `cell-map`), the route, the reference set, and the SHA-256 checksum of each data file |
+| `rnaseq-result.json` | The manifest, which names the modality, meaning the kind of result (`bulk`, `single-cell`, or `cell-map`), the route, the reference set, and the SHA-256 checksum of each data file |
 | `samples.tsv` | One row per sample, with its id, animal, species, origin, group, and run accessions |
 | `genes.tsv` | One row per gene, with its id, name, biotype (the kind of gene, such as protein-coding), and a flag for not-host sequences, such as a virus the reference set adds beside the host genome |
-| `counts/` | Bulk only. The gene counts, and the transcript counts when the route gives them, plus a masked table when the reference set masks some features |
+| `counts/` | Bulk only. The gene counts, and the transcript counts when the route gives them, plus a masked table, which counts the features a mask (such as ribosomal RNA genes) moves out of the default count, when the reference set masks some features |
 | `quality/samples.quality.tsv` | The quality numbers the counting tool reported for each sample, such as how many reads it processed and the share it mapped |
 | `source/` | The counting tool's own files for each sample, copied byte for byte, such as the `quant.sf` of salmon, a program that counts reads per transcript |
 | `cells.sqlite` | Single-cell only. A summary of every cell, which the single-cell view reads its tables and plots from |
 
-A single-cell result keeps each sample's matrix in `source/` exactly as the counting tool wrote it, in [Matrix Market](../../GLOSSARY.md#matrix-market) text, a format that lists only the non-zero entries of a mostly empty table. LGE checks each file against the checksum in the manifest before an export, a pseudobulk, or `lungfish-cli rnaseq quality` reads the result, and it refuses a result whose files have changed. No step writes inside a result once it is published, so a new count always makes a new result. Copy or zip the bundle whole, and never edit a file inside it.
+A single-cell result keeps each sample's matrix in `source/` exactly as the counting tool wrote it, in [Matrix Market](../../GLOSSARY.md#matrix-market) text, a format that lists only the non-zero entries of a mostly empty table. LGE checks each file against the checksum in the manifest before an export, a [pseudobulk](../../GLOSSARY.md#pseudobulk) (the summed counts of chosen cells), or `lungfish-cli rnaseq quality` reads the result, and it refuses a result whose files have changed. No step writes inside a result once LGE finishes writing it, so a new count always makes a new result. Copy or zip the bundle whole, and never edit a file inside it.
 
 ### The cell map
 
@@ -611,11 +634,11 @@ A [cell map](../../GLOSSARY.md#cell-map) is a `.lungfishrnaseq` result whose mod
 | `seurat.R`, `scanpy.py` | Not written | Scripts that load the matrices into Seurat or Scanpy |
 | `.lungfish-provenance.json` | The record of the export | The same |
 
-An export joins only results of one counting route and one reference set, and it refuses any other mix in words that name the results, since counts made in different ways cannot share one table. Each R script keeps its settings in a block at the top and writes its results beside the script, in `deseq2-results/` or `edger-limma-dream-results/`. `seurat.R` and `scanpy.py` write a table of cells, `seurat-cells.tsv` or `scanpy-cells.tsv`, and hold a function that writes `lge-cell-map.tsv` once your own analysis has made an embedding, a table that `lungfish-cli rnaseq cell-map import` reads back as a cell map. [Reading and Exporting Bulk RNA-seq Counts](../11-rna-seq/03-reading-and-exporting-bulk-counts.md#the-rna-seq-export-folder) and [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md#the-seurat-and-scanpy-export-folder) read both folders.
+An export joins only results of one counting route and one reference set, and it refuses any other mix in words that name the results, since counts made in different ways cannot share one table. Each R script keeps its settings in a block at the top and writes its results beside the script, in `deseq2-results/` or `edger-limma-dream-results/`. Each script's header comment says how to run it from inside the export folder, `Rscript --vanilla deseq2.R` for the R scripts and `python -I scanpy.py` for the Python one. `seurat.R` and `scanpy.py` write a table of cells, `seurat-cells.tsv` or `scanpy-cells.tsv`, and hold a function that writes `lge-cell-map.tsv` once your own analysis has made an embedding, a table that `lungfish-cli rnaseq cell-map import` reads back as a cell map. [Reading and Exporting Bulk RNA-seq Counts](../11-rna-seq/03-reading-and-exporting-bulk-counts.md#the-rna-seq-export-folder) and [Single-Cell RNA-seq Counts](../11-rna-seq/04-single-cell-counts.md#the-seurat-and-scanpy-export-folder) read both folders.
 
 ## The workflow bundles
 
-Two formats cover workflows and they do different jobs. A `.lungfishflow` folder under a project's `Workflows/` folder is left over from the retired Workflow Builder. LGE leaves such folders in place and copies them between projects, but it no longer opens or runs them.
+Three formats cover workflows and they do different jobs. A `.lungfishflow` folder under a project's `Workflows/` folder is left over from the retired Workflow Builder. LGE leaves such folders in place and copies them between projects, but it no longer opens or runs them.
 
 A `.lungfishflowpkg` package holds an external pipeline file, such as a Nextflow script. Nextflow is an outside system for describing a multi-step analysis, and an engine is the program that runs such a description. The package pairs that file with a `manifest.json` declaring its name, version, engine, inputs, and outputs. LGE builds the run form from those declarations, so a package that declares a reference and a reads input gets a reference picker and a reads picker.
 
@@ -623,7 +646,7 @@ A `.lungfishrun` bundle records one external pipeline execution. It holds `manif
 
 ## The plan folder
 
-A [plan folder](../../GLOSSARY.md#plan-folder) is a plain folder of ordinary files that LGE writes on the Mac so that a [Linux](../../GLOSSARY.md#linux) machine can run a step and send the results back. Linux is the operating system most shared research computers run. The folder holds one plan per sample, which fixes every setting and pins every tool and file by its SHA-256 checksum, and writing it runs and submits nothing. Four routes write one.
+A [plan folder](../../GLOSSARY.md#plan-folder) is a plain folder of ordinary files that LGE writes on the Mac so that a [Linux](../../GLOSSARY.md#linux) machine can run a step and send the results back. Linux is the operating system most shared research computers run. You copy the folder to that machine, run the commands in its `README.txt` there, and bring the results home. The folder holds one plan per sample, which fixes every setting and records every tool and file by its SHA-256 checksum so the run uses exactly those, and writing it runs and submits nothing. Four routes write one.
 
 - The **Plan for a Linux Machine** card or `lungfish-cli import fastq --write-plan`, for storing reads.
 - The **RNA-seq Plan for a Linux Machine** card or `lungfish-cli rnaseq quant --write-plan`, for bulk counting.
@@ -644,7 +667,7 @@ Each job sends back a `result/` folder that holds its [run record](../../GLOSSAR
 
 ## Provenance sidecars
 
-A [provenance sidecar](../../GLOSSARY.md#provenance-sidecar) is a JSON file written next to a result recording exactly how that result was produced. LGE names each one by appending `.lungfish-provenance.json` to the name of the file it describes, so the sidecar for the `hbb-gene.fasta` that [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md) writes on the command line is `hbb-gene.fasta.lungfish-provenance.json`. It gathers a bundle's sidecars under a `provenance/` folder and writes a bare `.lungfish-provenance.json` at the bundle root for the bundle as a whole. [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read one in the window. This section lists the fields.
+A [provenance sidecar](../../GLOSSARY.md#provenance-sidecar) is a JSON file written next to a result recording exactly how that result was produced. LGE names each one by appending `.lungfish-provenance.json` to the name of the file it describes, so the sidecar for the `hbb-gene.fasta` that [Extracting Sequences](../02-sequences/03-extracting-and-comparing.md) writes on the command line is `hbb-gene.fasta.lungfish-provenance.json`. LGE gathers a bundle's sidecars under a `provenance/` folder and writes a bare `.lungfish-provenance.json` at the bundle root for the bundle as a whole. [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md#reading-the-results) shows how to read one in the window. This section lists the fields.
 
 ### The full envelope
 
@@ -691,11 +714,11 @@ A sidecar written by a command-line operation carries the top-level keys below. 
 }
 ```
 
-Most readers need only four keys. Read `reproducibleCommand` for what was run, `files` for what went in, `outputs` for what came out, and `status` for whether it worked. `schemaVersion` is `2` and is written in [camelCase](../../GLOSSARY.md#camel-case), like every key here, so a search for `schema_version` finds nothing. The `options` block splits what you typed, under `explicit`, from what you left at its default, under `defaults`. `resolvedDefaults` holds the values the run worked out for itself, so a value LGE chose never reads as one you set. An extraction records its span there in LGE's internal count from 0 and labels it `coordinate_system` `0-based half-open`, so `effectiveStart` reads 70544 for a cut that starts at base 70545.
+Most readers need only four keys. Read `reproducibleCommand` for what was run, `files` for what went in, `outputs` for what came out, and `status` for whether it worked. `schemaVersion` is `2` and is written in [camelCase](../../GLOSSARY.md#camel-case), like every key of the envelope itself, so a search for `schema_version` finds nothing. The names inside `options` are each command's own, so `coordinate_system` keeps its underscore while `lineWidth` does not. The `options` block splits what you typed, under `explicit`, from what you left at its default, under `defaults`. `resolvedDefaults` holds the values the run worked out for itself, so a value LGE chose never reads as one you set. An extraction records its span there in LGE's internal count from 0 and labels it `coordinate_system` `0-based half-open`, so `effectiveStart`, one of the entries the block cuts, reads 70544 for a cut that starts at base 70545.
 
-A record that an earlier LGE wrote holds `schemaVersion` 1 and repeats 14 keys under an older spelling, such as `sha256` beside `checksumSHA256` with the same checksum, `sizeBytes` beside `fileSize`, and `appVersion` and `hostOS` beside `runtimeIdentity`. LGE reads both spellings and writes each fact once. `durableReplayArgv` holds the command as a list of separate words for a program, while `reproducibleCommand` holds it as one line you can paste into Terminal.
+Three older shapes exist, and LGE reads all of them. Version 1 holds `schemaVersion` 1 and repeats 14 keys under an older spelling, such as `sha256` beside `checksumSHA256` with the same checksum, `sizeBytes` beside `fileSize`, and `appVersion` and `hostOS` beside `runtimeIdentity`, and LGE reads both spellings and writes each fact once. [The older shape](#the-older-shape) has no `schemaVersion`, and the third, plain JSON from a few early commands, has no fixed keys. `durableReplayArgv` holds the command as a list of separate words for a program, while `reproducibleCommand` holds it as one line you can paste into Terminal.
 
-`signatures` is empty unless a signer is configured, which is off by default. `wallTimeSeconds` is recorded at full decimal precision, and only the leading digits mean anything. `runtimeIdentity.appVersion` and `workflowVersion` name the LGE that ran the command, and `executablePath` names its program as `<external>/` followed by the file name, never by the folder it was installed in. A step that ran an outside tool names that tool's version in its own `toolVersion`, and a tool that would not report its version leaves `unknown` or whatever it printed there, as [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) notes for LoFreq. The `runtimeIdentity.dependencySet` value, `2026.2` here, names the pinned tool set, whose versions [Tool Versions](tool-versions.md) lists, and `managedToolLockSHA256` is the checksum of the exact file that pins them.
+`signatures` is empty unless a signer, a key that signs the record so later changes show, is configured, which is off by default. `wallTimeSeconds` is recorded at full decimal precision, and only the leading digits mean anything. `runtimeIdentity.appVersion` and `workflowVersion` name the LGE that ran the command, and `executablePath` names its program as `<external>/` followed by the file name, never by the folder it was installed in. A step that ran an outside tool names that tool's version in its own `toolVersion`, and a tool that would not report its version leaves `unknown` or whatever it printed there, as [Calling Variants](../05-variants/01-calling-variants-from-amplicons.md) notes for LoFreq. The `runtimeIdentity.dependencySet` value, `2026.2` here, names the pinned tool set, whose versions [Tool Versions](tool-versions.md) lists, and `managedToolLockSHA256` is the checksum of the exact file that pins them.
 
 ### The older shape
 
@@ -721,7 +744,7 @@ Each entry in `steps` holds the fields below.
 
 A `toolVersion` from a managed tool names the version first, then the [conda](../../GLOSSARY.md#conda) environment, the executable, and the exact package, as in `1.24 (managed conda environment samtools; executable samtools; package bioconda::samtools=1.24=h36b3a25_1)`. In the package string, `bioconda` is the channel, `samtools` the package, `1.24` the version, and `h36b3a25_1` the build.
 
-A step that pipes its output straight into the next one, without writing to disk, records that stream as an entry whose `path` reads like `pipe:stdout:bcftools-mpileup`, with no checksum or size. A step field named `peakMemoryBytes` exists and is optional, so a missing peak-memory figure is normal.
+A step that pipes its output straight into the next one, without writing to disk, records that stream, the data passed between the two programs, as an entry whose `path` reads like `pipe:stdout:bcftools-mpileup`, with no checksum or size. A step field named `peakMemoryBytes` exists and is optional, so a missing peak-memory figure is normal.
 
 ### Inputs kept beside an export
 
@@ -747,19 +770,35 @@ zip -r NG_000007.3.lungfishref.zip NG_000007.3.lungfishref
 
 The recipient unzips it and drags the resulting folder into the LGE project window's sidebar, or copies it into the project folder in the Finder. Either route works.
 
-`lungfish-cli bundle export --export-format container` writes a reference bundle as a deterministic OCI layout tarball. A tarball is a single file holding a whole folder tree, OCI layout is the standard folder shape container systems store their images in, where an image means a packaged snapshot of software and data rather than a picture, and deterministic means the same bundle exported twice gives byte-identical output. The tarball holds an `oci-layout` file, an `index.json` pointing at the image manifest, a config file, a manifest file, and one layer holding the bundle's contents, each named by its SHA-256 checksum, plus a provenance record for the export. [CLI Reference](cli-reference.md#bundle-export) lists its flags.
+A virtual read bundle stores a recipe and a preview rather than its reads, so export it as FASTQ first, as [The read dataset bundle](#the-read-dataset-bundle) shows, and send the FASTQ.
 
-Ordinary command-line tools work on a bundle's contents without unpacking anything, since the files inside are ordinary files. The block below reads the HBB bundle in the Genes and Sequences demo project. `python3` ships with macOS, so the last line needs nothing installed.
+Someone without LGE needs one file and a program that opens it. This table names both.
+
+| Data | File to hand on | A free program that opens it |
+|---|---|---|
+| A reference sequence | `genome/sequence.fa.gz` and its two indexes | samtools, as in the last block below |
+| Annotations | A GFF3 from **File > Export > Annotations (GFF3)…** | IGV |
+| Mapped reads | The BAM and `.bai` that the manifest's `alignments` entry names | IGV |
+| Variants | The `.vcf.gz` and `.tbi` that the manifest's `variants` entry names | IGV |
+| A sample's reads | The `.fastq.gz` of the read bundle | A text editor, after unzipping |
+| A multiple sequence alignment | `alignment/primary.aligned.fasta` | Jalview |
+| A tree | `tree/primary.nwk` | FigTree |
+| A genotype result | The `.xlsx` workbook | Excel, or the free LibreOffice Calc |
+| An RNA-seq result | The export folder, not the bundle | R or Python, through its scripts |
+
+`lungfish-cli bundle export --export-format container` writes a reference bundle as a deterministic OCI layout tarball. A tarball is a single file holding a whole folder tree, OCI layout is the standard folder shape container systems store their images in, where an image means a packaged snapshot of software and data rather than a picture, and deterministic means the same bundle exported twice gives byte-identical output. The tarball holds an `oci-layout` file, an `index.json` pointing at the image manifest, a config file, a manifest file, and one layer holding the bundle's contents, each named by its SHA-256 checksum, plus a provenance record for the export. Use it only when a container tool needs the bundle, and send a ZIP otherwise. [CLI Reference](cli-reference.md#bundle-export) lists its flags.
+
+Ordinary command-line tools work on a bundle's contents without unpacking anything, since the files inside are ordinary files. The block below reads the HBB bundle in the Genes and Sequences demo project. The last line uses `python3`, and macOS may offer to install developer tools the first time, which you can decline and open `manifest.json` in a text editor instead.
 
 ```bash
 PROJECT="$HOME/Documents/LGE Demo Projects/Genes and Sequences.lungfish"
 HBB="$PROJECT/Reference Sequences/NG_000007.3.lungfishref"
 ls "$HBB"
-samtools faidx "$HBB/genome/sequence.fa.gz" NG_000007:70545-70600
+"$SAMTOOLS" faidx "$HBB/genome/sequence.fa.gz" NG_000007:70545-70600
 python3 -m json.tool "$HBB/manifest.json"
 ```
 
-The region in the `samtools faidx` line, `NG_000007:70545-70600`, is one-based and inclusive, the convention the coordinate table under the annotation formats section sets out.
+The `ls` line lists the bundle's files and folders, the `samtools faidx` line prints the 56 bases at `NG_000007:70545-70600`, which is one-based and inclusive, the convention the coordinate table under the annotation formats section sets out, and the last line prints the manifest in a readable layout.
 
 ## Finding a format by its extension
 
@@ -767,17 +806,18 @@ This list maps an extension you found on disk to the section that covers it.
 
 | Extension | Section |
 |---|---|
-| `.fa`, `.fasta`, `.fna`, `.faa`, `.fq`, `.fastq`, `.gb`, `.gbk`, `.embl`, `.fai` | Standard sequence formats |
-| `.gff`, `.gff3`, `.gtf`, `.bed`, `.bedgraph` | Standard annotation formats |
-| `.sam`, `.bam`, `.cram`, `.bai`, `.csi` | Standard alignment formats |
-| `.vcf`, `.vcf.gz`, `.tbi`, `.bcf` | Standard variant formats |
-| `.nwk` | Standard tree format |
-| `.gz`, `.gzi` | The reference bundle, under the `genome/` folder |
-| Any `.lungfish` ending | What an LGE bundle is, then that bundle's own section |
-| `counts.tsv`, `deseq2.R`, `seurat.R`, `matrix.mtx` | The RNA-seq result bundle, under The RNA-seq export folder |
-| `plan.json`, `README.txt`, `run.dag`, `run-local.sh` | The plan folder |
-| `.lungfish-provenance.json` | Provenance sidecars |
-| `.lungfish-export-inputs`, `.lungfish-classify-inputs` | Provenance sidecars, under Inputs kept beside an export |
+| `.fa`, `.fasta`, `.fna`, `.faa`, `.fq`, `.fastq`, `.gb`, `.gbk`, `.embl`, `.fai` | [Standard sequence formats](#standard-sequence-formats) |
+| `.gff`, `.gff3`, `.gtf`, `.bed`, `.bedgraph` | [Standard annotation formats](#standard-annotation-formats) |
+| `.sam`, `.bam`, `.cram`, `.bai`, `.crai`, `.csi` | [Standard alignment formats](#standard-alignment-formats) |
+| `.vcf`, `.vcf.gz`, `.tbi`, `.bcf` | [Standard variant formats](#standard-variant-formats) |
+| `.nwk` | [Standard tree format](#standard-tree-format) |
+| `.gz`, `.gzi` | [The reference bundle](#the-reference-bundle), under the `genome/` folder |
+| `.json`, `.db`, `.sqlite`, `.xlsx` | [What an LGE bundle is](#what-an-lge-bundle-is) for manifests, then the section of the bundle that holds the file |
+| Any `.lungfish` ending | [What an LGE bundle is](#what-an-lge-bundle-is), then that bundle's own section |
+| `counts.tsv`, `deseq2.R`, `seurat.R`, `matrix.mtx` | The RNA-seq result bundle, under [The RNA-seq export folder](#the-rna-seq-export-folder) |
+| `plan.json`, `README.txt`, `run.dag`, `run-local.sh` | [The plan folder](#the-plan-folder) |
+| `.lungfish-provenance.json` | [Provenance sidecars](#provenance-sidecars) |
+| `.lungfish-export-inputs`, `.lungfish-classify-inputs` | [Provenance sidecars](#provenance-sidecars), under [Inputs kept beside an export](#inputs-kept-beside-an-export) |
 
 ## Next
 
