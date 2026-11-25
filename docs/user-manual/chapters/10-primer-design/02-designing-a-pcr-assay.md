@@ -77,7 +77,7 @@ The dialog closes and the [Operations Panel](../01-foundations/06-the-lungfish-p
 
 ### Design on the alignment with conserved binding sites
 
-1. Click `mamu-a1-panel` under `Analyses/Multiple Sequence Alignments`, then choose **Tools > PCR Primer Design > Primer3…**. This input is the alignment bundle, which carries a stack-of-layers icon, not the reference bundle of the same name.
+1. Click `mamu-a1-panel` under `Analyses/Multiple Sequence Alignments`, then choose **Tools > PCR Primer Design > Primer3…**. This input is the alignment bundle, which carries a two-row grid icon, not the cylinder icon of the reference bundle of the same name.
 2. Open the **Template row** menu under the input and choose row 1, `LR699574.1`. Until you choose a row, the status line reads "Choose a template row for mamu-a1-panel." and **Run** stays disabled.
 3. Set the design settings exactly as before, a PCR assay with products of 800 to 1100, five candidate pairs, and a target of 205 to 993. The target is counted on the template row's own bases with the alignment's gaps skipped, so the numbers are the same as in the single-allele design.
 4. Check that **Require binding sites conserved across all alignment rows** is on, which it is by default whenever an alignment is among the inputs. Set **Analysis name** to `Mamu-A1 exon 2-3 PCR Primer3 conserved`.
@@ -155,7 +155,7 @@ Remember what the design did not check. Conserved across *Mamu-A1* alleles is no
 
 When the dialog refuses to run, the status line at its foot names the first problem. A target longer than the product maximum gives "The target region is 789 bp but the maximum product size is 400 bp. Every product must span the whole target, so widen the product size range or choose a shorter target.", which the defaults produce if you set the target before the product range. A name already used in `Analyses` gives "An analysis with this name already exists in the project. Enter a different name." An alignment input with no template row chosen keeps **Run** disabled until you pick one.
 
-When a run finishes with "No primer pairs met the requested constraints.", read the single-primer explanation lines first. On a GC-rich stretch they usually show "GC content failed" on most candidates, and the fix is to widen the GC range, allow shorter primers or a higher maximum melting temperature, or move the target edges a little into the introns. When a conserved-site design returns nothing, too few conserved columns remain on one side of the target to hold a primer. Widen the product range so primers can reach further out, remove rows that are not meant to share the assay, or design with degenerate primers as [Designing a Tiled Amplicon Scheme](03-designing-a-tiled-amplicon-scheme.md) describes.
+When the Results view reads "No primer pairs met the requested constraints.", read the single-primer explanation lines first. On a GC-rich stretch they usually show "GC content failed" on most candidates, and the fix is to widen the GC range, allow shorter primers or a higher maximum melting temperature, or move the target edges a little into the introns. When a conserved-site design returns nothing, too few conserved columns remain on one side of the target to hold a primer. Widen the product range so primers can reach further out, remove rows that are not meant to share the assay, or design with degenerate primers as [Designing a Tiled Amplicon Scheme](03-designing-a-tiled-amplicon-scheme.md) describes.
 
 ## On the command line
 
