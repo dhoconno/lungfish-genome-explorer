@@ -441,9 +441,8 @@ package final class SequenceExtractionBundleBuilder: Sendable {
         .options(
             explicit: request.commandContext.explicitOptions,
             defaults: request.commandContext.defaultOptions,
-            resolved: leftOutTracks.isEmpty
-                ? request.commandContext.resolvedOptions
-                : request.commandContext.resolvedOptions.merging([
+            resolved: request.commandContext.resolvedOptions
+                .merging(leftOutTracks.isEmpty ? [:] : [
                     AnnotationDatabase.LeftOutWords.provenanceKey: .array(leftOutTracks.map { .string($0.name) }),
                 ]) { _, new in new }
                 .merging(["output_bundle": .file(bundleURL)]) { current, published in tookAnotherName ? published : current }

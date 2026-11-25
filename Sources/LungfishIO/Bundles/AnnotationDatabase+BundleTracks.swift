@@ -44,7 +44,7 @@ extension AnnotationDatabase {
     }
 
     /// A listed track whose database opened.
-    public struct OpenedTrack: @unchecked Sendable {
+    public struct OpenedTrack: Sendable {
         public let id: String
         public let name: String
         public let url: URL
@@ -53,7 +53,7 @@ extension AnnotationDatabase {
 
     /// The databases of a bundle's listed tracks: those that opened, in the manifest's order, and by name each one
     /// that could not be read.
-    public struct BundleTracks: @unchecked Sendable {
+    public struct BundleTracks: Sendable {
         public let opened: [OpenedTrack]
         public let leftOut: [LeftOutTrack]
 
