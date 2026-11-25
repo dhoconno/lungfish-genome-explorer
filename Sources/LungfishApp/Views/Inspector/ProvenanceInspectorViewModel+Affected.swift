@@ -57,6 +57,12 @@ extension ProvenanceInspectorViewModel {
             // A kind registered by data has no sidebar type of its own (`SidebarItem.swift:69-72`), so its record names the kind.
             // Only the adopt of an RNA-seq plan's counts is read here, so no other registered kind shows a row it did not show.
             return envelope.flatMap(AffectedResults.kind(of:)) == .rnaSeqPlanRun ? .rnaSeqPlanRun : nil
+        case .referenceBundle:
+            // A region bundle an extraction wrote, and a bundle whose own record is the import of a GFF3 or GTF track, name
+            // their kind in that record. No other reference bundle shows a row it did not show before. Only variant tracks are
+            // Inspector sources, so the record of an annotation import is read on the bundle.
+            let kind = envelope.flatMap(AffectedResults.kind(of:))
+            return kind == .sequenceExtractionBundle || kind == .annotationTrackImport ? kind : nil
         default: return nil
         }
     }

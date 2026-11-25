@@ -206,6 +206,11 @@ extension AffectedResults {
         if root == RecordName.extractTaxaCollection, anInPlaceIngestDroppedTheExtractionRecord(envelope) {
             kinds.insert(.fastqIngestDroppedExtractionRecord)
         }
+        // The narrower kinds of the annotation S1 fixes (``annotationRouteRows``).
+        if kind == .sequenceExtractionBundle, askedForJoinedExonsOfOnePart(envelope) {
+            kinds.insert(.sequenceExtractionJoinedExons)
+        }
+        if kind == .variantCalls, ranIVarWithoutAnAnnotationFile(envelope) { kinds.insert(.variantCallsWithoutCodonMerging) }
         return kinds
     }
 

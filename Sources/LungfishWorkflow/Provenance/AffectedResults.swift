@@ -106,6 +106,15 @@ public enum AffectedResultKind: String, CaseIterable, Sendable {
     case fastqIngestDroppedExtractionRecord
     /// A genotyping result whose record holds the step of a reused sample checkpoint (TTL-ONT-CHECKPOINT-REUSE).
     case genotypeCheckpointReuse
+    /// A region bundle that `lungfish extract sequence --bundle` or the window wrote from a source bundle
+    /// (ANNOT-EXPORT-MISSING-TRACK, EXTRACT-SAME-SITE-DEDUP).
+    case sequenceExtractionBundle
+    /// A narrower ``sequenceExtractionBundle`` that asked for exons joined and names no second part (GTF-SPLICE).
+    case sequenceExtractionJoinedExons
+    /// A track that a GFF3 or GTF import wrote, or the bundle that import ended in (ANNOT-IMPORT-SAME-SITE-DEDUP).
+    case annotationTrackImport
+    /// A narrower ``variantCalls`` whose iVar step got no annotation file, so codon merging was off (ANNOT-EXPORT-MISSING-TRACK).
+    case variantCallsWithoutCodonMerging
 }
 
 /// One fix of an S1 that an earlier build wrote into a result.
@@ -606,7 +615,7 @@ public enum AffectedResults {
                 + "read names.",
             fixCommit: "eba5464b1"
         ),
-    ] + loosePairAndImportRows + s1SweepRows
+    ] + loosePairAndImportRows + s1SweepRows + annotationRouteRows
 
     /// A published release, its version and the build of the commit it was packaged from.
     public struct PublishedRelease: Equatable, Sendable {
@@ -746,6 +755,10 @@ extension AffectedResults {
             return ingestedTwoLooseFiles(envelope) ? .fastqIngestLoosePair : nil
         case RecordName.fastqRiboDetector, RecordName.fastqDeaconRibo:
             return filteredTwoLooseFiles(envelope) ? .fastqRiboFilterLoosePair : nil
+        case RecordName.extractSequence, RecordName.guiSequenceExtraction:
+            return extractedFromASourceBundle(envelope) ? .sequenceExtractionBundle : nil
+        case RecordName.annotationTrackImport, RecordName.nativeBundleBuild:
+            return importedAGFF3OrGTFFile(envelope) ? .annotationTrackImport : nil
         default:
             // The roots of the S1 sweep and an in-place ingest merged into the record of any other root.
             return kindOfAnotherRoot(envelope)
