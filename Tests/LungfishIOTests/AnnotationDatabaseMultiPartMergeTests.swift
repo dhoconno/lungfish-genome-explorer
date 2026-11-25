@@ -151,7 +151,7 @@ final class AnnotationDatabaseMultiPartMergeTests: XCTestCase {
         XCTAssertEqual(imported.rows.count, 4)
         XCTAssertTrue(imported.rows.allSatisfy { $0.blockCount == nil }, "no row has blocks. \(imported.rows)")
         let spans = imported.rows.map { "\($0.type):\($0.start)-\($0.end)" }.sorted()
-        XCTAssertEqual(spans, ["CDS:300-400", "misc_RNA:700-800", "mRNA:100-200", "ncRNA:500-600"])
+        XCTAssertEqual(spans, ["CDS:300-400", "mRNA:100-200", "misc_RNA:700-800", "ncRNA:500-600"])
     }
 
     /// One ID on two seqids is two features, for a CDS as for any other type.
