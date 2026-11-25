@@ -45,6 +45,28 @@ final class ViewSwitchTreeLateSelectionTests: XCTestCase {
             "Selected Item shows the node the person picked")
     }
 
+    /// The same tree row shown again (a sidebar refresh does it) begins a new request, and the new viewer's callback holds it.
+    func testANodePickAfterTheSameTreeIsShownAgainStillOpensSelectedItem() async throws {
+        let scene = try await LateSelectionScene.make(target: nil)
+        defer { scene.close() }
+        let first = try await scene.showTree()
+        scene.harness.select(scene.tree.item)
+        var again: PhylogeneticTreeViewController?
+        let reshown = await waitUntil(budget: .lookup, pollInterval: .milliseconds(25)) {
+            again = scene.harness.split.viewerController.phylogeneticTreeViewController
+            return again != nil && again !== first && again?.onSelectionStateChanged != nil
+        }
+        XCTAssertTrue(reshown, "the same tree row shown again installs a new viewer with its callback wired")
+        let tree = try XCTUnwrap(again)
+        let inspector = try scene.inspector()
+        inspector.selectedTab = .bundle
+        let tip = try XCTUnwrap(
+            tree.nodes.last { $0.isTip && $0.id != tree.selectedNodeID }, "the tree fixture has a second tip to pick")
+        tree.selectNode(id: tip.id, center: false)
+        XCTAssertEqual(inspector.shownTab, .selectedItem, "a node pick on the tree shown again opens Selected Item")
+        XCTAssertEqual(inspector.selectionSectionViewModel.phylogeneticTreeSelection?.title, tip.displayLabel)
+    }
+
     /// The probe of what sends the late selection (VS-TREE-LATE item 1). The tree's route runs on the main queue's next
     /// turn: it shows the tree, where the host enqueues its announce, then wires the callback. The job enqueued here runs
     /// after that route and before that announce, as the matrix's next switch can, so the announce finds the tree still
