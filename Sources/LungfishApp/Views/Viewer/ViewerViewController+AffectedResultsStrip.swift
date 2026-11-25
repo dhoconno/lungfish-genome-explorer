@@ -89,8 +89,11 @@ enum AffectedResultsStrip {
         }
         originalTop?.isActive = false
         strip.replacedTopConstraint = originalTop
+        // The host's view memory line also starts at the safe-area top. When it shows, the surface hangs from its
+        // bottom, and the strip starts there instead, so the two stack and neither covers the other (VS-HOST-LINE).
+        let line = originalTop?.secondAttribute == .bottom ? originalTop?.secondItem as? ViewMemoryResetLineView : nil
         strip.placementConstraints = [
-            strip.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
+            strip.topAnchor.constraint(equalTo: line?.bottomAnchor ?? container.safeAreaLayoutGuide.topAnchor),
             strip.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             strip.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             surfaceView.topAnchor.constraint(equalTo: strip.bottomAnchor),

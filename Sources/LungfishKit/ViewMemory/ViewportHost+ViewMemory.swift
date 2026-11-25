@@ -101,6 +101,12 @@ extension ViewportHost {
 
     /// Draws the reset line above the installed surface, in the container the host owns, and reads it once to
     /// VoiceOver (VS U2). The next show removes it with the surface.
+    ///
+    /// The line starts at the container's safe-area top on every surface. The main window draws its content under the
+    /// title bar and toolbar, and a surface that keeps the default pin starts at the container's edge and clears them
+    /// with its own safe-area constraint, which the line has none of. At that edge the toolbar covered every line
+    /// (2026.11.17 walk, row F1 C1b, VS-HOST-LINE). The surface's top follows the line's bottom, where it has no band
+    /// left to clear, so its first row starts right below the line.
     func showResetLine(_ words: String) {
         guard let containerView, let installed = activeViewport?.viewController.view, let pin = installedTop else {
             return
@@ -110,7 +116,7 @@ extension ViewportHost {
         containerView.addSubview(line)
         pin.constraint.isActive = false
         NSLayoutConstraint.activate([
-            line.topAnchor.constraint(equalTo: pin.anchor),
+            line.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
             line.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             line.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             installed.topAnchor.constraint(equalTo: line.bottomAnchor),
