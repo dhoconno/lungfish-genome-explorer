@@ -161,7 +161,7 @@ extension ViewportHost {
     /// The top constraint the host gave the installed surface, at the container's edge or at its safe-area top. The
     /// line or a view placed above the surface turns it off while it shows, and the last of them to go turns it back
     /// on, so a view the viewer places keeps it to put back after the line went.
-    public var installedSurfaceTopPin: NSLayoutConstraint? { installedTop?.constraint }
+    package var installedSurfaceTopPin: NSLayoutConstraint? { installedTop?.constraint }
 
     /// The first of what stands above `surface` in `container`, with its active top constraint: the surface itself,
     /// or the view its top hangs from, and so on up to the one whose top holds to the container.
