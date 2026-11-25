@@ -36,17 +36,17 @@ lead_approved: false
 
 A single-cell result holds a count for every gene in every cell, as [Single-Cell RNA-seq Counts](04-single-cell-counts.md) describes. Each count is a number of [UMIs](../../GLOSSARY.md#umi), the molecular tags that let one captured RNA molecule count once, as [Bulk and single-cell libraries](01-what-is-rna-seq.md#bulk-and-single-cell-libraries) explains. Lungfish Genome Explorer (LGE) can draw those cells as dots on a flat plot called the cell map. On the map you can see which cells resemble one another, color the cells by a group or by one gene, and select a group of cells to sum into a [pseudobulk](../../GLOSSARY.md#pseudobulk), a bulk-style table of counts for each sample.
 
-A [cell map](../../GLOSSARY.md#cell-map) is a result of its own, a `.lungfishrnaseq` folder that sits beside the single-cell result it was made from. It holds one or more embeddings and any label sets, such as clusters, and it names that single-cell result as its parent. Nothing is written inside the parent. Every count, legend bound, and gene value the map shows is a number that `lungfish-cli`, LGE's command-line program, wrote into the cell map. The one number the view works out itself is how many cells are selected.
+A [cell map](../../GLOSSARY.md#cell-map) is a result of its own, a `.lungfishrnaseq` folder that sits beside the single-cell result it was made from. It holds one or more embeddings and any label sets, such as clusters, and it names that single-cell result as its parent. Nothing is written inside the parent. The numbers the map shows were written into it by `lungfish-cli`, LGE's command-line program. The view works out only how many cells are selected.
 
 ### Embeddings, UMAP, t-SNE, and PCA
 
 Each cell in a single-cell result has a count for each of thousands of genes. Picture a space with one axis per gene, where each cell is one point. Cells with similar counts sit near each other in that space, but no screen can draw thousands of axes. An [embedding](../../GLOSSARY.md#embedding) gives each cell a few coordinates, usually two, chosen so that cells with similar counts land near each other on a flat plot. This is a simplified account, since each method first filters and scales the counts.
 
-[Principal component analysis (PCA)](../../GLOSSARY.md#pca) finds the direction along which the cells differ most, then the next direction at a right angle to the first, and so on. Each direction, called a principal component, is a weighted mix of genes. A plot of the first two components is a straight projection, much as a shadow is, so it keeps broad differences but can lay distinct groups on top of one another. Many tools run PCA first and pass the first few dozen components to the steps that follow.
+[Principal component analysis (PCA)](../../GLOSSARY.md#pca) finds the direction along which the cells differ most, then the next direction at a right angle to the first, and so on. Each direction, called a principal component, is a weighted mix of genes. A plot of the first two components is a straight projection, much as a shadow is, so it keeps broad differences but can lay distinct groups on top of one another.
 
-[t-SNE](../../GLOSSARY.md#t-sne) and [UMAP](../../GLOSSARY.md#umap) work another way. Each starts from a list of every cell's nearest neighbors, the few cells whose counts are most similar to its own. It then moves the dots around the plot until those neighbors sit close together. Both methods keep neighborhoods and give up the rest. The distance between two groups far apart, the size of a group, and the gap between groups measure nothing.
+[t-SNE](../../GLOSSARY.md#t-sne) and [UMAP](../../GLOSSARY.md#umap) work another way. Each starts, in its usual form, from a list of every cell's nearest neighbors, the few cells whose counts are most similar to its own, as [van der Maaten (2014)](https://jmlr.org/papers/v15/vandermaaten14a.html) describes for t-SNE and [McInnes and colleagues (2018)](https://arxiv.org/abs/1802.03426) for UMAP. It then moves the dots around the plot until those neighbors sit close together. Both methods keep neighborhoods and give up the rest. The distance between two groups far apart, the size of a group, and the gap between groups measure nothing.
 
-LGE says the same in a popover, a small panel that opens from the [info button](../../GLOSSARY.md#info-button) beside **Embedding** on every UMAP or t-SNE map. For a UMAP it reads "UMAP puts cells with similar counts near each other on a flat plot. Only local neighbours matter. Distances between far-apart groups, group sizes and gaps between groups carry no meaning." A t-SNE map gets the same words with its own name. A PCA plot gets a neutral caption that makes no claim about neighbors.
+LGE says the same in a popover, a small panel that opens from the [info button](../../GLOSSARY.md#info-button) beside **Embedding** on every UMAP or t-SNE map, as [The captions under the cell map](#the-captions-under-the-cell-map) quotes. A PCA plot gets a neutral caption that makes no claim about neighbors.
 
 ### Clusters and Leiden
 
@@ -54,7 +54,7 @@ A [cluster](../../GLOSSARY.md#cell-cluster) is a group of cells that a method pu
 
 [Leiden](../../GLOSSARY.md#leiden) is one such method. It looks for communities, groups of cells with many links inside the group and few links out of it. A setting called resolution sets how finely it splits the graph, and a higher resolution gives more and smaller clusters. [Cell Ranger](../../GLOSSARY.md#cell-ranger), the 10x Genomics counting program, also clusters cells on a graph and writes the result in a folder named graphclust.
 
-The plot plays no part in forming clusters. The cluster method never sees the picture, so one cluster can look split on the map and two clusters can look joined. Two tools also rarely agree on how many clusters there are. On two 10x test sets, LGE's Scanpy route found 15 and 22 clusters where Cell Ranger's graph clustering found 7 and 11. A cluster number is only a name, and another run can give the same groups other numbers.
+The plot plays no part in forming clusters. The cluster method never sees the picture, so one cluster can look split on the map and two clusters can look joined. Two tools can also disagree on how many clusters there are. On the two 10x test sets on record, LGE's Scanpy route found 15 and 22 clusters where Cell Ranger's graph clustering found 7 and 11. A cluster number is only a name, and another run can give the same groups other numbers.
 
 So what should you do with a map and its clusters? Read the map for which cells are neighbors, never for distances or sizes, and treat each cluster as a group to check against genes you know, naming the tool that made it when you report it.
 
@@ -62,22 +62,22 @@ So what should you do with a map and its clusters? Read the map for which cells 
 
 This chapter's fixture holds 200 human [PBMCs](../../GLOSSARY.md#pbmc), peripheral blood mononuclear cells, the white blood cells with one round nucleus, such as T cells, B cells, natural killer cells, and monocytes. They come from a public 10x Genomics sample of a healthy donor. A blood sample mixes these cell types, and a bulk count of the tube adds them together. The cell map shows them apart.
 
-The map helps with three questions. Which cells form groups? Is a gene you know high in one group and low in the others, such as LYZ, which codes for the enzyme lysozyme and is often used to mark monocytes in blood? How does one group differ between animals? The last question needs a pseudobulk of that group in each sample, which you make by selecting the group on the map. The same steps serve a rhesus macaque blood sample counted with Cell Ranger or [STARsolo](../../GLOSSARY.md#starsolo).
+The map helps with three questions. Which cells form groups? Is a gene you know high in one group and low in the others, such as LYZ, which codes for the enzyme lysozyme and is often used to mark monocytes in blood? How does one group differ between animals? The last question needs a pseudobulk of that group in each sample, which you make by selecting the group on the map. No step of the cell map depends on the species, so a rhesus macaque blood sample counted with Cell Ranger or [STARsolo](../../GLOSSARY.md#starsolo) should follow the same steps, but no macaque run is on record.
 
 ## Choosing a tool
 
 Two routes make a cell map. What settles the choice is whether coordinates and clusters for your cells already exist.
 
-**Import Embedding** reads coordinates and clusters that another tool made, such as [Seurat](../../GLOSSARY.md#seurat), an R package for single-cell analysis, [Scanpy](../../GLOSSARY.md#scanpy), a Python package for the same work, or Cell Ranger. LGE records the files as you give them and computes nothing from them. It reads two forms. LGE's own table is a [TSV](../../GLOSSARY.md#tsv) file with a barcode column and coordinate columns such as `umap_1` and `umap_2`, which the Seurat and Scanpy scripts of LGE's single-cell export write at their end. 10x's form is the `projection.csv` and `clusters.csv` files of Cell Ranger's analysis folder. Import Embedding runs from the Tools menu, and it shows only what the other tool computed, on whatever counts that tool used.
+**Import Embedding** reads coordinates and clusters that another tool made, such as [Seurat](../../GLOSSARY.md#seurat), an R package for single-cell analysis, [Scanpy](../../GLOSSARY.md#scanpy), a Python package for the same work, or Cell Ranger. LGE records the files as you give them and computes nothing from them, so it shows only what the other tool computed, on whatever counts that tool used. It reads two forms. LGE's own table is a [TSV](../../GLOSSARY.md#tsv) file, which the Seurat and Scanpy scripts of LGE's single-cell export write and which you can make from a labmate's file as [the import steps](#import-an-embedding-with-import-embedding) show. 10x's form is the `projection.csv` and `clusters.csv` files of Cell Ranger's analysis folder.
 
-**`rnaseq cell-map compute`** runs LGE's [pinned](../../GLOSSARY.md#pinned) route of Scanpy 1.11.5, a fixed recipe at fixed tool versions, on the result's own counts. It writes a UMAP named `umap` and Leiden clusters named `leiden` as a new cell map. It needs the Single-Cell Analysis [plugin pack](../../GLOSSARY.md#plugin-pack) of about 800 MB, and it runs only from the command line, since the app has no pane for it. Every setting of the route is fixed and only seed 0 is offered, so you cannot change the resolution or the number of neighbors. Its clusters are Scanpy's, which often differ in number from Cell Ranger's.
+**`rnaseq cell-map compute`** runs LGE's [pinned](../../GLOSSARY.md#pinned) route of Scanpy 1.11.5, a fixed recipe at fixed tool versions, on the result's own counts. It writes a UMAP named `umap` and Leiden clusters named `leiden` as a new cell map. It needs the Single-Cell Analysis [plugin pack](../../GLOSSARY.md#plugin-pack) of about 800 MB, and it runs only from the command line, since the app has no pane for it. That means Terminal, which Import Embedding does not need. Every setting of the route is fixed and only seed 0 is offered, so you cannot change the resolution or the number of neighbors. Its clusters are Scanpy's, which often differ in number from Cell Ranger's.
 
 | Route | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
 | Import Embedding | Coordinates and clusters from Seurat, Scanpy, or Cell Ranger | Your own analysis already made them, or you want 10x's t-SNE and graph clusters | You have no coordinates yet |
 | `rnaseq cell-map compute` | A UMAP and Leiden clusters of the result's own counts on this Mac | You have no coordinates, or you want a map of exactly these counts | You need other settings, another method, or samples integrated first |
 
-This chapter imports 10x's t-SNE and graph clusters, because 10x's analysis of the fixture's sample comes with the data and needs no pack. The compute route follows for a result that has no coordinates. LGE draws the coordinates of any method you import, but the only embedding it computes is a UMAP. It does not offer PHATE or MIOFlow, as [PHATE coordinates on the cell map](#phate-coordinates-on-the-cell-map) explains.
+This chapter imports 10x's t-SNE and graph clusters, because 10x's analysis of the fixture's sample comes with the data and needs no pack. LGE draws the coordinates of any method you import, but the only embedding it computes is a UMAP. It does not offer PHATE or MIOFlow, as [PHATE coordinates on the cell map](#phate-coordinates-on-the-cell-map) explains.
 
 ## Before you start
 
@@ -85,7 +85,7 @@ This chapter uses the `rnaseq-single-cell` fixture, whose [folder on GitHub](htt
 
 - **A project with the single-cell result.** Import the fixture's `starsolo-pbmc_1k_v3` folder as a single-cell result named `STARsolo pbmc_1k_v3 cut`, as [Import Cell Ranger or STARsolo counts with the Single-cell Counts card](04-single-cell-counts.md#import-cell-ranger-or-starsolo-counts-with-the-single-cell-counts-card) shows. This chapter uses the STARsolo counts because the fixture's checked gene values belong to them.
 - **10x's analysis files.** Keep the fixture's `tenx-analysis-pbmc_1k_v3` folder, which holds 10x's t-SNE `projection.csv` and graph `clusters.csv`, each cut to the same 200 cells.
-- **The Single-Cell Analysis pack, for compute only.** Import Embedding needs no pack. `rnaseq cell-map compute` needs this pack of about 800 MB, installed as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
+- **The Single-Cell Analysis pack, for compute only.** Import Embedding needs no pack. Install the pack as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
 - **Time.** No run record gives a time for the fixture. One compute of 152,425 cells took 409 seconds, and the command prints one step line and then nothing until it ends.
 
 Two differences between STARsolo and 10x need one checkbox each during the import. STARsolo writes each [cell barcode](../../GLOSSARY.md#cell-barcode), the short sequence that marks every molecule from one cell, bare, such as `AAACCCAAGGAGAGTA`. 10x's files write the same cell as `AAACCCAAGGAGAGTA-1`. 10x also computed its t-SNE on Cell Ranger's counts, not on STARsolo's.
@@ -115,12 +115,25 @@ The dialog closes, and the [Operations Panel](../../GLOSSARY.md#operations-panel
 
 If the import is refused for a `-1` suffix, for barcodes the result does not hold, or for other counts, an alert names the checkbox to turn on, and the pane opens empty when you choose **Import Embedding…** again, so set every control again.
 
+To import a table from a labmate instead, choose it under **Coordinates** and leave **Clusters (optional)** empty, since that box is for 10x's `clusters.csv`. LGE judges a file by its first line, not its name, and reads plain or gzip-compressed text. The first line must hold tab-separated column names.
+
+| Column | What it holds |
+|---|---|
+| `barcode` | One cell barcode on each line, with the column named in lowercase |
+| `umap_1`, `umap_2` | One embedding's coordinates, a name, an underscore, and numbers counting up from 1 |
+| `sample` | The sample's name, needed only when the result holds two or more samples |
+| `seurat_clusters` | A label column such as clusters, named in **Label columns (optional)** |
+
+A comma-separated file, such as R's `write.csv` makes, is refused. Open it in Numbers or Excel, rename the barcode column `barcode`, and save it as tab-separated text. Every coordinate must be a plain number, so an empty cell or NA stops the import and the message gives the line. Other columns are ignored.
+
+To choose a **Barcodes** box, compare one barcode in the table with one in the result's own cells table, which [The cells table and its not-host flags](04-single-cell-counts.md#the-cells-table-and-its-not-host-flags) describes. If only the table's end in `-1`, turn on **Drop “-1” from each barcode**, and if only the result's do, turn on **Add “-1” to each barcode**. For **The embedding was computed on other counts**, ask your labmate which counts matrix went into Seurat. Leave the box off for the matrix you imported into LGE and turn it on for any other, since LGE cannot check a table and takes your word.
+
 ### Compute clusters and a UMAP with rnaseq cell-map compute
 
-The app has no pane for compute, so you run it in [Terminal](../../GLOSSARY.md#terminal) and then open its result in LGE. [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains Terminal and how to make `lungfish-cli` work there.
+The app has no pane for compute, so you run it in [Terminal](../../GLOSSARY.md#terminal), the Mac's window for typed commands, and then open its result in LGE. [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains how to make `lungfish-cli` work there. To open Terminal, press Command-Space, type Terminal, and press Return. To run a block, click in its window, paste with Command-V, and press Return.
 
 1. In LGE, choose **Tools > Plugin Manager…**, open the **Packs** tab, and click **Install All** on the Single-Cell Analysis card. In Terminal, `lungfish-cli conda install --pack single-cell` does the same.
-2. In Terminal, run the command below. Change the first line to your project's folder, and change the result's folder name if yours differs.
+2. In Terminal, run the command below. Change the first line to your project's folder, and change the result's folder name if yours differs. LGE forms that name by turning each character that is not a letter, digit, hyphen, or underscore into an underscore, so `STARsolo pbmc_1k_v3 cut` becomes `STARsolo_pbmc_1k_v3_cut`. Instead of typing the project's path, you can type `PROJECT=`, drag the project's folder from Finder onto the Terminal window so that its path appears, press Return, and paste only the other two lines.
 
 ```bash
 PROJECT="$HOME/Documents/Single-Cell Practice.lungfish"
@@ -128,7 +141,7 @@ lungfish-cli rnaseq cell-map compute "$PROJECT/Analyses/STARsolo_pbmc_1k_v3_cut.
   --output "$PROJECT/Analyses/STARsolo pbmc UMAP.lungfishrnaseq"
 ```
 
-3. Wait for the last line, `Wrote the cell map <name>, where umap draws <n> cells in <k> Leiden clusters`, with the numbers of your run.
+3. Wait for the last line, `Wrote the cell map <name>, where umap draws <n> cells in <k> Leiden clusters`, with the numbers of your run. Nothing prints between the first step line and the last, and that silence is normal.
 4. In LGE, click the new cell map in the sidebar.
 
 The pack holds Scanpy, python-igraph, leidenalg, and umap-learn in one [managed environment](../../GLOSSARY.md#managed-environment), a folder of tools that LGE installs and keeps apart from the rest of the Mac, and only `rnaseq cell-map compute` uses it. The route's steps and settings are fixed:
@@ -143,41 +156,53 @@ The pack holds Scanpy, python-igraph, leidenalg, and umap-learn in one [managed 
 | Leiden | Splits that graph into clusters at a resolution of 1.0 |
 | UMAP | Draws a UMAP of the same cells |
 
-Exact means the route compares every pair of cells, where many tools estimate the neighbors to save time. The route does not integrate samples or correct for batches, and its record says so. The gene colors of a computed map come from LGE's own normalized values, which [The cell map legend](#the-cell-map-legend) describes, not from the route's.
+Exact means the route compares every pair of cells, where many tools estimate the neighbors to save time. The route does not integrate samples, which means joining several onto one footing, or correct for batches, the groups of samples prepared or sequenced together that can differ for technical reasons, and its record says so. With one sample you can ignore both. The gene colors of a computed map come from LGE's own normalized values, which [The cell map legend](#the-cell-map-legend) describes, not from the route's.
 
-Before it starts, the command predicts the run's peak memory from the number of cells and of stored entries, the counts in the matrix that are not zero. It refuses a run predicted to need more than 40 percent of the Mac's memory, with a message that begins `Not started:` and says about how many cells of your result's depth this Mac can compute. Without the pack it stops with "The Single-Cell Analysis pack is not installed. Install it in Plugin Manager, then compute the cell map again."
+Before it starts, the command predicts the run's peak memory from the number of cells and of stored entries, the counts in the matrix that are not zero, about one for each gene a cell has any count of. The estimate is a fixed 700 MB plus about 41,500 bytes for each cell and 10 bytes for each stored entry. It refuses a run predicted to need more than 40 percent of the Mac's memory, which is 6.4 GB on a 16 GB Mac, with a message that begins `Not started:` and says about how many cells of your result's depth this Mac can compute. By the app's estimate, a 16 GB Mac takes about 100,000 cells at 2,000 stored entries for each cell, so a blood sample of a few thousand cells fits easily. The **Genes** column of the result's cells table gives each cell's entries. Without the pack it stops with "The Single-Cell Analysis pack is not installed. Install it in Plugin Manager, then compute the cell map again."
 
 ### Color cells by label or gene on the cell map
 
 1. Click the cell map in the [sidebar](../../GLOSSARY.md#sidebar). A first visit opens the map on its first embedding, colored by its first label set, or by sample when it has none.
 2. If the map holds more than one embedding, choose one from the **Embedding** pop-up menu.
-3. Choose a coloring from the **Colour by** pop-up menu. It lists each label set, then **Sample**, **UMIs per cell**, and **Genes per cell**, then the not-host columns when the result has them, then **Gene…**.
+3. Choose a coloring from the **Colour by** pop-up menu, which the app spells with a u. It lists each label set, then **Sample**, **UMIs per cell**, and **Genes per cell**, then the not-host columns when the result has them, then **Gene…**. You can ignore the not-host columns, which [Ambient RNA and the not-host flags](04-single-cell-counts.md#ambient-rna-and-the-not-host-flags) explains, for ordinary human blood.
 4. To color by one gene, choose **Gene…**, type `LYZ` in the search field of the panel that opens, and press Return.
 5. Under **Gene values**, choose **Normalised UMIs** or **UMIs**, and drag the **Point size** slider to make the dots larger or smaller.
 
 <!-- SHOT: cell-map-gene-coloring -->
 
-The gene panel lists each match with its **Gene**, **ID**, **Type**, and **Cells** columns, where Cells counts the cells with at least one UMI of that gene. Return takes the row you selected or else the first gene offered, and a double-click takes any offered row. Only features of the type Gene Expression can color the map, and features of another type, such as Antibody Capture, are listed in gray as not offered. While a gene colors the map, the last item of **Colour by** reads `Gene: LYZ`.
+The gene panel lists each match with its **Gene**, **ID**, **Type**, and **Cells** columns, where ID is the gene's identifier in the result's features file and Cells counts the cells with at least one UMI of that gene. Return takes the row you selected or else the first gene offered, and a double-click takes any offered row. Only features of the type Gene Expression can color the map, and for ordinary RNA data every row has that type. Features of another type, such as Antibody Capture, are listed in gray as not offered. While a gene colors the map, the last item of **Colour by** reads `Gene: LYZ`.
 
 **Gene values** shows only while a gene colors the map. It starts at **Normalised UMIs**, keeps your choice from gene to gene, and goes back to **Normalised UMIs** when you color by something else. **Point size** runs from 1 to 8 pt in whole points, 2 pt by default, and its number field takes a typed size.
+
+To check clusters, color by several marker genes in turn. The [Seurat PBMC 3k tutorial](https://satijalab.org/seurat/articles/pbmc3k_tutorial) names the clusters of 2,700 blood cells by these genes.
+
+| Cell type | Marker genes |
+|---|---|
+| Naive CD4+ T cells | IL7R, CCR7 |
+| Memory CD4+ T cells | IL7R, S100A4 |
+| CD8+ T cells | CD8A |
+| B cells | MS4A1 |
+| Natural killer cells | GNLY, NKG7 |
+| CD14+ monocytes | CD14, LYZ |
+| FCGR3A+ monocytes | FCGR3A, MS4A7 |
+| Dendritic cells | FCER1A, CST3 |
+| Platelets | PPBP |
 
 ### Select cells on the cell map
 
 Selecting cells marks a group for a labels table or a pseudobulk. Selecting itself writes nothing.
 
-1. Drag around a group of cells on the plot to draw a [lasso](../../GLOSSARY.md#lasso), a freehand loop. The line under the legend changes from "No cells selected" to the number of cells inside the loop, in the form `<n> cells selected`.
+1. Drag around a group of cells on the plot to draw a [lasso](../../GLOSSARY.md#lasso), a freehand loop. The line under the legend, at the bottom of the right-hand column, changes from "No cells selected" to the number of cells inside the loop, in the form `<n> cells selected`.
 2. Hold Shift as you drag to add cells to the selection, or Option to take cells away. Shift and Option are [modifier keys](../../GLOSSARY.md#modifier-key).
 3. When the map is colored by a label set or by **Sample**, click a legend row to select its cells, and Command-click more rows to add theirs.
-4. From the keyboard, Command-A selects every drawn cell and Escape clears the selection. After you click a legend row, the Up Arrow and Down Arrow keys move between rows, and Space adds or removes the cells of the focused row.
-5. Control-click the plot for a menu with **Save Selection as Labels Table…**, **Pseudobulk Selected Cells…**, **Select All Cells**, and **Clear Selection**.
+4. From the keyboard, Command-A selects every drawn cell and Escape clears the selection. After you click a legend row, the arrow keys move between rows and Space adds or removes the focused row's cells.
+5. Control-click the plot, or click it with two fingers on a trackpad, for a menu with **Save Selection as Labels Table…**, **Pseudobulk Selected Cells…**, **Select All Cells**, and **Clear Selection**.
 
 <!-- SHOT: cell-map-selection -->
 
 The selected cells draw on top in full color, and the other cells fade. Legend rows that you selected show their names in bold. A selection belongs to one embedding, so choosing another embedding clears it, while choosing another coloring keeps it. When an info popover is open, the first Escape closes it and a second Escape clears the selection.
 
-One function decides the highlight, the count on screen, and the cells that `lungfish-cli rnaseq cell-map select` writes. LGE first simplifies a lasso to at most 1,000 corners, so a cell on the edge of the loop falls on the same side in the app and on the command line.
-
-Only some selections can be saved. One lasso, Command-A, or the rows of one label set can be named by one `cell-map select` command, so the two action buttons under the count turn on. A joined selection, such as two lassos, a lasso with a legend row, or rows picked while coloring by **Sample**, is highlighted and counted but stays view-only. The line "lungfish-cli needs one lasso or labels from one set." then shows under the count, and the two buttons stay off.
+Only some selections can be saved. One lasso, Command-A, or the rows of one label set can be named by one `cell-map select` command, so the two action buttons under the count turn on. A joined selection, such as two lassos, a lasso with a legend row, or rows picked while coloring by **Sample**, is highlighted and counted but stays view-only. The line "lungfish-cli needs one lasso or labels from one set." then shows under the count, and the two buttons stay off. To save, draw one lasso or choose the rows of one label set.
 
 ### Save a selection as a labels table or pseudobulk the selected cells
 
@@ -186,9 +211,9 @@ The two buttons under the selection line act on a selection that one command can
 To save the selection as a table:
 
 1. Click **Save Selection as Labels Table…**.
-2. In the save panel, choose a folder outside every RNA-seq result, keep or change the suggested name, and click **Save**.
+2. In the save panel, choose a folder outside every RNA-seq result, such as your Documents folder, keep or change the suggested name, and click **Save**.
 
-An Operations row runs `lungfish-cli rnaseq cell-map select` and writes a TSV table with the columns `sample`, `barcode`, and `label`. Each cell drawn in the embedding gets one line labeled `selected` or `rest`, and a cell the embedding leaves out gets no line. The table's record sits beside it, and [Pseudobulk RNA-seq Cells](04-single-cell-counts.md#pseudobulk-cells-by-label-with-pseudobulk-rna-seq-cells) reads it as it reads any labels table.
+An Operations row runs `lungfish-cli rnaseq cell-map select` and writes a TSV table with the columns `sample`, `barcode`, and `label`. Each cell drawn in the embedding gets one line labeled `selected` or `rest`, and a cell the embedding leaves out gets no line. The table's record sits beside it. Find both in Finder, in the folder you chose, and [Pseudobulk RNA-seq Cells](04-single-cell-counts.md#pseudobulk-cells-by-label-with-pseudobulk-rna-seq-cells) reads it as it reads any labels table.
 
 To pseudobulk the selection in one go:
 
@@ -196,11 +221,11 @@ To pseudobulk the selection in one go:
 2. Check the **Selected cells** line, which names the selection by its count and cell map in the form `<n> selected cells from <cell map>`.
 3. Check **Result name**, which LGE fills with the cell map's name followed by `selected`, then click **Run**.
 
-The pseudobulk adds two Operations rows. The first runs `lungfish-cli rnaseq cell-map select` to write the selection's table outside the single-cell result. The second runs `lungfish-cli rnaseq pseudobulk` with `--cell-map`, so its record names the cell map and the table, each by its sha256 [checksum](../../GLOSSARY.md#checksum). The new bulk result holds, for each sample, one column of selected cells and one of the other drawn cells. A group under 10 cells is left out, and the view and the pane say so first, in the form `Pseudobulk omits <sample>'s <k> selected cells (under 10), so that sample has no selected column.` Cells that the embedding leaves out are counted with the cells that have no label.
+The pseudobulk adds two Operations rows. The first runs `lungfish-cli rnaseq cell-map select` to write the selection's table outside the single-cell result. The second runs `lungfish-cli rnaseq pseudobulk` with `--cell-map`, so its record names the cell map and the table, each by its sha256 [checksum](../../GLOSSARY.md#checksum), a fingerprint of the file's bytes that changes when the file does. The new bulk result holds, for each sample, one column of selected cells and one of the other drawn cells. A group under 10 cells is left out, and LGE's code and notes give no reason for that floor. A sum of a few cells mostly records which cells happened to fall in the group, which is probably why a floor exists. The view and the pane name each omitted group first, in the form `Pseudobulk omits <sample>'s <k> selected cells (under 10), so that sample has no selected column.` Cells that the embedding leaves out are counted with the cells that have no label.
 
-The second row ends Completed with Warnings, and its warning reads "Cells picked from this picture differ in the genes that drew it, so testing a selection against the rest finds those genes by construction. Compare samples or animals within one selection." You drew the lasso around cells that the embedding placed together because their counts are alike. The genes behind that likeness differ between the selection and the rest because of how you chose the cells, so a test of one against the other finds them whether or not they mean anything biologically. The info button beside the selection line of the pane holds the same words.
+The second row ends Completed with Warnings, and its warning reads "Cells picked from this picture differ in the genes that drew it, so testing a selection against the rest finds those genes by construction. Compare samples or animals within one selection." The embedding placed your lasso's cells together because their counts are alike. The genes behind that likeness differ between the selection and the rest because of how you chose the cells, so a test finds them whether or not they mean anything. The info button beside the selection line of the pane holds the same words.
 
-Compare one selection across samples or animals instead, such as the same group of cells in infected and uninfected macaques. A pseudobulk from one sample, such as the fixture's, gives a table to read but no test, since LGE's export refuses a test of two columns from one animal, as [Reading and Exporting Bulk RNA-seq Counts](03-reading-and-exporting-bulk-counts.md) explains.
+Compare one selection across samples or animals instead, such as the same group of cells in infected and uninfected macaques. A pseudobulk from one sample, such as the fixture's, gives a table to read but no test, since LGE's export refuses a test of two columns from one animal, as [Reading and Exporting Bulk RNA-seq Counts](03-reading-and-exporting-bulk-counts.md) explains. The table still gives each group's summed count for every gene, to read or to export, but it cannot say whether a difference is real. [Squair and colleagues (2021)](https://doi.org/10.1038/s41467-021-25960-2) found that tests which ignore the variation between animals report too many false discoveries.
 
 ## Settings
 
@@ -214,7 +239,7 @@ The pane shows its inputs first and its settings after them, in this order.
 
 **Clusters (optional).** Adds the clusters of one of 10x's `clusters.csv` files as a label set named after the folder that holds the file, such as graphclust. It starts empty, since LGE's table carries its own label columns. Add it when your coordinates come from 10x's analysis and you want its clusters on the map. On the command line this is `--clusters`.
 
-**Label columns (optional).** Names the columns of LGE's table that hold labels, such as a cell type, separated by commas, and each named column becomes a label set. It starts empty, because LGE cannot tell which of your columns hold labels. Fill it when your table carries labels you want to color by, since a column that is neither named here nor a coordinate column is read past. On the command line this is `--label-column`.
+**Label columns (optional).** Names the columns of LGE's table that hold labels, such as a cell type, separated by commas, and each named column becomes a label set. It starts empty, because LGE cannot tell which of your columns hold labels. Fill it when your table carries labels you want to color by, such as `seurat_clusters` typed as the first line spells it, since a column that is neither named here nor a coordinate column is read past. On the command line this is `--label-column`.
 
 **Tool.** Records the tool that made the files, as you state it. It starts empty, since LGE did not compute the embedding and writes the name into the record as given. Fill it every time, such as `Cell Ranger` or `Seurat`, so a reader of the map knows where it came from. On the command line this is `--tool`.
 
@@ -248,7 +273,7 @@ These options belong to the command alone, since the app has no compute pane.
 
 **--threads.** Sets how many [threads](../../GLOSSARY.md#thread), parallel lines of work, the route runs at once. The default is 1 thread, the route's own setting, and the record names the thread count. Raise it to let the route use more of the Mac's processor cores.
 
-The help of `rnaseq cell-map compute` lists `--threads` with the default auto, but the route runs on 1 thread when you leave the flag out.
+The help lists the default as auto, but the route runs on 1 thread when you leave the flag out.
 
 **--output.** Names the new cell map, a `.lungfishrnaseq` folder that must not exist yet. It has no default, since each run writes a new cell map and refuses a folder that exists. Put it beside the single-cell result in the project's Analyses folder, so the sidebar lists it.
 
@@ -269,15 +294,15 @@ The plot fills the left of the view with one dot for each cell, and a column of 
 
 On the fixture, the lines under **Embedding** read "Imported from projection.csv, not computed by LGE" and "TSNE was computed on other counts, not those of" followed by the single-cell result's folder name. **Cells drawn** reads 200 of 200, so every cell of the result has coordinates in TSNE. Under **Colour by** the line reads "Imported from clusters.csv, not computed by LGE". On a map that compute made, both lines read "Computed by scanpy 1.11.5".
 
-When an embedding leaves cells out, **Cells drawn** on a map of one sample takes the form `<drawn> of <cells> in <sample>. <n> have no coordinates in <embedding>.` A map of two or more samples gets a line for each sample with cells left out, in the form `<n> of <cells> cells in <sample> have no coordinates in <embedding> and aren't drawn.` Cells left out are not drawn and get no line in a selection's table.
+When an embedding leaves cells out, **Cells drawn** says how many cells of each sample have no coordinates and are not drawn. Those cells get no line in a selection's table.
 
-LGE remembers the map as you left it, on this Mac only. It keeps the embedding, the coloring, the point size, the zoom, and a selection that one command can name. When the cell map's data has changed since your last visit, the zoom and the selection are not restored.
+LGE remembers the map as you left it, on this Mac only. It keeps the embedding, the coloring, the point size, the zoom, and a selection that one command can name. When the cell map's data has changed since your last visit, such as when you delete the map and make it again under the same name, the zoom and the selection are not restored.
 
 <!-- SHOT: cell-map-view -->
 
 ### The captions under the cell map
 
-LGE keeps the general explanations of the map behind four info buttons, each a small i in a circle beside the control it explains. Click one, or press Space when it has keyboard focus, to open its popover, and press Escape to close it. Its hover text gives the short form, such as "Explains how to read the plot." The facts true of this map, such as the source lines and **Cells drawn**, stay in view under their controls.
+LGE keeps the general explanations of the map behind four info buttons, each a small i in a circle beside the control it explains. Click one, or press Space when it has keyboard focus, to open its popover, and press Escape to close it. The facts true of this map, such as the source lines and **Cells drawn**, stay in view under their controls.
 
 | Button beside | Shows when | What its popover holds |
 |---|---|---|
@@ -289,15 +314,10 @@ LGE keeps the general explanations of the map behind four info buttons, each a s
 The caption beside **Embedding** depends on the method the cell map records for the embedding.
 
 - **UMAP or t-SNE.** On the fixture's TSNE embedding it reads "t-SNE puts cells with similar counts near each other on a flat plot. Only local neighbours matter. Distances between far-apart groups, group sizes and gaps between groups carry no meaning."
-- **PCA or another recorded method.** A 10x embedding named PC reads "PC stores the coordinates PCA gave each cell. LGE plots the first two dimensions as given and computes nothing from them."
-- **No method recorded.** An embedding named umap with no method reads "The method used for umap is not recorded. LGE plots the first two dimensions as given and computes nothing from them."
+- **PCA or no method recorded.** A 10x embedding named PC reads "PC stores the coordinates PCA gave each cell. LGE plots the first two dimensions as given and computes nothing from them." An embedding named umap with no method reads "The method used for umap is not recorded" and then the same second sentence.
 - **Other counts.** When the embedding was computed on other counts, as on the fixture, the popover adds "A cell's position need not reflect this result's counts."
 
-The button beside **Colour by** holds whichever of three passages applies, and it hides when none does.
-
-- For clusters that LGE computed, "Clusters come from a graph of each cell's nearest neighbours. The plot plays no part in forming them, so one cluster can look split or two can look joined."
-- For a set whose labels are all numbers, "Cluster numbers name groups and give no rank. Another run can give the same groups different numbers. The analyst decides whether to name a cluster as a cell type."
-- For a set that leaves some cells without a label, "Cells with no label appear in grey beneath the other cells."
+The button beside **Colour by** holds whichever of three passages applies, and it hides when none does. For clusters that LGE computed, it says the plot plays no part in forming them. For a set whose labels are all numbers, it reads "Cluster numbers name groups and give no rank. Another run can give the same groups different numbers. The analyst decides whether to name a cluster as a cell type." For a set that leaves some cells without a label, it reads "Cells with no label appear in grey beneath the other cells."
 
 The fixture's graphclust labels are the numbers 1 to 7 and 10x made them, so its button holds only the passage on cluster numbers.
 
@@ -305,21 +325,21 @@ The fixture's graphclust labels are the numbers 1 to 7 and 10x made them, so its
 
 The legend shows what the colors mean. Every count and bound in it is a value stored in the cell map, and the legend counts nothing itself.
 
-For a label set, the legend's title is the set's name, such as graphclust, and each row shows a color swatch, the label, and its number of cells. Cells with no label draw in gray beneath the others, and the legend adds a line in the form `<sample> has <n> cells with no label in <set>.` for each sample that has them. When a set holds more labels than the palette has colors, the legend adds "Colours repeat after 19 labels." Coloring by **Sample** lists each sample with its number of cells. Coloring by a not-host flag lists each flag word with its cells and Not flagged for the rest, as [Ambient RNA and the not-host flags](04-single-cell-counts.md#ambient-rna-and-the-not-host-flags) explains.
+For a label set, the legend's title is the set's name, such as graphclust, and each row shows a color swatch, the label, and its number of cells. Cells with no label draw in gray beneath the others, and the legend says how many each sample has. When a set holds more labels than the palette has colors, the legend adds "Colours repeat after 19 labels." Coloring by **Sample** lists each sample with its number of cells.
 
 For a count, the legend shows a color bar from 0 to a top value, with words under it. The top is the [99th percentile](../../GLOSSARY.md#percentile), the value that 99 percent of the cells are at or below, cells with 0 included. A cell above the top takes the top color, so a few extreme cells do not push every other cell into the lowest colors. On the fixture colored by **UMIs per cell**, the words read "0 to 2726 (99th percentile). The largest value is 3271. Grey cells have 0." When at least 99 percent of the cells have 0, the bar ends at the largest value instead. Gray cells draw first and the rest in rising order, so the highest values sit on top.
 
-For a gene, the title names the gene and its unit, such as "LYZ normalised UMIs", and the words read "Colour shows normalised UMIs of LYZ per cell. Grey cells have no UMIs of LYZ counted." A line gives the formula the cell map records, "Normalised UMIs are log1p(10000 * UMIs / cell Gene Expression UMIs)." In words, a cell's normalized value for a gene is the natural log of 1 plus 10,000 times the gene's UMIs divided by all of the cell's Gene Expression UMIs. That is the value of Seurat's `NormalizeData` with a scale factor of 10,000, to within the last bit of a 32-bit number.
+For a gene, the title names the gene and its unit, such as "LYZ normalised UMIs", and the words read "Colour shows normalised UMIs of LYZ per cell. Grey cells have no UMIs of LYZ counted." A cell's normalized value for a gene is the natural log of 1 plus 10,000 times the gene's UMIs divided by all of the cell's Gene Expression UMIs. That is the usual Seurat scaling, the value of `NormalizeData` with a scale factor of 10,000.
 
 Normalizing matters because cells differ in how many molecules were captured from them, so a raw count partly measures capture. Dividing by the cell's total puts cells on one scale, and the log keeps a few very high values from swamping the rest. Choose **UMIs** under **Gene values** to see raw counts.
 
-A gray cell had no UMI of the gene counted. Single-cell methods capture only part of each cell's RNA, so a gray cell may still have made the gene's RNA. On the fixture, LYZ has UMIs in 76 of the 200 cells, 7,518 UMIs in all, so 124 cells stay gray.
+A gray cell had no UMI of the gene counted. Single-cell methods capture only part of each cell's RNA, so a gray cell may still have made the gene's RNA. On the fixture, LYZ has UMIs in 76 of the 200 cells, 7,518 UMIs in all, so 124 cells stay gray. For a marker of a minority cell type, most cells staying gray is normal, since most cells belong to other types.
 
 ### PHATE coordinates on the cell map
 
-[PHATE](../../GLOSSARY.md#phate) is a method that draws cells along smooth paths, built to show gradual changes between cell states. LGE does not run PHATE or MIOFlow. Their status in LGE is `not offered: Yale non-commercial licence`. You can still import PHATE coordinates that you made yourself, in LGE's table with columns such as `phate_1` and `phate_2`.
+[PHATE](../../GLOSSARY.md#phate) is a method that draws cells along smooth paths, built to show gradual changes between cell states. LGE does not run PHATE or MIOFlow. The [release notes of 2026.11.15](https://github.com/dhoconno/lungfish-genome-explorer/blob/main/docs/release-notes/2026.11.15.md) list both as not offered because of their Yale non-commercial licence. You can still import PHATE coordinates that you made yourself, in LGE's table with columns such as `phate_1` and `phate_2`.
 
-PHATE gets its own caption, "PHATE draws cells along smooth paths. A path suggests a transition and gives no time order." It shows only when the cell map records the method as PHATE, which the command line sets with `--method phate=PHATE`. The Import Embedding pane has no method field, so a PHATE table imported from the pane gets the caption for a method that is not recorded. The Seurat and Scanpy scripts of LGE's single-cell export print an import command with a `--method` flag for an embedding named umap, tsne, or pca, so for PHATE you add `--method phate=PHATE` yourself.
+PHATE gets its own caption, "PHATE draws cells along smooth paths. A path suggests a transition and gives no time order." It shows only when the cell map records the method as PHATE, which the command line sets with `--method phate=PHATE`. The Import Embedding pane has no method field, so a PHATE table imported there gets the caption for a method that is not recorded. The export scripts add a `--method` flag only for umap, tsne, and pca, so for PHATE you add it yourself.
 
 ### The Inspector on a cell map result
 
@@ -341,12 +361,19 @@ Check the map against what you know before you read biology from it. On the fixt
 
 - **Cells drawn** reads 200 of 200, since every barcode of 10x's files matches a cell of the cut once `-1` is dropped.
 - The graphclust legend lists seven clusters, 1 to 7, whose counts add up to 200.
-- Colored by **UMIs per cell**, the legend reads "0 to 2726 (99th percentile). The largest value is 3271. Grey cells have 0." One cell, `AGCGTCGTCCTTATCA`, has no UMIs on the cut's genes and draws gray.
+- Colored by **UMIs per cell**, the legend reads 2726 as the 99th percentile and 3271 as the largest value. One cell, `AGCGTCGTCCTTATCA`, has no UMIs on the cut's genes and draws gray.
 - The gene panel shows LYZ with 76 in its Cells column, and colored by LYZ, 124 of the 200 cells stay gray.
 
-Read the map for neighbors only, since two groups far apart on a UMAP or t-SNE may differ no more than two groups side by side. Before you name a cluster as a cell type, color the map by genes known to mark that type, such as LYZ for monocytes, and check that the cluster carries them. Report the tool that made the clusters along with them. On a test set of 1,222 cells, seeds 2, 8, and 9 gave 14 clusters where seed 0 gave 15, so the number of clusters from compute is one seed's answer. Compute has also run on only one Mac, and nothing yet shows that another Mac gives the same clusters.
+Read the map for neighbors only, and report the tool that made the clusters along with them. On a test set of 1,222 cells, seeds 2, 8, and 9 gave 14 clusters where seed 0 gave 15, so the number of clusters from compute is one seed's answer. Compute has also run on only one Mac, and nothing yet shows that another Mac gives the same clusters.
 
-A pseudobulk of a selection always ends Completed with Warnings. Read the warning, then compare one selection across samples or animals rather than the selection against the rest. An import can also write a cell map that draws few cells or none, for example when **Leave out barcodes the result does not hold** left out most barcodes, so check that **Cells drawn** is close to the result's cell count before you go on.
+To judge clusters that someone else made on your own data, run these checks. None is a pass mark, since no cluster count or size is right for every sample.
+
+- **Sizes.** Read each cluster's number of cells in the legend. A very small cluster may be a rare real type, such as the platelets of the Seurat tutorial above, or a few damaged cells, and only its genes tell which.
+- **Markers.** Before you name a cluster as a cell type, color the map by that type's marker genes, such as LYZ for monocytes, and check that the cluster carries them and the others mostly do not.
+- **Resolution.** Ask your labmate which tool and resolution made the clusters, since a higher resolution gives more and smaller clusters. The Seurat tutorial calls 0.4 to 1.2 typically good for about 3,000 cells and finds nine clusters in 2,700 blood cells. Those are one tutorial's numbers, not a rule.
+- **Repeats.** Ask whether the clusters held when the run was repeated with another seed.
+
+A pseudobulk of a selection always ends Completed with Warnings, so read the warning. An import can also write a cell map that draws few cells or none, for example when **Leave out barcodes the result does not hold** left out most barcodes, so check that **Cells drawn** is close to the result's cell count before you go on.
 
 ### When the import is refused
 
@@ -358,7 +385,7 @@ When 10x's files meet a STARsolo result, the import can be refused three times, 
 | Barcodes not held | The files list barcodes the result does not hold, with how many and an example | **Leave out barcodes the result does not hold** |
 | Other counts | The files are 10x's analysis of Cell Ranger's counts, and the result holds other counts | **The embedding was computed on other counts** |
 
-Each alert names its checkbox, such as "Turn on Drop “-1” from each barcode, then import again." The alert for barcodes not held adds "One common cause is a merged Seurat object, which puts the sample name before each barcode." Since the pane opens empty after a refusal, turn on every checkbox your files need before you click **Run**. The fixture's cut needs only the first and the last, because all 200 of its barcodes are cells in both STARsolo's and 10x's lists.
+Each alert names its checkbox. The alert for barcodes not held adds "One common cause is a merged Seurat object, which puts the sample name before each barcode." Since the pane opens empty after a refusal, turn on every checkbox your files need before you click **Run**. The fixture's cut needs only the first and the last, because all 200 of its barcodes are cells in both STARsolo's and 10x's lists.
 
 ## On the command line
 
@@ -385,8 +412,8 @@ lungfish-cli rnaseq cell-map compute "$PROJECT/Analyses/STARsolo_pbmc_1k_v3_cut.
   --output "$PROJECT/Analyses/STARsolo pbmc UMAP.lungfishrnaseq"
 ```
 
-The import line carries the two flags of the procedure's checkboxes, and `--tool` and `--tool-version` record Cell Ranger 3.0.0. The select line names cluster 1 of graphclust, where the app names the legend rows you clicked. To select an outline instead, give `--polygon` with 3 to 1,000 corners, each written as x,y in the embedding's own units and separated by spaces. The pseudobulk prints the selection warning before its summary line. The last two lines install the pack and run compute.
+The import line carries the two flags of the procedure's checkboxes, and `--tool` and `--tool-version` record Cell Ranger 3.0.0. The select line names cluster 1 of graphclust, where the app names the legend rows you clicked. To select an outline instead, give `--polygon` with 3 to 1,000 corners, each written as x,y in the embedding's own units and separated by spaces. The app simplifies a lasso to at most 1,000 corners first, so both routes pick the same cells. The pseudobulk prints the selection warning before its summary line. The last two lines install the pack and run compute.
 
 ## Next
 
-The RNA-seq part ends here. The next part, Reference, opens with the [CLI Reference](../appendices/cli-reference.md), which lists every flag of the commands this part used. To read the bulk result that a pseudobulk makes and export it for DESeq2, edgeR, or limma, go to [Reading and Exporting Bulk RNA-seq Counts](03-reading-and-exporting-bulk-counts.md). [Pseudobulk cells by label with Pseudobulk RNA-seq Cells](04-single-cell-counts.md#pseudobulk-cells-by-label-with-pseudobulk-rna-seq-cells) gives the rules of every pseudobulk, such as the 10-cell floor. [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md) shows how to read the records that name a cell map and its table by sha256.
+The RNA-seq part ends here. The next part, Reference, opens with the [CLI Reference](../appendices/cli-reference.md), which lists every flag of the commands this part used. To read the bulk result that a pseudobulk makes and export it for DESeq2, edgeR, or limma, go to [Reading and Exporting Bulk RNA-seq Counts](03-reading-and-exporting-bulk-counts.md). [Pseudobulk cells by label with Pseudobulk RNA-seq Cells](04-single-cell-counts.md#pseudobulk-cells-by-label-with-pseudobulk-rna-seq-cells) gives the rules of every pseudobulk, such as the 10-cell floor.
