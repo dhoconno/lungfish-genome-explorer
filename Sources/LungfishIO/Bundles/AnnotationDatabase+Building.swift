@@ -413,11 +413,11 @@ extension AnnotationDatabase {
             insertCount = try withNewSQLiteDatabase(at: stagingURL) { db in
                 try createSchema(in: db, buildPlan: buildPlan)
 
-                // Group features by GFF3 ID for same-ID merging (e.g., CDS with multiple intervals)
+                // Group features by GFF3 ID, type, seqid and strand for same-ID merging (a spliced mRNA, a CDS with several intervals)
                 var featuresByID: [String: [Int]] = [:]
                 for (index, feature) in allFeatures.enumerated() {
                     if let id = feature.id {
-                        featuresByID[id, default: []].append(index)
+                        featuresByID[[id, feature.featureType, feature.seqid, feature.strand].joined(separator: "\u{1F}"), default: []].append(index)
                     }
                 }
 
@@ -463,13 +463,9 @@ extension AnnotationDatabase {
                     /// strand are the group (BIO-GTF-SPLICE-17).
                     func multiPartGroup(of feature: ParsedFeature) -> (key: String, siblings: [Int])? {
                         if let featureID = feature.id {
-                            guard let sharing = featuresByID[featureID], sharing.count > 1 else { return nil }
-                            let siblings = sharing.filter { index in
-                                let other = allFeatures[index]
-                                return other.featureType == feature.featureType && other.seqid == feature.seqid && other.strand == feature.strand
-                            }
                             let key = [featureID, feature.featureType, feature.seqid, feature.strand].joined(separator: "\u{1F}")
-                            return siblings.count > 1 ? ("id\u{1F}\(key)", siblings) : nil
+                            guard let siblings = featuresByID[key], siblings.count > 1 else { return nil }
+                            return ("id\u{1F}\(key)", siblings)
                         }
                         guard feature.featureType == "CDS", let transcriptKey = feature.transcriptKey,
                               let siblings = cdsByTranscript["\(transcriptKey)\u{1F}\(feature.strand)"],
