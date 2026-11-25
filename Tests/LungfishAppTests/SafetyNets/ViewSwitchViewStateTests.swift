@@ -1185,6 +1185,7 @@ final class ViewSwitchViewStateTests: XCTestCase {
         let expected = try driver.readingAfterRestore(changed: changed, in: harness)
         XCTAssertEqual(try driver.read(in: harness), expected, "\(driver.kind): the view as left before the relaunch")
         XCTAssertNil(driver.resetLineWords(in: harness), "\(driver.kind): nothing was lost, so no line shows")
+        assertOwnLinesShowBelowTheToolbar(in: harness, driver.kind)
     }
 
     func assertChangedBundle(_ driver: any ViewStateDriver) async throws {
@@ -1207,6 +1208,42 @@ final class ViewSwitchViewStateTests: XCTestCase {
         XCTAssertEqual(driver.resetLineWords(in: harness), driver.lineAfterChangedBundle, "\(driver.kind): the one line")
         if let hostLine = harness.split.viewerController.surfaceHost.resetLine {
             try assertHostLineStartsBelowTheToolbar(hostLine, in: harness, driver.kind)
+        }
+        assertOwnLinesShowBelowTheToolbar(in: harness, driver.kind)
+    }
+
+    /// Reads where each line a viewer draws itself, outside the host, sits: the genotype viewer's reset line and word
+    /// 5c, the reference and mapping viewers' reset lines, and a reference viewport's filter line. In the harness's real
+    /// window each one on show has a frame, starts at or below the viewer's safe-area top, under the toolbar, and ends
+    /// above the window's foot (VS-GENO-LINE, UX-F1-R17). The 2026.11.17 walk (F5 C, build 14701) found the genotype
+    /// line under the toolbar, which the host's read never reached.
+    func assertOwnLinesShowBelowTheToolbar(
+        in harness: ViewSwitchWindowHarness, _ kind: String, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        guard let content = harness.window.contentView else { return }
+        content.layoutSubtreeIfNeeded()
+        let hostLine = harness.split.viewerController.surfaceHost.resetLine
+        var ownLines: [NSView] = []
+        func collect(_ view: NSView) {
+            let isLine = view is ViewMemoryResetLineView || view is ViewMemoryFilterLineView
+            if isLine, view !== hostLine, !view.isHiddenOrHasHiddenAncestor { ownLines.append(view) }
+            for subview in view.subviews { collect(subview) }
+        }
+        collect(content)
+        guard !ownLines.isEmpty else { return }
+        let viewer = harness.split.viewerController.view
+        XCTAssertGreaterThan(viewer.safeAreaInsets.top, 0,
+                             "the window has no toolbar inset, so this read cannot tell the two pins apart", file: file, line: line)
+        let safeTop = viewer.convert(viewer.safeAreaRect, to: nil).maxY
+        let foot = harness.window.contentLayoutRect.minY
+        for own in ownLines {
+            let name = "\(kind): \(type(of: own))"
+            let frame = own.convert(own.bounds, to: nil)
+            XCTAssertFalse(frame.isEmpty, "\(name) has a frame, found \(frame)", file: file, line: line)
+            XCTAssertLessThanOrEqual(frame.maxY, safeTop + 0.5,
+                                     "\(name) starts \(frame.maxY - safeTop) points above the safe area, under the toolbar",
+                                     file: file, line: line)
+            XCTAssertGreaterThanOrEqual(frame.minY, foot - 0.5, "\(name) ends below the window's foot", file: file, line: line)
         }
     }
 
