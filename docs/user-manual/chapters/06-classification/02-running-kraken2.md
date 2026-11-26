@@ -268,6 +268,8 @@ Click a wedge or row to select it in both views. Double-click **Orthoherpesvirid
 
 Click any breadcrumb to return there. Click the center circle or press Escape to zoom out one level, or press Cmd-0 to return to the root. Click the chart before using its shortcuts.
 
+LGE remembers each result's view on this Mac. When you come back, the **Filter taxa…** text, the sort, the selected rows, the sunburst zoom and the **Collections** drawer are as you left them. The Inspector's sample choice comes back only until you quit LGE. A changed result or a new sample list clears what no longer applies, with a line that begins "The data changed since your last visit".
+
 <!-- SHOT: kraken2-drilldown-orthoherpesviridae -->
 
 | Right-click target | Commands |

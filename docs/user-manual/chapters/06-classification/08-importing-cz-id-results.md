@@ -204,6 +204,8 @@ Read IDs identify individual sequencing reads. The report gives counts by taxon,
 
 **Collections** opens a drawer, a panel below the table that holds named sets of taxa. In that drawer, **Extract** gives the same reason in a **Could not extract reads** alert. **Export** still writes the table as TSV or [CSV](../../GLOSSARY.md#csv), a text file with commas between columns. For the shared controls, see [The action bar and the provenance popover](02-running-kraken2.md#the-action-bar-and-the-provenance-popover) in Running Kraken 2.
 
+The viewer remembers its **Filter taxa…** text, sort, selected rows, sunburst zoom and **Collections** drawer as the Kraken 2 viewer does. See [Moving around the tree](02-running-kraken2.md#moving-around-the-tree). An import holds one sample, so there is no sample choice to keep.
+
 If you need to extract or verify individual reads, follow CZ ID's instructions for getting the sample's FASTQ files. Bring them into LGE, then classify them with Kraken 2 or [EsViritu](../../GLOSSARY.md#esviritu), a classifier built around viral genomes, the full genetic sequences of viruses. Use the new result to extract reads or check them with BLAST. This classification uses a different method and database, so its counts and names can differ from CZ ID's. You extract reads assigned by the second classifier, and a name that appears in both results shows agreement between methods for the [evidence checklist](01-what-is-classification.md#the-evidence-checklist). For the import steps, see [Importing Sequencing Reads](../03-reads/01-importing-fastq.md).
 
 ### The provenance popover

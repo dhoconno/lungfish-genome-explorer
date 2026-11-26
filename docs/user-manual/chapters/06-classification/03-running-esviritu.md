@@ -240,6 +240,8 @@ Dividing by kilobases offsets the extra reads a longer genome draws at the same 
 
 A segment is one of the separate pieces in some viral genomes, such as influenza's. Each segment has a row under the virus's summary row. The summary **RPKMF** and **Coverage** include every segment, even those with no reads.
 
+LGE remembers each result's view on this Mac. When you come back, the **Filter viruses...** text, the sort, the selected rows and the summary rows you collapsed are as you left them. The Inspector's sample choice comes back only until you quit LGE. A changed result or a new sample list clears what no longer applies, with a line that begins "The data changed since your last visit".
+
 [Coverage breadth](../../GLOSSARY.md#coverage-breadth) is the share of positions with at least one read. Use the sparkline to judge the overall spread. It shows depth by window and draws empty stretches as flat valleys. A window can have some depth even if individual bases in it have no reads. For the exact breadth, divide the export's **Covered Bases** by **Assembly Length**. To compare detections by mean depth, sort **Coverage**. A column header's menu can also limit rows to a value or range. Before you filter **Coverage** that way, see [EsViritu Coverage filter](../appendices/troubleshooting.md#defect-esviritu-coverage-filter).
 
 ### The example run {#the-reference-run}

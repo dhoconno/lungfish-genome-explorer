@@ -183,6 +183,8 @@ The columns are **Gene**, **Name**, **Biotype**, **Not host**, and then one colu
 
 The search field keeps the rows whose gene id or name contains what you type, in any case, in every count tab at once.
 
+LGE remembers each result's view on this Mac. When you come back, the result reopens on the tab you left, with your gene search and the genes you selected in each count table. If the result's files have changed since your last visit, for example after a rerun, the search is cleared and a line that begins "The data changed since your last visit" names what was not restored.
+
 ### The Quality tab of the bulk view
 
 The **Quality** tab shows one row per sample, with the same cells that `lungfish-cli rnaseq quality` prints. Before it shows a number, LGE checks every file of the result against the SHA-256 checksum that the manifest lists. If a file has changed since LGE wrote it, the tab names the file in place of the numbers.

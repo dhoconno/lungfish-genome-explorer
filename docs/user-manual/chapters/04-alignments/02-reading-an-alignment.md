@@ -193,6 +193,8 @@ In step 5, [extraction](../../GLOSSARY.md#extraction) copies reads out of the al
 
 If "Extract Selected Region Failed" reports "Alignment evidence is unavailable", the viewer has no loaded alignment. Reopen the mapping result from the sidebar and select the stretch again.
 
+When you come back to a mapping result on the row it first opened on, with the same read filters, LGE loads that row's alignment evidence by itself. A row you picked waits until you click it or until you change its read filters. Until then the Consensus row and this alert say "Click the selected row in the list to load its alignment evidence."
+
 ## Reading the results
 
 The fixture counts below come from `samtools` using the viewer's default filters unless specified. Read mean depth, maximum depth and coverage breadth on the curve. Hover to read depth at a position. The counts of positions with no reads, positions below 10x and soft-clipped reads come from `samtools` alone.
