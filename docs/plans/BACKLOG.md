@@ -14,7 +14,6 @@ Every S4 row moved out of both files at the Phase 5 tidy stays readable at `fb43
 
 | Id | Effect on results or users | Severity | Field | Source |
 |---|---|---|---|---|
-| VS-FILTER-RELOAD | A person types a filter in a Kraken2 or EsViritu result, shows another result and comes back: the field still shows the text of the filter and the table shows every row ("13 assemblies" instead of "3 of 13"). The restore applies the filter, then the Inspector Summary tab takes the new result sample picker and posts metagenomicsSampleSelectionChanged, and the viewer draws the samples it already shows, which loads the data of its table again and clears the effect of the filter but not its text. It needs the Inspector on Summary at the switch; with Provenance or View on screen the result reads as left. Nothing wrong is computed, and the count label tells the truth | S2 | SWIFT | `TaxonomyViewController.swift:642-646`, `EsVirituResultViewController.swift:831-835`, `TaxonomyTableView.swift:76-82`, `ViralDetectionTableView.swift:84-91`, `InspectorView.swift:572-594`; walk row A11 (SCR walk/WALK-VS.md, Block V-C1); SCR rulings/SWIFT-A11.md items 3 to 5 |
 
 ## Phase 5
 
