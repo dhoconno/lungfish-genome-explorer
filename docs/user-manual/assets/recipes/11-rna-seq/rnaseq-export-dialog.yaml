@@ -1,0 +1,33 @@
+# Captured from Lungfish Preview 2026.11.18 (14772) with capture-window.sh (2026-11-26 docs refresh, sitting 1)
+id: rnaseq-export-dialog
+chapter: 11-rna-seq/03-reading-and-exporting-bulk-counts
+caption: The Workflow Operations window on its Export RNA-seq Counts row, with the SEQC result chosen and the design and contrast filled in.
+viewport_class: none
+app_state:
+  fixture: docs/user-manual/fixtures/rnaseq-bulk
+  open_files:
+    - path: Analyses/SEQC_A_and_B_on_ERCC92_genes.lungfishrnaseq
+      note: the result imported for rnaseq-bulk-view, in the project Bulk RNA-seq Practice
+  window_size: [1440, 900]
+  appearance: light
+steps:
+  - action: open_application
+    app: com.lungfish.browser.preview
+  - action: resize_window
+    width: 1440
+    height: 900
+  - action: wait_ready
+    signal: main_window_visible
+  # PROSE-ONLY: Tools > RNA-seq > Export RNA-seq Counts...
+  # PROSE-ONLY: under Inputs click Choose... beside RNA-seq results
+  # PROSE-ONLY: in the file panel press Command-Shift-G, type the path of the project's Analyses folder, press Return
+  # PROSE-ONLY: select SEQC_A_and_B_on_ERCC92_genes.lungfishrnaseq and click Open
+  # PROSE-ONLY: leave Sample sheet (optional) empty and Export folder at rnaseq-export
+  # PROSE-ONLY: click the Design field and type group
+  # PROSE-ONLY: press Tab to reach the Contrasts box and type group:B:A (a click in the empty Contrasts box does not give it focus)
+  # PROSE-ONLY: capture the Workflow Operations window as a whole, then click Cancel and never Run
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

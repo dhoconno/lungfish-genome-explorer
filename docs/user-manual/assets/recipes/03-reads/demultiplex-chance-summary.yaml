@@ -1,0 +1,31 @@
+# Captured from Lungfish Preview 2026.11.18 (14772) with capture-window.sh (2026-11-26 docs refresh, sitting 1)
+id: demultiplex-chance-summary
+chapter: 03-reads/09-demultiplexing-barcodes
+caption: The Operations Panel row of the Exact Bare Barcode run on the pooled NRG1 bundle, whose line under the name says the run was not checked for chance matches.
+viewport_class: none
+app_state:
+  fixture: docs/user-manual/fixtures/nrg1-ont-barcoded
+  open_files:
+    - path: nrg1-barcodes.csv
+      note: the Custom Definition, with nrg1-pooled selected in the project Demultiplex Practice
+  window_size: [1440, 900]
+  appearance: light
+steps:
+  - action: open_application
+    app: com.lungfish.browser.preview
+  - action: resize_window
+    width: 1440
+    height: 900
+  - action: wait_ready
+    signal: main_window_visible
+  # PROSE-ONLY: with nrg1-pooled selected choose Tools > Demultiplexing > Demultiplex Barcodes...
+  # PROSE-ONLY: set Barcode Source to Custom Definition, click Choose... on the Barcode Definition row
+  # PROSE-ONLY: in the file panel press Command-Shift-G, type the path of nrg1-ont-barcoded, select nrg1-barcodes.csv, click Open
+  # PROSE-ONLY: set Engine to Exact Bare Barcode and click Run
+  # PROSE-ONLY: choose Operations > Show Operations Panel and capture the FASTQ: Demultiplex row only
+crop:
+  mode: region
+  region: [0, 126, 900, 62]
+post:
+  retina: true
+  format: png

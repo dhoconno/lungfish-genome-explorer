@@ -1,38 +1,32 @@
-# Captured from Lungfish Preview 2026.9.13 with capture-window.sh (2026-09 campaign).
-# App state: The Demultiplex Barcodes pane of the FASTQ/FASTA Operations dialog. The demo project has no nanopore bundle, so HG002 (Illumina) is the input; all named controls render the same regardless of platform.
+# Captured from Lungfish Preview 2026.11.18 (14772) with capture-window.sh (2026-11-26 docs refresh, sitting 1)
 id: demultiplex-barcodes-pane
-chapter: 03-reads/07-ont-runs
-caption: The Demultiplex Barcodes pane of the FASTQ/FASTA Operations dialog with ONT Native Barcoding
-  V14 (SQK-NBD114-96, 96) chosen, showing Barcode Source, Built-In Kit, Engine, the caption that replaces
-  the Location and distance controls for a nanopore kit, Error Rate, and Trim Barcodes, with Output Strategy
-  at the foot of the pane.
+chapter: 03-reads/09-demultiplexing-barcodes
+caption: The Demultiplex Barcodes pane with ONT Native Barcoding V14 (SQK-NBD114-96, 96) chosen for the pooled NRG1 bundle, where a caption stands in place of the Location and distance controls.
 viewport_class: fastq
 app_state:
-  fixture: '{demo_project}'
+  fixture: docs/user-manual/fixtures/nrg1-ont-barcoded
   open_files:
-  - fastq: Imports/HG002.lungfishfastq
-  window_size:
-  - 1400
-  - 900
+    - path: pooled/nrg1-pooled.fastq.gz
+      note: imported as the bundle nrg1-pooled with Platform Oxford Nanopore
+  window_size: [1440, 900]
   appearance: light
 steps:
-- action: open_application
-  app: Lungfish Preview
-- action: wait_ready
-  signal: main_window_visible
-- action: resize_window
-  size:
-  - 1400
-  - 900
-  # PROSE-ONLY: Selected Imports/HG002 in the sidebar.
-  # PROSE-ONLY: Chose Tools > Demultiplexing > Demultiplex Barcodes...
+  - action: open_application
+    app: com.lungfish.browser.preview
+  - action: resize_window
+    width: 1440
+    height: 900
+  - action: wait_ready
+    signal: main_window_visible
+  # PROSE-ONLY: File > Import Center..., Sequencing Reads tab, Sequencing Read Files card, Import...
+  # PROSE-ONLY: in the file panel press Command-Shift-G, type the path of nrg1-ont-barcoded/pooled, select nrg1-pooled.fastq.gz, click Open
+  # PROSE-ONLY: in the Import FASTQ sheet choose Platform Oxford Nanopore and click Import
+  # PROSE-ONLY: click nrg1-pooled under Imports, choose Tools > Demultiplexing > Demultiplex Barcodes...
+  # PROSE-ONLY: open the Built-In Kit pop-up and choose ONT Native Barcoding V14 (SQK-NBD114-96, 96)
+  # PROSE-ONLY: capture the sheet (the Cutadapt caption now stands where Location and the distances were)
 crop:
   mode: region
-  region:
-  - 242
-  - 102
-  - 982
-  - 696
+  region: [293, 85, 1011, 728]
 post:
   retina: true
   format: png

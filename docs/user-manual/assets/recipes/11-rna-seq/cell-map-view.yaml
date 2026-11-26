@@ -1,0 +1,29 @@
+# Captured from Lungfish Preview 2026.11.18 (14772) with capture-window.sh (2026-11-26 docs refresh, sitting 1)
+id: cell-map-view
+chapter: 11-rna-seq/05-the-cell-map
+caption: The cell map of the pbmc_1k_v3 cut on 10x's TSNE embedding, colored by the graphclust clusters, with the legend in the column beside the plot.
+viewport_class: none
+app_state:
+  fixture: docs/user-manual/fixtures/rnaseq-single-cell
+  open_files:
+    - path: tenx-analysis-pbmc_1k_v3/analysis/tsne/2_components/projection.csv
+    - path: tenx-analysis-pbmc_1k_v3/analysis/clustering/graphclust/clusters.csv
+      note: imported with Import Embedding as the result cell-map, which the app selects and opens
+  window_size: [1440, 900]
+  appearance: light
+steps:
+  - action: open_application
+    app: com.lungfish.browser.preview
+  - action: resize_window
+    width: 1440
+    height: 900
+  - action: wait_ready
+    signal: main_window_visible
+  # PROSE-ONLY: import the embedding as in import-embedding-dialog, and tick Drop -1 from each barcode and The embedding was computed on other counts (the import refuses 10x's files otherwise, twice)
+  # PROSE-ONLY: click Run, the app opens the result cell-map with Embedding TSNE and Colour by graphclust already chosen
+  # PROSE-ONLY: capture the window as it opens
+crop:
+  mode: window
+post:
+  retina: true
+  format: png

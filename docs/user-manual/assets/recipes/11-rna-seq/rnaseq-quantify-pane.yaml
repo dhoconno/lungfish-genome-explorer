@@ -1,0 +1,34 @@
+# Captured from Lungfish Preview 2026.11.18 (14772) with capture-window.sh (2026-11-26 docs refresh, sitting 1)
+id: rnaseq-quantify-pane
+chapter: 11-rna-seq/02-counting-bulk-reads
+caption: The Quantify RNA-seq Reads pane of the FASTQ/FASTA Operations dialog, with its Reference set, Index, and Trimming groups at their defaults.
+viewport_class: fastq
+app_state:
+  fixture: docs/user-manual/fixtures/rnaseq-bulk
+  open_files:
+    - path: salmon-probe-c1/SRR896663_1.fastq.gz
+    - path: salmon-probe-c1/SRR896663_2.fastq.gz
+      note: imported as one paired-end bundle, SRR896663, with the Import FASTQ defaults
+  window_size: [1440, 900]
+  appearance: light
+steps:
+  - action: open_application
+    app: com.lungfish.browser.preview
+  - action: resize_window
+    width: 1440
+    height: 900
+  - action: wait_ready
+    signal: main_window_visible
+  # PROSE-ONLY: File > Import Center..., Sequencing Reads tab, click Import... on the Sequencing Read Files card
+  # PROSE-ONLY: in the file panel press Command-Shift-G, type the path of salmon-probe-c1, press Return
+  # PROSE-ONLY: click SRR896663_1.fastq.gz, Shift-click SRR896663_2.fastq.gz, click Open
+  # PROSE-ONLY: in the Import FASTQ sheet keep the defaults (Platform Unknown / Other, Pairing Paired-end) and click Import
+  # PROSE-ONLY: with the new bundle selected choose Tools > RNA-seq > Quantify RNA-seq Reads...
+  # PROSE-ONLY: capture the sheet as it opens. No reference set is installed, so the pop-up reads Choose a reference set and the footer says so
+  # PROSE-ONLY: click Cancel and never Run
+crop:
+  mode: region
+  region: [218, 83, 1004, 730]
+post:
+  retina: true
+  format: png

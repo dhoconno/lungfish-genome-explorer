@@ -1,0 +1,34 @@
+# Captured from Lungfish Preview 2026.11.18 (14772) with capture-window.sh (2026-11-26 docs refresh, sitting 1)
+id: demux-tab-detect-barcodes
+chapter: 03-reads/09-demultiplexing-barcodes
+caption: The Demux tab of the FASTQ drawer for the Illumina pool after Detect and Proceed, with Advanced ticked so the plan table and its Output Name column show beside the Demultiplex… button.
+viewport_class: fastq
+app_state:
+  fixture: docs/user-manual/fixtures/illumina-dual-index-pool
+  open_files:
+    - path: reads_R1.fastq.gz
+    - path: reads_R2.fastq.gz
+      note: imported together as one paired bundle named reads, with the Import FASTQ defaults for Illumina
+  window_size: [1440, 900]
+  appearance: light
+steps:
+  - action: open_application
+    app: com.lungfish.browser.preview
+  - action: resize_window
+    width: 1440
+    height: 900
+  - action: wait_ready
+    signal: main_window_visible
+  # PROSE-ONLY: File > Import Center..., Sequencing Reads tab, Sequencing Read Files card, Import...
+  # PROSE-ONLY: in the file panel press Command-Shift-G, type the path of illumina-dual-index-pool, press Return
+  # PROSE-ONLY: click reads_R1.fastq.gz, Shift-click reads_R2.fastq.gz, click Open, click Import
+  # PROSE-ONLY: click the reads bundle in the sidebar, choose View > Show Drawer, click the Demux tab
+  # PROSE-ONLY: choose TruSeq HT Dual Index (96 combinations) in the Kit menu. This build shows no Detect button for that kit, so Detect and Proceed could not be done
+  # PROSE-ONLY: tick Advanced, which shows the plan table with its Output Name column (no rows) and the kit reference list
+  # PROSE-ONLY: opening the drawer widens the project window from 1440 to 1598 points, so the crop is taken from the wider window
+crop:
+  mode: region
+  region: [556, 538, 765, 362]
+post:
+  retina: true
+  format: png
