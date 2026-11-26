@@ -170,7 +170,7 @@ The rest of the View menu acts on particular viewports.
 | All Samples | Cmd-Shift-0 | TaxTriage result window |
 | Show as RNA (U instead of T) | Cmd-Shift-U | Sequence viewport |
 
-The taxonomy table is the tree of organism names a [classifier](../../GLOSSARY.md#classifier), a program that names the organism each read came from, produces, and its two rows need the table to have focus. With it focused, Opt-Right Arrow expands the selected row and everything beneath it. The three sample rows work only when a run of TaxTriage, one of LGE's classifiers, holds more than one sample. **Show as RNA** redraws the sequence with uracil in place of thymine and shows a checkmark while it is on. **Reset View Settings to Defaults** has no shortcut.
+The taxonomy table is the tree of organism names a [classifier](../../GLOSSARY.md#classifier), a program that names the organism each read came from, produces, and its two rows need the table to have focus. With it focused, Opt-Right Arrow expands the selected row and everything beneath it. The three sample rows work only when a run of TaxTriage, one of LGE's classifiers, holds more than one sample. **Show as RNA** redraws the sequence with uracil in place of thymine and shows a checkmark while it is on. **Reset View** has no shortcut.
 
 ## Sequence menu
 
