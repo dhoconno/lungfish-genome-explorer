@@ -663,10 +663,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     }
 
     /// The count label's words: "N of M assemblies" while a filter narrows the table, "M assemblies" otherwise.
-    static func countLabelText(filtered: Int?, total: Int) -> String {
-        if let filtered { return "\(filtered) of \(total) assemblies" }
-        return "\(total) assemblies"
-    }
+    static func countLabelText(filtered: Int?, total: Int) -> String { filtered.map { "\($0) of \(total) assemblies" } ?? "\(total) assemblies" }
 
     // MARK: - Search / Filter
 
@@ -1944,8 +1941,6 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     }
 
     var testingSearchField: NSSearchField { searchField }
-
-    /// The words the count label shows now.
     var testingCountLabelText: String { countLabel.stringValue }
 
     var testingDisplayedSampleIDs: [String] {

@@ -430,18 +430,11 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     private func updateCountLabel() {
-        guard let tree else {
-            countLabel.stringValue = ""
-            return
-        }
-        countLabel.stringValue = Self.countLabelText(filtered: filteredNodeIDs?.count, total: tree.allNodes().count)
+        countLabel.stringValue = tree.map { Self.countLabelText(filtered: filteredNodeIDs?.count, total: $0.allNodes().count) } ?? ""
     }
 
     /// The count label's words: "N of M taxa" while a filter narrows the table, "M taxa" otherwise.
-    static func countLabelText(filtered: Int?, total: Int) -> String {
-        if let filtered { return "\(filtered) of \(total) taxa" }
-        return "\(total) taxa"
-    }
+    static func countLabelText(filtered: Int?, total: Int) -> String { filtered.map { "\($0) of \(total) taxa" } ?? "\(total) taxa" }
 
     private func applyFilter() {
         let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
