@@ -9,6 +9,7 @@
 // routes call it.
 
 import AppKit
+import SwiftUI
 import XCTest
 import SQLite3
 @testable import LungfishCore
@@ -548,6 +549,122 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
         let several = reportsAroundThePrimary(by: viewer) { $0.presentAnnotationSequenceExtractionDialog(selection) }
         XCTAssertEqual(sentences(several.before), [], "a selection shows no words before the choice")
         XCTAssertEqual(sentences(several.after), [transcriptWords, cdsExtractionWords])
+    }
+
+    // MARK: - The save panel comes before the words (GTF-WORDS-SHEET-LOSES-SAVE-PANEL)
+
+    /// What one Extract to a FASTA file did, in the order it happened.
+    @MainActor
+    private final class OrderLog {
+        var events: [String] = []
+        var words: [String] = []
+        var exported: [URL] = []
+        /// The sheet the dialog was on the window as, before Save was pressed.
+        var dialogSheet: NSWindow?
+    }
+
+    /// The save panel Extract to a FASTA file asks for, answering with `answer` at once. A real `NSSavePanel` cannot run
+    /// in the tier, so this one only records that it was asked for.
+    @MainActor
+    private final class SavePanelStandIn: SavePanelPresenting {
+        let answer: URL?
+        let log: OrderLog
+        init(answer: URL?, log: OrderLog) {
+            self.answer = answer
+            self.log = log
+        }
+
+        func present(suggestedName: String, on window: NSWindow) async -> URL? {
+            log.events.append("panel")
+            return answer
+        }
+    }
+
+    /// Shows the words as the app does, as a real sheet on the window, and records that the route asked to show them.
+    @MainActor
+    private final class SheetWordsPresenter: ViewerRefusalPresenting {
+        let window: NSWindow
+        let log: OrderLog
+        init(window: NSWindow, log: OrderLog) {
+            self.window = window
+            self.log = log
+        }
+
+        func present(_ report: FailureReport, in window: NSWindow?) {
+            log.events.append("words")
+            log.words.append(report.whatHappened + " " + report.nextStep)
+            FailurePresenter.present(report, in: window ?? self.window)
+        }
+    }
+
+    /// One Extract to a FASTA file on a real window. The real route opens the real dialog, the test presses its Save
+    /// with the destination File, and the stand-in panel answers with `answer`. A nil answer is the panel's Cancel.
+    private func extractToAFile(answering answer: URL?, in window: NSWindow, viewer: SequenceViewerView) async throws -> OrderLog {
+        let controller = try XCTUnwrap(viewer.viewController)
+        let log = OrderLog()
+        controller.fastaRecordsSavePanelPresenter = SavePanelStandIn(answer: answer, log: log)
+        controller.fastaRecordsExportForTesting = { _, file in log.exported.append(file) }
+        viewer.presentAnnotationSequenceExtractionDialog([annotation("transcript", 100, 900, id: "T1")])
+        log.dialogSheet = window.attachedSheet
+        let host = try XCTUnwrap(
+            log.dialogSheet?.contentViewController as? NSHostingController<FASTASequenceExtractionDialog>,
+            "the real route opens the Extract Sequence dialog on the window"
+        )
+        host.rootView.model.destination = .file
+        ViewerRefusalSeam.$presenter.withValue(SheetWordsPresenter(window: window, log: log)) {
+            host.rootView.onPrimary()
+        }
+        // The panel is asked for from a task that Save starts, so wait for it. What shows after the panel's answer shows
+        // in the same task, and a Cancel shows nothing, so a short quiet period then reads what the route did.
+        await waitUntil(timeout: .seconds(5)) { log.events.contains("panel") }
+        try await Task.sleep(for: .milliseconds(300))
+        return log
+    }
+
+    /// GT-4 of the W17O walk (S2): on an old-GTF transcript, Extract to a FASTA file showed the words sheet first, and the
+    /// save panel never showed after it, so no file was saved. This runs the real route and the real dialog on a real
+    /// window, not through `fastaSequenceExtractionDialogPresenterForTesting`, which replaces the dialog and so hid the
+    /// order. Only the `NSSavePanel` and the export that follows it are stand-ins.
+    func testExtractToAFASTAFileAsksForTheSavePanelBeforeTheWordsAndShowsNoneAfterItsCancel() async throws {
+        continueAfterFailure = true
+        _ = NSApplication.shared
+        let viewer = try makeViewerOnGTFBundle()
+        let controller = try XCTUnwrap(viewer.viewController)
+        let window = NSWindow(contentViewController: controller)
+        defer {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+            window.contentViewController = nil
+            window.orderOut(nil)
+        }
+
+        let file = scratch.appendingPathComponent("T1.fa")
+        let chosen = try await extractToAFile(answering: file, in: window, viewer: viewer)
+        XCTAssertEqual(
+            chosen.events.first, "panel", "the save panel is asked for before any words sheet is attached to the window"
+        )
+        XCTAssertEqual(chosen.words, [transcriptWords], "when a file is chosen, the old-GTF words follow it")
+        XCTAssertEqual(chosen.exported, [file], "the records are written to the file that was chosen")
+        let wordsSheetShown = await waitUntil(timeout: .seconds(5)) {
+            window.attachedSheet != nil && window.attachedSheet !== chosen.dialogSheet
+        }
+        XCTAssertTrue(wordsSheetShown, "the words are a sheet on the window once the file is chosen")
+        if let sheet = window.attachedSheet { window.endSheet(sheet) }
+        let cleared = await waitUntil(timeout: .seconds(5)) { window.attachedSheet == nil }
+        XCTAssertTrue(cleared, "the words sheet ends, so the next dialog can open")
+
+        let cancelled = try await extractToAFile(answering: nil, in: window, viewer: viewer)
+        XCTAssertEqual(cancelled.events, ["panel"], "after the panel's Cancel no words show, and nothing is exported")
+        XCTAssertEqual(cancelled.words, [])
+        XCTAssertEqual(cancelled.exported, [])
+        let quiet = await waitUntil(timeout: .seconds(5)) { window.attachedSheet == nil }
+        XCTAssertTrue(quiet, "after the panel's Cancel no sheet is on the window")
+    }
+
+    /// The panel Extract to a FASTA file asks for is the system's own, and its export runs, unless a test replaces them.
+    func testExtractToAFASTAFileAsksTheSystemSavePanelAndRunsTheExportByDefault() {
+        let controller = ViewerViewController()
+        XCTAssertTrue(controller.fastaRecordsSavePanelPresenter is DefaultSavePanelPresenter)
+        XCTAssertNil(controller.fastaRecordsExportForTesting)
     }
 
     /// AFFECTED-ANNOT-3 SF-2: a selection asks the track for the words of the first row of each kind, and for no other

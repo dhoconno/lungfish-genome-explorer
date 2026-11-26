@@ -171,6 +171,9 @@ public class ViewerViewController: NSViewController {
     /// tests only when run in an interactive session.
     var extractionFailureAlertPresenter: ExtractionFailureAlertPresenter?
     var alignmentExtractionSavePanelPresenter: SavePanelPresenting = DefaultSavePanelPresenter()
+    /// The panel Extract to a FASTA file asks for its file with, and a test's stand-in for the export that follows it.
+    var fastaRecordsSavePanelPresenter: SavePanelPresenting = DefaultSavePanelPresenter()
+    var fastaRecordsExportForTesting: (([String], URL) -> Void)?
 
     var activeSelectedReadsExtractionTask: Task<Void, Never>?
     var activeConsensusGenerationTask: Task<Void, Never>?
@@ -1299,9 +1302,10 @@ public class ViewerViewController: NSViewController {
         return "\(trimmed).fa"
     }
 
-    func exportFASTARecords(_ records: [String], suggestedName: String) {
+    /// `afterChoice` runs once the panel returns a file, never after its Cancel, so words about the file wait for it.
+    func exportFASTARecords(_ records: [String], suggestedName: String, afterChoice: (() -> Void)? = nil) {
         guard !records.isEmpty, let window = view.window else { return }
-        let savePanelPresenter = DefaultSavePanelPresenter()
+        let savePanelPresenter = fastaRecordsSavePanelPresenter
         Task {
             guard let destination = await savePanelPresenter.present(
                 suggestedName: suggestedName,
@@ -1309,6 +1313,8 @@ public class ViewerViewController: NSViewController {
             ) else {
                 return
             }
+            afterChoice?()
+            if let export = self.fastaRecordsExportForTesting { export(records, destination); return }
             // `lungfish-cli extract sequence` writes the file and its record behind an Operations row (2.12 lane 12.34, A11).
             await Self.runFASTARecordsExport(records: records, outputURL: destination) { message in
                 logger.error("FASTA export failed for \(destination.lastPathComponent, privacy: .public): \(message, privacy: .public)")
@@ -1771,8 +1777,8 @@ public class ViewerViewController: NSViewController {
         DefaultSharingServicePresenter().present(items: [shareURL], relativeTo: view, preferredEdge: .minY)
     }
 
-    /// Presents the Extract Sequence dialog for `records`. `afterPrimary` runs after the person's choice (Save, Create,
-    /// Copy or Share) has been started, and never after a Cancel.
+    /// Presents the Extract Sequence dialog for `records`. `afterPrimary` runs after the person's choice (Create, Copy or
+    /// Share) has been started, or after the Save panel returns a file, and never after a Cancel of the dialog or panel.
     func presentFASTASequenceExtractionDialog(
         records: [String],
         suggestedName: String,
@@ -1830,7 +1836,9 @@ public class ViewerViewController: NSViewController {
                         sourceAlignmentBundleURL: sourceAlignmentBundleURL
                     )
                 case .file:
-                    self.exportFASTARecords(records, suggestedName: Self.fileName(for: baseName))
+                    // The Save panel comes first, so the words follow the file it returns. Queued before it, they hid it.
+                    self.exportFASTARecords(records, suggestedName: Self.fileName(for: baseName), afterChoice: afterPrimary)
+                    return
                 case .clipboard:
                     DefaultPasteboard().setString(records.joined(separator: ""))
                 case .share:
