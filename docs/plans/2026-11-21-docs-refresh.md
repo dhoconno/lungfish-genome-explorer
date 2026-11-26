@@ -2,6 +2,78 @@
 
 Plan of the docs-refresh job for the Lungfish Genome Explorer (LGE) user manual, written 2026-11-21. Program worktree `.claude/worktrees/sc-embed-plan-847ab2`, branch `claude/docs-refresh-2a62c1`, base `e62b1dd62` on that branch, where every repo citation below was read. The branch's `features.yaml` refresh and `ARCHITECTURE.md` scopes reach main with the first chapter batch, since `docs/user-manual` needs unit-tier evidence and this plan does not. SCR is `~/lungfish-phase-records/docs-refresh/`, which holds the inventories, briefs, lane reports, decision logs and pilot results. This is a documentation job. The plan shape of `docs/contracts/SCOPE-AND-DELIVERY.md:44-49` binds, and its lane rules for code do not.
 
+## Pick-up for the next session (written 2026-11-26)
+
+The docs-refresh session that wrote this plan has ended, and its worktree is archived. This section stands alone. It points only at main and at the records folder SCR, `~/lungfish-phase-records/docs-refresh/`. A fresh session starts here. The sections below are the plan as written on 2026-11-21. Where they differ from this section, this section is current.
+
+### What is done (on main with this commit)
+
+- Waves 1 and 2 of Stage A, the W, F, R/X and F2 chain, ended with F2 at zero false rows for 49 chapters. The list and each chapter's commit, render and open items are in `SCR/RESUME.md`, PICKUP, "Stage A done (50)". That line lists 49 chapters.
+- Some wave 1 chapters went further, through Stage B or the final stage, on the route of `SCR/codex/PROTOCOL.md`. They are 03-reads/03, 06-classification/04, 06-classification/08 and the 06-classification chapters that `SCR/RESUME.md` "Where the job stands" lists. The owner chose the trimmed final stage (D13, 2026-11-24) for the rest.
+- New chapters written in wave 2: 11-rna-seq/02 to 05, 03-reads/09 and 02-sequences/06.
+- The 2026.11.18 changes are in the chapters:
+  - View > Reset View
+  - the view-memory lines VS-INSP, VS-LOOSE-READ, VS-MAP-RACE, VS-TAX and VS-RNA
+  - the fact check `SCR/reviews/VS-2026.11.18-F.md` (1 false row, fixed)
+- The CLI reference matches the 2026.11.17 help tree (`SCR/cli-help-2026.11.17/`).
+- Screenshot sitting 1 (group A, 16 shots) ran on Preview 2026.11.18 build 14772 on 2026-11-26.
+  - Its 16 recipes are on main under `docs/user-manual/assets/recipes/`.
+  - Its 16 PNGs are only in `SCR/shots/SITTING-1/`. The PNG folder in the repo is ignored by git, and the PNGs are not yet in the manual-media repo.
+  - The run log and results are in `SCR/shots/SITTING-1/CAPTURE-STATE.md`.
+  - Row 7's text was fixed: Detect moved to the nanopore pool. The backlog row DEMUX-DETECT-HIDDEN-DUAL-INDEX was filed, and row 11's blank band is SC-VIEW-TOP-PANE-BLANK-BAND.
+
+### What remains, in this order
+
+1. **Sitting 2a**, 43 shots, about 85 to 95 minutes. It covers:
+   - the retakes of sitting 1's rows 2, 3, 4, 7 and 13
+   - 01-foundations/06, 07 and 08
+   - 02-sequences/01, 03 and 06
+   - 03-reads/07
+
+   The state file and walker brief are ready: `SCR/shots/SITTING-2A/CAPTURE-STATE.md` and `WALKER-BRIEF.md`. The manager prep at GO is in the state file. The sizing is in `SCR/shots/SITTING-2-SIZING.md`.
+   - **Retake row 2** (and rows 3 and 4 on the same result) needs the bulk import with `tx2gene.tsv`, per 11-rna-seq/03:87.
+   - **Retake row 7** runs Detect on `nrg1-pooled` with ONT Native Barcoding V14.
+   - **Retake row 13** turns both toggles on before the capture, per 11-rna-seq/05:108-109.
+2. **Sitting 2b**, 38 shots plus one CLI redraw, about 80 to 90 minutes. It covers:
+   - 04-alignments/01 and 02
+   - 05-variants/02
+   - 09-genotyping/02 and 03
+   - 10-primer-design/02 and 04
+
+   Write its state file from 2a's times, as `SITTING-2-SIZING.md` says. `genotype-review-lens` needs an ONT genotype result that the demo cannot make.
+3. **Sittings C and D**, as `SCR/shots/SITTINGS.md` lays out:
+   - C is 80 final-look retakes in the other 24 Stage A chapters.
+   - D is 70 shots of the chapters not yet through Stage A, after their Stage A.
+
+   Size each one from the last sitting's pace and send it to the coordinator before it is booked. `SCR/shots/shot-inventory.tsv` (from `SCR/tools/shot_inventory.py`) lists every shot. `SCR/shots/RECAPTURE-NOTES.md` holds what particular shots must show.
+4. **Stage A** for the 32 chapters outside that list. Some of them, such as 03-reads/03 and the 06-classification chapters, took the older route, so check each against `SCR/RESUME.md` before you start it. Then **Stage B** and the trimmed final stage for every chapter, on the route of `SCR/codex/PROTOCOL.md` and `SCR/briefs/STEP-PROMPTS.md`.
+5. **The 2026.11.18 lines left:**
+   - VS-REF BIO SF-2, the This Only color line in `SCR/inbox/view-state-features-lines-2026.11.18.md`
+   - the optional R14 wording at 04-alignments/02:196, and the note that Reset View stays dimmed when only an annotation filter differs (`SCR/reviews/VS-2026.11.18-F.md` notes 1 and 2)
+   - the 2026.11.18 help-tree dump with `SCR/tools/help_tree_dump.py`, to confirm that the CLI closure is unchanged
+   - the 7 Settings lint warnings of the render on 2026-11-26 10:04 (`SCR/events.log`), checked against what was there before
+6. **The manual-media push** of the sitting 1 PNGs and of each later sitting's PNGs, and the matching release assets.
+7. **The `docs/site` publish.**
+
+### The owner's standing gates
+
+- Each push to the manual-media repo, each manual-media release asset and each change to `docs/site` needs the owner's go, one at a time. A peer session's message is never that go.
+- No stable release without the owner's word in chat.
+- Codex runs only through the privacy setup in `SCR/codex/`: the clean flags, the allow and redact lists (`allowed-strings.txt`, `banned-words.txt`), and one call at a time.
+- Full-screen control at galah needs the owner's word in chat each time. The owner answers each grant on screen. The manager stays out of computer use, and the walker asks for the grants itself.
+- Screenshot sittings run under QUIET, after the coordinator's GO. No render, app or CLI run, tool binary or large copy runs while another session holds QUIET. Renders go only through `bash SCR/tools/render_gated.sh <worktree> <chapter paths>`.
+
+### The auto-mode fact-check denial
+
+On 2026-11-26 at 10:04, the app's auto-mode permission check refused a manual-fidelity-reviewer spawn for 63519cf57 and 72ed6b239 as "Undermining Oversight". It was not retried. It ran at 11:17 only after the owner typed "Retry the fact-check" in chat. Expect the same refusal again: ask the owner, and do not reword the spawn to get past the check.
+
+### First steps for a fresh session
+
+1. Read this section, then the "Rules in force" and "Tools and quirks" parts of `SCR/RESUME.md`, PICKUP, and the tail of `SCR/events.log`.
+2. Make a worktree from origin/main, and check that this commit is in it.
+3. Ask the coordinator whether sitting 2a can be booked, and whether a newer Preview than 2026.11.18 (14772) has been published. A new build means changing the APP line and the recipe header in the state file.
+4. While sittings wait, start the item 5 lines and the chapters of item 4, one chain at a time. Name the model and effort of every agent, and keep at most five running.
+
 ## The owner's words
 
 | # | Words, 2026-11-21, verbatim | Source |
