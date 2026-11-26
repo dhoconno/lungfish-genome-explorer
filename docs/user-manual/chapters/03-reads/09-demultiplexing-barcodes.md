@@ -15,7 +15,7 @@ entry_points:
   - "CLI: lungfish-cli fastq scout"
 shots:
   - id: demux-tab-detect-barcodes
-    caption: "The Demux tab of the FASTQ drawer for the Illumina pool after Detect and Proceed, with Advanced ticked so the plan table and its Output Name column show beside the Demultiplex… button."
+    caption: "The Demux tab of the FASTQ drawer for the pooled NRG1 bundle after Detect and Proceed, with Advanced ticked so the plan table and its Output Name column show beside the Demultiplex… button."
   - id: demultiplex-barcodes-pane
     caption: "The Demultiplex Barcodes pane with ONT Native Barcoding V14 (SQK-NBD114-96, 96) chosen for the pooled NRG1 bundle, where a caption stands in place of the Location and distance controls."
   - id: demultiplex-chance-summary
@@ -99,23 +99,25 @@ No run record gives a time for either pool or for a run of millions of reads. Wa
 
 Detect is optional. Take the Tools menu route when you already know the kit and your samples' barcodes, and start with Detect when you are unsure which kit tagged the pool. Both routes end in the same Demultiplex Barcodes dialog.
 
-### Check an Illumina pool with Detect Barcodes on the Demux tab
+### Check a nanopore pool with Detect Barcodes on the Demux tab
 
-Detect Barcodes counts the barcodes of one kit in the first 10,000 reads of a bundle, so a wrong kit shows before a full run. For Illumina and Element kits it counts the index in the read names, and for other kits it searches the read bases. It sits on the Demux tab of the drawer under the reads viewer, where its button reads **Detect**.
+Detect Barcodes counts the barcodes of one kit in the first 10,000 reads of a bundle, so a wrong kit shows before a full run. For Illumina and Element kits it counts the index in the read names, and for other kits it searches the read bases. It sits on the Demux tab of the drawer under the reads viewer, where its button reads **Detect**. The tab hides **Detect** for a dual-index kit, such as TruSeq HT Dual Index (96 combinations), whose two indexes differ. To count a dual-index pool, type `lungfish-cli fastq scout` as [On the command line](#on-the-command-line) shows.
 
-1. Click the paired pool bundle in the sidebar, choose **View > Show Drawer** (Control-Command-B), and click the drawer's **Demux** tab.
+1. Click the `nrg1-pooled` bundle in the sidebar, choose **View > Show Drawer** (Control-Command-B), and click the drawer's **Demux** tab.
 
-2. Choose TruSeq HT Dual Index (96 combinations) in the **Kit** menu, the kit whose pairs D701-D501 to D704-D504 tagged the four libraries, and click **Detect**. The drawer's status line shows "Scouting barcodes..." as the count starts.
+2. Choose ONT Native Barcoding V14 (SQK-NBD114-96, 96) in the **Kit** menu, the kit whose barcodes NB85 to NB91 tagged the six samples, and click **Detect**. The drawer's status line shows "Scouting barcodes..." as the count starts.
 
-3. Read the Barcode Detection Results sheet that opens. It lists each index pair it found with its status, its hits, which are the reads that carry it, and its percent of the reads scanned. Click the status of any accepted pair that belongs to none of your samples, such as a hopped pair with a handful of reads, so that it shows rejected. Type a name under **Sample Name** for each pair you keep, such as HG002-lib1 for D701-D501, and click **Proceed**. The status line then reads "4 barcodes added to the plan. Demultiplex… opens Demultiplex Barcodes, which splits the reads by the index in their names."
+3. Read the Barcode Detection Results sheet that opens. It lists each barcode it found with its status, its hits, which are the reads that carry it, and its percent of the reads scanned. A barcode with as many hits as the **Accept ≥** box is accepted, and one with no more than the **Reject ≤** box is rejected. Click the status of any accepted barcode that belongs to none of your samples so that it shows rejected. Type a name under **Sample Name** for each barcode you keep, such as IPSC-progenitors-long for NB85, and click **Proceed**. The status line then reads "6 barcodes added to the plan. Demultiplex… opens Demultiplex Barcodes with it."
 
 4. Tick **Advanced**, the checkbox just below the **Kit** menu, to see the plan as a table. Its **Output Name** column shows the name each sample's bundle will take, the typed name with spaces, commas, quotes, and slashes turned into underscores.
 
     <!-- SHOT: demux-tab-detect-barcodes -->
 
-5. Click **Demultiplex…**. LGE writes the plan into the project's `Barcode Definitions` folder as a Custom Definition and opens Demultiplex Barcodes with that file chosen and **Engine** set to Read Names. Click **Run** there.
+5. Click **Demultiplex…**. LGE writes the plan into the project's `Barcode Definitions` folder as a Custom Definition and opens Demultiplex Barcodes with that file chosen. Click **Run** there.
 
-The command-line scout of this pool, which makes the same count, scanned the first 10,000 reads and assigned 9,924 of them (99.2 percent). It accepted the four true pairs, with 3,588, 2,736, 2,216, and 1,358 reads, and three hopped pairs, D701-D502 and D702-D503 with 6 reads each and D703-D501 with 4, each 0.04 to 0.06 percent of the reads. A hopped pair held 4 to 6 reads where a true pair held 1,358 to 3,588, a gap of more than two hundredfold, the kind of gap to look for, though no source gives a limit. Reject the three hopped pairs in step 3, since no library owns them. The **Accept ≥** and **Reject ≤** boxes of the sheet do nothing for a count from the read names, because such a count is accepted only above its chance bound.
+The command-line scout of this pool, which makes the same count, scanned all 2,400 reads and assigned 1,842 of them (76.8 percent). It accepted the six barcodes NB85, NB86, NB87, NB89, NB90, and NB91, with 293 to 315 reads each, and rejected NB88, which no read carried. The other 558 reads matched no barcode of the kit at either end.
+
+The command-line scout of the Illumina pool counted the index in the read names. It scanned the first 10,000 reads and assigned 9,924 of them (99.2 percent). It accepted the four true pairs, with 3,588, 2,736, 2,216, and 1,358 reads, and three hopped pairs, D701-D502 and D702-D503 with 6 reads each and D703-D501 with 4, each 0.04 to 0.06 percent of the reads. A hopped pair held 4 to 6 reads where a true pair held 1,358 to 3,588, a gap of more than two hundredfold, the kind of gap to look for, though no source gives a limit. No library owns a hopped pair, so leave the three out of the Custom Definition you write for the pool, as `kit.csv` does. A count from the read names is accepted only above its chance bound, so the scout's accept and reject limits do not apply to it.
 
 ### Demultiplex an Illumina dual-index pool with the Read Names engine
 
@@ -304,7 +306,7 @@ POOL="$HOME/Downloads/illumina-dual-index-pool"
 lungfish-cli import fastq "$POOL/reads_R1.fastq.gz" "$POOL/reads_R2.fastq.gz" \
   --project "$PROJECT"
 
-# Count the kit's index pairs in the first 10,000 reads, as Detect does.
+# Count the kit's index pairs in the first 10,000 reads. Detect is not offered for a dual-index kit.
 lungfish-cli fastq scout "$PROJECT/Imports/reads.lungfishfastq" --kit truseq-ht-dual \
   --output "$HOME/Desktop/pool-scout.json"
 
