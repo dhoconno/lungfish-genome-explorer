@@ -118,6 +118,38 @@ final class ClassifierFilterReloadTests: XCTestCase {
         XCTAssertEqual(table.testingItemRebuildCount, loadsBefore, "the samples already shown were drawn again")
     }
 
+    // MARK: - A post that names other samples draws them, and the typed filter narrows them
+
+    func testAKrakenViewportFiltersTheNewSamplesWhenThePostNamesOtherSamples() throws {
+        let root = try makeResultDirectory()
+        let database = try Kraken2Database.create(
+            at: root.appendingPathComponent("kraken2.sqlite"),
+            rows: ["sample-a", "sample-b"].flatMap { sample in
+                [Self.krakenRow(sample, "root", taxId: 1, parent: nil), Self.krakenRow(sample, "Ribo virus", taxId: 100, parent: 1),
+                 Self.krakenRow(sample, "Other virus", taxId: 200, parent: 1)]
+            },
+            metadata: [:]
+        )
+        let viewport = TaxonomyViewController()
+        isolateLayouts(viewport)
+        window.host(viewport.view)
+        viewport.configureFromDatabase(database)
+        let table = viewport.testTableView
+        table.testingSetFilterText("Ribo")
+        let shown = try XCTUnwrap(table.tree)
+
+        viewport.samplePickerState?.selectedSamples = ["sample-a"]
+        postTheSamplesGroupsSelectionChange()
+
+        XCTAssertFalse(table.tree?.root === shown.root, "a pick of other samples must draw")
+        let all = try XCTUnwrap(table.tree).allNodes().count
+        XCTAssertNotEqual(
+            table.testingCountLabelText, TaxonomyTableView.countLabelText(filtered: nil, total: all),
+            "the typed filter narrowed nothing on the new samples"
+        )
+        XCTAssertEqual(table.testingCountLabelText, TaxonomyTableView.countLabelText(filtered: 2, total: all))
+    }
+
     // MARK: - Fixtures
 
     private static func tree(named names: [String]) -> TaxonTree {
