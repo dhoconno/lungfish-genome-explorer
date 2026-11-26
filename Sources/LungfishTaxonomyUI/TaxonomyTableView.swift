@@ -432,12 +432,13 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             countLabel.stringValue = ""
             return
         }
-        let total = tree.allNodes().count
-        if let filtered = filteredNodeIDs {
-            countLabel.stringValue = "\(filtered.count) of \(total) taxa"
-        } else {
-            countLabel.stringValue = "\(total) taxa"
-        }
+        countLabel.stringValue = Self.countLabelText(filtered: filteredNodeIDs?.count, total: tree.allNodes().count)
+    }
+
+    /// The count label's words: "N of M taxa" while a filter narrows the table, "M taxa" otherwise.
+    static func countLabelText(filtered: Int?, total: Int) -> String {
+        if let filtered { return "\(filtered) of \(total) taxa" }
+        return "\(total) taxa"
     }
 
     private func applyFilter() {
@@ -1439,6 +1440,9 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     public var testingContextMenu: NSMenu? {
         outlineView.menu
     }
+
+    /// Test-only: the words the count label shows now.
+    var testingCountLabelText: String { countLabel.stringValue }
 
     /// Test-only: installs a minimal taxonomy tree so
     /// `outlineView.selectedRowIndexes` can hold a non-empty actionable

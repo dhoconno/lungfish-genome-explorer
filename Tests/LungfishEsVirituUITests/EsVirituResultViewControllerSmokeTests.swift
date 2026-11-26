@@ -319,6 +319,27 @@ final class EsVirituResultViewControllerSmokeTests: XCTestCase {
         XCTAssertEqual(table.testDisplayedAssemblyCount, 1)
     }
 
+    /// A table that loads data again keeps its filter's text and its effect together (VS-FILTER-RELOAD).
+    @MainActor func testViralDetectionTableKeepsItsFilterWhenANewResultLoads() {
+        let table = ViralDetectionTableView(frame: NSRect(x: 0, y: 0, width: 640, height: 320))
+        let matching = (1...3).map {
+            Self.viralAssembly(name: "Ribo virus \($0)", sampleId: "sample-A", assembly: "GCF_R\($0)", accession: "NC_R\($0)", reads: 40)
+        }
+        let others = (1...10).map {
+            Self.viralAssembly(name: "Other virus \($0)", sampleId: "sample-B", assembly: "GCF_O\($0)", accession: "NC_O\($0)", reads: 20)
+        }
+        let result = Self.esvirituResult(matching + others)
+        table.result = result
+        table.testingSubmitSearchTextImmediately("Ribo")
+        let narrowed = ViralDetectionTableView.countLabelText(filtered: matching.count, total: matching.count + others.count)
+        XCTAssertEqual(table.testingCountLabelText, narrowed)
+
+        table.result = result
+
+        XCTAssertEqual(table.testingSearchField.stringValue, "Ribo")
+        XCTAssertEqual(table.testingCountLabelText, narrowed, "the field still holds the filter and the table shows every row")
+    }
+
     @MainActor func testViralDetectionTypographyScalesLateCellsAndPreservesSelection() {
         let settings = AppSettings.shared
         let typographyDefaults = makeTestDefaultsSuite(prefix: "EsVirituResultViewControllerSmokeTests").defaults
