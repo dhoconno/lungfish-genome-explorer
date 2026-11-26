@@ -3945,8 +3945,15 @@ features:
     notes: >-
       Shows or hides the sidebar, Inspector and bottom drawer, changes the
       drawer height and the text size of viewer content, and zooms the
-      viewer (Zoom Reset shows 10 kb). Show as RNA draws U for T, and Reset
-      View Settings returns the open viewer's display options to defaults.
+      viewer (Zoom Reset shows 10 kb). Show as RNA draws U for T. View >
+      Reset View returns the view on show to its start, and it is dimmed when
+      nothing differs from the start. The Reset to Defaults button under
+      Sequence Style (Inspector, View tab, Annotations) no longer resets the
+      annotation height, spacing, visibility and filters; Reset View does that
+      for the view on show. An item opens on its own Inspector tab, not on the
+      last tab used, and the Inspector keeps each item's tab, its Samples &
+      Metadata disclosure and its Alignment, Annotations or Reads choice on the
+      View tab (VS-INSP, Preview 2026.11.18).
   window.set-size:
     title: Set the window size
     entry_points:

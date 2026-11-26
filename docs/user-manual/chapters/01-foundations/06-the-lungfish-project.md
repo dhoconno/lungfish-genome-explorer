@@ -163,7 +163,7 @@ The **View** menu shows, hides, and sizes the parts of the window, so a pane tha
 | **Content Text Size** | Its **Larger**, **Smaller**, and **Default** items change the size of text across LGE, apart from the viewport's zoom |
 | **Zoom In**, **Zoom Out**, **Zoom to Fit**, **Zoom Reset (10kb)** | Change the scale of the viewport |
 | **Show as RNA (U instead of T)** (Cmd-Shift-U) | Writes U in place of T in the sequences on screen |
-| **Reset View Settings to Defaults** | Puts the display settings of the viewers back to their defaults |
+| **Reset View** | Puts the view on show back the way it started, including its annotation height, spacing, visibility, and filters, and is dimmed when nothing has changed |
 | **Enter Full Screen** (Ctrl-Cmd-F) | Fills the screen with the window |
 
 **Window > New Window for Current Project** (Cmd-Opt-N) opens a second window on the same project. To give a window an exact size, open the **Window** menu, choose **Set Size…** from its **Move & Resize** submenu, type a **Width** and a **Height** in points, the unit macOS uses for sizes on screen, and click **Set**. [Settings](#settings) describes both boxes.
