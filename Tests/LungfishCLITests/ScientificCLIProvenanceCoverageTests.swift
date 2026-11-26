@@ -448,8 +448,42 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertFalse(inputPaths.contains { $0.hasSuffix("annotation-sequences.fa") })
         let encodedEnvelope = String(decoding: try JSONEncoder().encode(envelope), as: UTF8.self)
         XCTAssertFalse(encodedEnvelope.contains("lungfish-cli-annotation-sequences-"))
-        XCTAssertFalse(encodedEnvelope.contains("annotation-sequences.fa"))
+        // The bundle identifier org.lungfish.cli.annotation-sequences.<uuid> can begin annotation-sequences.fa, so match the temp FASTA as a path.
+        XCTAssertFalse(encodedRecordNamesTempAnnotationFASTA(encodedEnvelope))
         XCTAssertTrue(envelope.outputs.contains { $0.path.hasPrefix(outputBundleURL.path) && $0.checksumSHA256 != nil })
+    }
+
+    /// True when an encoded record holds the temp FASTA `<temp>/lungfish-cli-annotation-sequences-*/annotation-sequences.fa` as a path.
+    /// `JSONEncoder` writes `/` as `\/`, so the match starts at the slash itself and finds the path either way.
+    private func encodedRecordNamesTempAnnotationFASTA(_ encoded: String) -> Bool {
+        encoded.contains("/annotation-sequences.fa")
+    }
+
+    func testTempFASTAPathCheckIgnoresBundleIdentifierThatBeginsWithFa() throws {
+        // One UUID in 256 begins `fa`, and the identifier then holds `annotation-sequences.fa` with no temp path anywhere.
+        let identifier = "org.lungfish.cli.annotation-sequences.fa0e3c1a-7b5d-4c2e-9f08-5d1b6a2c4e77"
+        let tempFASTA = "/var/folders/x1/abc/T/lungfish-cli-annotation-sequences-0F3A9C12-7B5D-4C2E-9F08-5D1B6A2C4E77/annotation-sequences.fa"
+        let formattings: [JSONEncoder.OutputFormatting] = [[], [.withoutEscapingSlashes]]
+        for formatting in formattings {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = formatting
+
+            let identifierOnly = String(decoding: try encoder.encode(["identifier": identifier]), as: UTF8.self)
+            XCTAssertNotNil(
+                identifierOnly.range(of: "annotation-sequences.fa"),
+                "The old substring check would trip on the identifier alone"
+            )
+            XCTAssertFalse(encodedRecordNamesTempAnnotationFASTA(identifierOnly))
+
+            let withTempPath = String(
+                decoding: try encoder.encode(["identifier": identifier, "input": tempFASTA]),
+                as: UTF8.self
+            )
+            XCTAssertTrue(
+                encodedRecordNamesTempAnnotationFASTA(withTempPath),
+                "A recorded temp FASTA path is still found"
+            )
+        }
     }
 
     func testDirectFileSidecarsProtectMultipleOutputsInSameDirectory() async throws {
