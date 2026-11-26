@@ -614,10 +614,9 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
         ViewerRefusalSeam.$presenter.withValue(SheetWordsPresenter(window: window, log: log)) {
             host.rootView.onPrimary()
         }
-        // The panel is asked for from a task that Save starts, so wait for it. What shows after the panel's answer shows
-        // in the same task, and a Cancel shows nothing, so a short quiet period then reads what the route did.
-        await waitUntil(timeout: .seconds(5)) { log.events.contains("panel") }
-        try await Task.sleep(for: .milliseconds(300))
+        // The stand-in panel and the export seam never suspend, so the task Save starts runs its panel, its words and
+        // its export in one main-actor turn. When "panel" is logged the route is done.
+        await waitUntil(timeout: WaitBudget.standard.duration) { log.events.contains("panel") }
         return log
     }
 
@@ -644,20 +643,35 @@ final class GTFPartsNotJoinedWordsTests: XCTestCase {
         )
         XCTAssertEqual(chosen.words, [transcriptWords], "when a file is chosen, the old-GTF words follow it")
         XCTAssertEqual(chosen.exported, [file], "the records are written to the file that was chosen")
-        let wordsSheetShown = await waitUntil(timeout: .seconds(5)) {
+        let wordsSheetShown = await waitUntil(timeout: WaitBudget.standard.duration) {
             window.attachedSheet != nil && window.attachedSheet !== chosen.dialogSheet
         }
         XCTAssertTrue(wordsSheetShown, "the words are a sheet on the window once the file is chosen")
         if let sheet = window.attachedSheet { window.endSheet(sheet) }
-        let cleared = await waitUntil(timeout: .seconds(5)) { window.attachedSheet == nil }
+        let cleared = await waitUntil(timeout: WaitBudget.standard.duration) { window.attachedSheet == nil }
         XCTAssertTrue(cleared, "the words sheet ends, so the next dialog can open")
 
         let cancelled = try await extractToAFile(answering: nil, in: window, viewer: viewer)
         XCTAssertEqual(cancelled.events, ["panel"], "after the panel's Cancel no words show, and nothing is exported")
         XCTAssertEqual(cancelled.words, [])
         XCTAssertEqual(cancelled.exported, [])
-        let quiet = await waitUntil(timeout: .seconds(5)) { window.attachedSheet == nil }
+        let quiet = await waitUntil(timeout: WaitBudget.standard.duration) { window.attachedSheet == nil }
         XCTAssertTrue(quiet, "after the panel's Cancel no sheet is on the window")
+
+        // GT-3: the dialog's own Cancel asks for no panel and shows no words.
+        let dialogCancel = OrderLog()
+        controller.fastaRecordsSavePanelPresenter = SavePanelStandIn(answer: file, log: dialogCancel)
+        viewer.presentAnnotationSequenceExtractionDialog([annotation("transcript", 100, 900, id: "T1")])
+        let cancelHost = try XCTUnwrap(
+            window.attachedSheet?.contentViewController as? NSHostingController<FASTASequenceExtractionDialog>,
+            "the real route opens the Extract Sequence dialog on the window"
+        )
+        ViewerRefusalSeam.$presenter.withValue(SheetWordsPresenter(window: window, log: dialogCancel)) {
+            cancelHost.rootView.onCancel()
+        }
+        let dialogClosed = await waitUntil(timeout: WaitBudget.standard.duration) { window.attachedSheet == nil }
+        XCTAssertTrue(dialogClosed, "the dialog's Cancel ends its sheet")
+        XCTAssertEqual(dialogCancel.events, [], "after the dialog's own Cancel no panel is asked for and no words show")
     }
 
     /// The panel Extract to a FASTA file asks for is the system's own, and its export runs, unless a test replaces them.
