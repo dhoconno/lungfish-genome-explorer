@@ -581,7 +581,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         renderBatchSelection(sampleIds: state.selectedSamples.sorted())
     }
 
+    /// The samples the table and the chart show now, or nil while nothing is drawn. A post that names them again
+    /// changes nothing, so the handler leaves the table's data alone (VS-FILTER-RELOAD).
+    private var shownBatchSampleIDs: Set<String>?
+
     private func renderBatchSelection(sampleIds selected: [String]) {
+        shownBatchSampleIDs = Set(selected)
 
         guard let db = kraken2Database else {
             taxonomyTableView.tree = nil
@@ -630,6 +635,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             actionBar.setExtractEnabled(readLevelActionsAvailable, reason: readLevelActionsDisabledReason)
         } catch {
             logger.error("Failed to fetch Kraken2 tree for sample \(sample, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            shownBatchSampleIDs = nil
             currentBatchSampleId = nil
             tree = nil
             taxonomyTableView.tree = nil
@@ -642,6 +648,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     @objc private func handleBatchSampleSelectionChanged(_ notification: Notification) {
         guard ScopedEventFilter.accept(notification, for: ScopedEventFilter.hostingWindowScope(of: viewIfLoaded)) else { return }
         guard isBatchMode else { return }
+        // The Inspector's Samples group posts as it takes this viewer's picker. A picker that holds the samples already
+        // drawn needs no draw: it would load the table's data again and drop the filter's effect (VS-FILTER-RELOAD).
+        if let state = samplePickerState, state.selectedSamples == shownBatchSampleIDs { return }
         applyBatchSampleFilter()
     }
 

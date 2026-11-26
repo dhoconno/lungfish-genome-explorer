@@ -698,11 +698,16 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         }
     }
 
+    /// The samples the table shows now, or nil while nothing is drawn. A post that names them again changes nothing,
+    /// so the handler leaves the table's data alone (VS-FILTER-RELOAD).
+    private var shownBatchSampleIDs: Set<String>?
+
     /// Filters `allBatchRows` by the samples selected in `samplePickerState`
     /// and renders the native table/detail panes for all selected samples.
     func applyBatchSampleFilter() {
         guard let state = samplePickerState else { return }
         let selected = state.selectedSamples.sorted()
+        shownBatchSampleIDs = Set(selected)
 
         guard !selected.isEmpty else {
             esVirituResult = nil
@@ -831,6 +836,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     @objc private func handleBatchSampleSelectionChanged(_ notification: Notification) {
         guard ScopedEventFilter.accept(notification, for: ScopedEventFilter.hostingWindowScope(of: viewIfLoaded)) else { return }
         guard isBatchMode else { return }
+        // The Inspector's Samples group posts as it takes this viewer's picker. A picker that holds the samples already
+        // drawn needs no draw: it would load the table's data again and drop the filter's effect (VS-FILTER-RELOAD).
+        if let state = samplePickerState, state.selectedSamples == shownBatchSampleIDs { return }
         applyBatchSampleFilter()
     }
 
