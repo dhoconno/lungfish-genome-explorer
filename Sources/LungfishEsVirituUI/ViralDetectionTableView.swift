@@ -85,10 +85,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         didSet {
             cancelPendingFilterApplication()
             rebuildItems()
-            filterText = ""
             filteredItems = nil
             refreshSortedItems()
             reloadData()
+            // The field keeps its text, so the new items are filtered by it and the count tells the same story.
+            if !filterText.isEmpty { applyFilter() }
         }
     }
 

@@ -79,6 +79,8 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             directMatchNodeIDs = []
             updateBrackenColumnVisibility()
             reloadData()
+            // The field keeps its text, so the new tree is filtered by it and the count tells the same story.
+            if !filterText.isEmpty { applyFilter() }
         }
     }
 
