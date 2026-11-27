@@ -61,7 +61,7 @@ struct RNASeqReferenceSetsSection: View {
                 Text(ReferenceSetCatalog.description)
                     .font(.caption)
                     .foregroundStyle(Color.lungfishSecondaryText)
-                Text("Download \(LungfishFormatters.formatBytes(row.entry.downloadBytes)), about 12 GB kept, 64 GB free disk and 16.6 GB of memory while it builds, about an hour")
+                Text("Download \(LungfishFormatters.formatBytes(row.entry.downloadBytes)), about 18 GB kept, 64 GB free disk and 16.6 GB of memory while it builds, about an hour")
                     .font(.caption)
                     .foregroundStyle(Color.lungfishSecondaryText)
                 if model.installing.contains(row.id) {

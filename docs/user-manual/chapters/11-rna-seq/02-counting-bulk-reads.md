@@ -134,7 +134,7 @@ If someone else has counted the reads, go to [the import section](#import-salmon
 
 ### Install a reference set in Plugin Manager
 
-Plugin Manager installs two named defaults, each with its salmon index, in one step. **Human, GRCh38 with GENCODE 50** is the named default `human/gencode-50`, and **Mouse, GRCm39 with GENCODE M39** is `mouse/gencode-M39`. Each row reads "Genome, genes and salmon index for counting bulk reads." Under that, it gives the download size and what the build needs, about 12 GB kept on disk, 64 GB of free disk and 16.6 GB of memory while it builds, and about an hour.
+Plugin Manager installs two named defaults, each with its salmon index, in one step. **Human, GRCh38 with GENCODE 50** is the named default `human/gencode-50`, and **Mouse, GRCm39 with GENCODE M39** is `mouse/gencode-M39`. Each row reads "Genome, genes and salmon index for counting bulk reads." Under that, it gives the download size and what the build needs, about 18 GB kept on disk, 64 GB of free disk and 16.6 GB of memory while it builds, and about an hour.
 
 1. Install the **RNA-Seq Analysis** pack on the **Packs** tab of Plugin Manager if your Mac does not have it, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
 2. Choose **Tools > Plugin Manager…** and click the **Databases** tab. The **RNA-seq Reference Sets** section sits below the metagenomics databases.
