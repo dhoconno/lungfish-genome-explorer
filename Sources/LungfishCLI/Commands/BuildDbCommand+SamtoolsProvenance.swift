@@ -218,11 +218,13 @@ final class BuildDbSamtoolsProvenanceTracker {
     func countReads(
         bamURL: URL,
         accessions: [String],
-        flagFilter: Int
+        flagFilter: Int,
+        minMappingQuality: Int = 0
     ) async throws -> Int {
         var named: Set<String> = []
         let regions = accessions.filter { !$0.isEmpty && named.insert($0).inserted }
-        let arguments = ["view", "-c", "-F", String(flagFilter), bamURL.path] + regions
+        let qualityFilter = minMappingQuality > 0 ? ["-q", String(minMappingQuality)] : []
+        let arguments = ["view", "-c", "-F", String(flagFilter)] + qualityFilter + [bamURL.path] + regions
         let invocation = try await executeSamtools(arguments: arguments)
         try appendStep(
             invocation,

@@ -189,6 +189,7 @@ extension BuildDbCommand {
                     },
                     organismAccessions: organismAccessions,
                     keepsParsedReadCount: true,
+                    minMappingQuality: TaxTriageConfig.defaultMinMappingQuality,
                     updateAccessionLength: true,
                     onIdxstats: { idxstatsByBAM[$0] = $1 },
                     events: events,

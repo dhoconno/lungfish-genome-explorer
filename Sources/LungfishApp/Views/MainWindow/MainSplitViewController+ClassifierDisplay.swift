@@ -535,7 +535,7 @@ extension MainSplitViewController {
                 taxTriageParams["Platform"] = Self.taxTriageRunValue(cfg, cfg.platform.displayName)
                 taxTriageParams["Classifiers"] = Self.taxTriageRunValue(cfg, cfg.classifiers.joined(separator: ", "))
                 taxTriageParams["Confidence"] = Self.taxTriageRunValue(cfg, String(format: "%.2f", cfg.k2Confidence))
-                taxTriageParams["Top Hits"] = Self.taxTriageRunValue(cfg, "\(cfg.topHitsCount)")
+                taxTriageParams["Top Hits"] = Self.taxTriageRunValue(cfg, cfg.topHitsDisplayValue)
                 taxTriageParams["Rank"] = Self.taxTriageRunValue(cfg, cfg.rank)
                 taxTriageParams["Max CPUs"] = Self.taxTriageRunValue(cfg, "\(cfg.maxCpus)")
                 taxTriageParams["Max Memory"] = Self.taxTriageRunValue(cfg, cfg.maxMemory)

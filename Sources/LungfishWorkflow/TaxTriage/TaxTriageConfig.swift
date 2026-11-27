@@ -120,8 +120,25 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
 
     /// Number of top hits to report per sample.
     ///
-    /// Passed as `--top_hits_count`. Default: 10.
+    /// Passed as `--top_hits_count`. Default: 10. TaxTriage downloads a reference and aligns reads only for the
+    /// organisms this count selects, so an organism outside it has no BAM and no Unique Reads. A count of
+    /// ``allOrganismsTopHitsCount`` selects every species of the Kraken2 report.
     public var topHitsCount: Int
+
+    /// TaxTriage's `minmapq`: the lowest mapping quality a read needs to count in its # Reads Aligned. The app's Unique
+    /// Reads count applies the same floor, so it counts the reads that number counts (a multi-mapping MAPQ 0 read is in
+    /// the BAM but in neither count).
+    public static let defaultMinMappingQuality = 5
+
+    /// The top-hits count that selects every species of the Kraken2 report, so each organism gets a BAM.
+    /// TaxTriage's `get_top_hits.py -t` caps each rank at this count, which no Kraken2 report reaches.
+    public static let allOrganismsTopHitsCount = 1_000_000
+
+    /// True when ``topHitsCount`` selects every organism.
+    public var alignsAllOrganisms: Bool { topHitsCount >= Self.allOrganismsTopHitsCount }
+
+    /// ``topHitsCount`` as the app shows it, `All` when it selects every organism.
+    public var topHitsDisplayValue: String { alignsAllOrganisms ? "All" : "\(topHitsCount)" }
 
     /// Kraken2 confidence threshold (0.0 to 1.0).
     ///

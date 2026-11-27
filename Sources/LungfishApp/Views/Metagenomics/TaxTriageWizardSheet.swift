@@ -116,6 +116,8 @@ struct TaxTriageWizardSheet: View {
     // Advanced settings
     @State private var k2Confidence: Double = 0.2
     @State private var topHitsCount: Int = 10
+    /// Aligns every species of the Kraken2 report, so each organism gets a BAM and Unique Reads.
+    @State private var alignAllOrganisms: Bool = true
     @State private var maxMemoryGB: Int = 16
     @State private var maxCpus: Int = ProcessInfo.processInfo.activeProcessorCount
     @State private var extraArgumentsText: String = ""
@@ -611,8 +613,12 @@ struct TaxTriageWizardSheet: View {
                     Text("Top hits:")
                         .font(.system(size: 12))
                         .frame(width: 120, alignment: .trailing)
-                    Stepper("\(topHitsCount)", value: $topHitsCount, in: 1...100)
+                    Toggle("All organisms", isOn: $alignAllOrganisms)
                         .font(.system(size: 12))
+                        .help("Align reads to every species Kraken2 finds, so each organism has a BAM and a Unique Reads count. Many species mean more reference downloads and a longer run.")
+                    Stepper("\(topHitsCount)", value: $topHitsCount, in: 1...1000)
+                        .font(.system(size: 12))
+                        .disabled(alignAllOrganisms)
                 }
 
                 // Max memory
@@ -787,7 +793,7 @@ struct TaxTriageWizardSheet: View {
             platform: platform,
             outputDirectory: outputDir,
             kraken2DatabasePath: dbPath,
-            topHitsCount: topHitsCount,
+            topHitsCount: alignAllOrganisms ? TaxTriageConfig.allOrganismsTopHitsCount : topHitsCount,
             k2Confidence: k2Confidence,
             skipAssembly: skipAssembly,
             skipKrona: skipKrona,

@@ -40,7 +40,7 @@ enum TaxTriageProvenanceRows {
         return [
             Row(label: "Classifiers", value: shown(recorded, config.classifiers.joined(separator: ", "))),
             Row(label: "K2 Confidence", value: shown(recorded, String(format: "%.2f", config.k2Confidence))),
-            Row(label: "Top Hits", value: shown(recorded, "\(config.topHitsCount)")),
+            Row(label: "Top Hits", value: shown(recorded, config.topHitsDisplayValue)),
             Row(label: "Skip Assembly", value: shown(recorded, config.skipAssembly ? "Yes" : "No")),
             Row(label: "Max CPUs", value: shown(recorded, "\(config.maxCpus)")),
             Row(label: "Max Memory", value: shown(recorded, config.maxMemory)),

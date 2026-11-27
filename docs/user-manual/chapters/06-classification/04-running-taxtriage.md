@@ -159,7 +159,7 @@ The numeric controls in **Advanced Settings** accept these values:
 | Control | Values | Step |
 |---|---|---|
 | **K2 Confidence** | 0.00 to 1.00 | 0.05 |
-| **Top hits** | 1 to 100 | |
+| **Top hits** | **All organisms**, or 1 to 1,000 | |
 | **Max memory** | 2 to 256 GB | 2 GB |
 | **Max CPUs** | Up to your Mac's core count | |
 
@@ -177,7 +177,7 @@ The numeric controls in **Advanced Settings** accept these values:
 
 **K2 Confidence.** Sets the minimum share of a read's [k-mers](../../GLOSSARY.md#k-mer), short pieces Kraken 2 looks up, that must support a taxon or the groups within it, counting only k-mers with unambiguous bases. The default is 0.20, one k-mer in five, so a read can qualify with partial support. Raise it with the slider or by typing a value if unexpected species fill the table, or lower it if an expected organism is missing, since reads below the threshold go to the nearest broader group that passes or stay unclassified. On the command line this is `--confidence`.
 
-**Top hits.** Caps how many organisms TaxTriage adds from each rank of the Kraken 2 report when choosing references, most reads first, on top of every organism on its pathogen list that Kraken 2 found. The default of 10 keeps downloads and mapping time modest for organisms outside the pathogen list. Raise it with the stepper if organisms you care about are missing from the table, allowing more time for downloads and mapping. On the command line this is `--top-hits`.
+**Top hits.** Caps how many organisms TaxTriage adds from each rank of the Kraken 2 report when choosing references, most reads first, on top of every organism on its pathogen list that Kraken 2 found. TaxTriage aligns reads only to the organisms it chooses, so an organism outside the cap has no BAM and no Unique Reads. **All organisms** is on by default and chooses every species Kraken 2 found, so every organism gets a BAM. It means more reference downloads and a longer run. Turn it off and set a number with the stepper for a quicker run. On the command line this is `--top-hits`, where 1000000 chooses every species.
 
 **Max memory.** Sets the pipeline's memory limit. The default is 16 GB, which is enough for this example with Standard-16 and the host excluded. On a Mac with less than 16 GB, set it a few gigabytes below what **Apple menu > About This Mac** shows, or raise it for a large database if you have memory to spare. On the command line this is `--max-memory`.
 

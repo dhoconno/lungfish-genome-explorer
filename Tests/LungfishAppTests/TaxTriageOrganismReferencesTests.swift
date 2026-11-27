@@ -249,6 +249,7 @@ final class TaxTriageOrganismReferencesTests: XCTestCase {
             -H) header=1; shift ;;
             -c) shift ;;
             -F) flag="$2"; shift 2 ;;
+            -q) shift 2 ;;
             *) if [ -z "$bam" ]; then bam="$1"; else accessions="$accessions $1"; fi; shift ;;
           esac
         done

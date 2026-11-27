@@ -144,7 +144,7 @@ extension TaxTriageCommand {
 
         @Option(
             name: .customLong("top-hits"),
-            help: "Number of top hits to report"
+            help: "Number of top species to align (each gets a BAM and Unique Reads); 1000000 aligns every species Kraken2 finds"
         )
         var topHits: Int = 10
 
@@ -527,7 +527,7 @@ extension TaxTriageCommand {
                     ("Platform", config.platform.rawValue.lowercased()),
                     ("Database", databaseName),
                     ("Confidence", String(format: "%.2f", config.k2Confidence)),
-                    ("Top hits", String(config.topHitsCount)),
+                    ("Top hits", config.topHitsDisplayValue),
                     ("Rank", config.rank),
                     ("Skip assembly", config.skipAssembly ? "yes" : "no"),
                     ("Skip Krona", config.skipKrona ? "yes" : "no"),

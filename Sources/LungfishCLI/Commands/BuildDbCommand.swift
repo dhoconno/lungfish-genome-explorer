@@ -69,6 +69,8 @@ private enum BuildDbUniqueReadsError: LocalizedError {
 ///   - bamPathResolver: Closure that resolves (resultURL, sample, bamRelPath) to an absolute path.
 ///   - organismAccessions: The references a row counts on, from (sample, row accession), the row's own by default.
 ///   - keepsParsedReadCount: True for TaxTriage, whose Reads are the report's # Reads Aligned, so the pass writes only Unique Reads.
+///   - minMappingQuality: The lowest MAPQ a read needs to count as unique, 0 for no filter. TaxTriage passes its own
+///     `minmapq`, so Unique Reads counts the reads its # Reads Aligned counts and not the multi-mapping MAPQ 0 reads it drops.
 ///   - onIdxstats: Takes each BAM's full path and its `samtools idxstats` output, read when `updateAccessionLength`.
 ///   - events: Where the lines that report the pass go, with its warnings on `textWarning`.
 func updateUniqueReadsInDB(
@@ -82,6 +84,7 @@ func updateUniqueReadsInDB(
     bamPathResolver: (URL, String, String) -> String,
     organismAccessions: (String, String) -> [String] = { [$1] },
     keepsParsedReadCount: Bool = false,
+    minMappingQuality: Int = 0,
     updateAccessionLength: Bool,
     onIdxstats: (String, String) -> Void = { _, _ in },
     events: BuildDbEventSink,
@@ -244,7 +247,8 @@ func updateUniqueReadsInDB(
                 unique = try await samtoolsProvenance.countReads(
                     bamURL: bamURL,
                     accessions: accessions,
-                    flagFilter: 0xD04  // unmapped + secondary + duplicate + supplementary
+                    flagFilter: 0xD04,  // unmapped + secondary + duplicate + supplementary
+                    minMappingQuality: minMappingQuality
                 )
                 uniqueCache[cacheKey] = unique
             } catch {

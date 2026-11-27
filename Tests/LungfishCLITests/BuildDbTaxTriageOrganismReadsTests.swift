@@ -73,6 +73,26 @@ final class BuildDbTaxTriageOrganismReadsTests: XCTestCase {
         XCTAssertEqual(controlCoV.uniqueReads, 6)
     }
 
+    /// Unique Reads count only reads of MAPQ 5 or more, TaxTriage's `minmapq`, as its # Reads Aligned does. The patient's
+    /// BAM holds 38 non-duplicate records on SARS-CoV-2, 8 of them multi-mapping MAPQ 0 reads that TaxTriage dropped, where
+    /// the report kept 33. Counted without the floor the 38 exceed the 33 and the row read a dash; with it the row reads 30.
+    /// Red before the floor, when the stand-in saw no `-q` and answered 38.
+    func testTaxTriageUniqueReadsApplyTaxTriageMappingQualityFloor() async throws {
+        let script = Self.standIn(patientSARSTotal: 40, patientSARSUnique: 38, patientSARSUniqueMAPQ5: 30)
+        let home = try ManagedSamtoolsHome.makeStub(rootURL: root, namePrefix: "TTReadsHome", script: script)
+        let result = try TaxTriageNTCPFixture.stage(in: root)
+
+        try await Self.withHomeDirectory(home.homeURL) {
+            try await BuildDbCommand.TaxTriageSubcommand.parse([result.path, "-q"]).run()
+        }
+
+        let database = try TaxTriageDatabase(at: result.appendingPathComponent("taxtriage.sqlite"))
+        let rows = try database.fetchRows(samples: try database.fetchSamples().map(\.sample))
+        let patientCoV = try XCTUnwrap(rows.first { $0.sample == "patient" && $0.primaryAccession == "NC_045512.2" })
+        XCTAssertEqual(patientCoV.readsAligned, 33)
+        XCTAssertEqual(patientCoV.uniqueReads, 30, "the unique count of reads with MAPQ 5 or more, below the row's 33 Reads")
+    }
+
     /// ARCH should-fix 1. The `read_count` mark vouches for the counts that the BAM pass writes, so the database does not
     /// hold it while the pass runs. A kill in that window would otherwise leave a database that reads as current with the
     /// report's parsed counts. Red at 0ea86b0a9, whose `create` wrote the mark.
@@ -109,8 +129,9 @@ final class BuildDbTaxTriageOrganismReadsTests: XCTestCase {
 
     /// The stand-in, with the patient's BAM holding `patientSARSTotal` primary records on the SARS-CoV-2 reference and
     /// `patientSARSUnique` of them not marked as duplicates.
-    private static func standIn(patientSARSTotal: Int, patientSARSUnique: Int) -> String {
-        #"""
+    private static func standIn(patientSARSTotal: Int, patientSARSUnique: Int, patientSARSUniqueMAPQ5: Int? = nil) -> String {
+        let patientSARSUniqueMAPQ5 = patientSARSUniqueMAPQ5 ?? patientSARSUnique
+        return #"""
     #!/bin/sh
     cmd="${1:-}"
     [ $# -gt 0 ] && shift
@@ -118,12 +139,13 @@ final class BuildDbTaxTriageOrganismReadsTests: XCTestCase {
       idxstats) exit 0 ;;
       index) : > "$1.bai"; exit 0 ;;
       view)
-        header=0; flag=""; bam=""; accessions=""
+        header=0; flag=""; minq=0; bam=""; accessions=""
         while [ $# -gt 0 ]; do
           case "$1" in
             -H) header=1; shift ;;
             -c) shift ;;
             -F) flag="$2"; shift 2 ;;
+            -q) minq="$2"; shift 2 ;;
             *) if [ -z "$bam" ]; then bam="$1"; else accessions="$accessions $1"; fi; shift ;;
           esac
         done
@@ -142,7 +164,7 @@ final class BuildDbTaxTriageOrganismReadsTests: XCTestCase {
         for accession in $accessions; do
           case "$sample:$accession:$kind" in
             patient:NC_045512.2:total) n=\#(patientSARSTotal) ;;
-            patient:NC_045512.2:unique) n=\#(patientSARSUnique) ;;
+            patient:NC_045512.2:unique) if [ "$minq" -ge 5 ]; then n=\#(patientSARSUniqueMAPQ5); else n=\#(patientSARSUnique); fi ;;
             patient:NC_007369.1:total) n=2 ;;
             patient:NC_007369.1:unique) n=1 ;;
             patient:NC_007372.1:*) n=1 ;;
