@@ -142,6 +142,30 @@ Every build passes `salmon index -t <gentrome> -d <decoy names> -k <k> -p 8 --ra
 
 `SalmonIndexCache` in `Sources/LungfishWorkflow/RNASeq/`, which RS-INDEX writes, is the only writer under `rnaseq-index-cache/` (`docs/contracts/EXPERT-PANEL.md:49`), and `lungfish-cli rnaseq index` is its command. Before a build it checks with `RunFitPreflight` that the Mac has about 16.6 GB of memory and 64 GB of free disk, and checks again with a need scaled from the gentrome when that is larger than GRCh38 with ERCC92's (Phase 5.1 ruling ADJ-SPIKE-ARCH, items 1 to 5). A reuse runs no check. It builds in a staging folder `.salmon-<version>-k<k>-<decoys>.creating-<UUID>` beside the final name, writes `index-key.json`, then the root record last, and renames the folder into place with `RENAME_EXCL` through `PortableRename` (`AGENTS.md:76`). A second build of the same key that loses the rename removes its staging folder and uses the published index, so a second run reuses it (`docs/plans/2026-10-02-architecture-program.md:194`). C1's decoy-aware index at `--ramLimit 16` took 53 minutes and 23.7 GB on a loaded galah (`docs/plans/2026-10-02-architecture-program.md:174`). LGE's at `-p 8 --ramLimit 4` took 19 minutes 19 seconds on the same Mac at a load of 10 to 47, with a peak resident set of 20,371,177,472 bytes as `/usr/bin/time -l` reports it for the CLI and salmon together (RS-INDEX stage run, 2026-11-14). The check compares the Mac's memory with 17,780,281,048 bytes, the peak memory footprint of the `--ramLimit 16` build, which bounds the 15,681,106,880 bytes of a build at `--ramLimit 4`, and the free disk with 63,897,293,195 bytes (SPIKE-SALMON, 2026-11-14), so a build that cannot fit is refused in words before it starts (`docs/plans/2026-10-02-architecture-program.md:196`).
 
+### A served index
+
+A catalog row of `ReferenceSetCatalog` may name a served index (`ServedSalmonIndex`, owner direction 2026-11-27, `docs/plans/2026-11-27-rnaseq-served-salmon-index.md`). The row gives:
+- the archive's URL, bytes and sha256;
+- the bytes of `index/` once unpacked;
+- the set id, salmon build, k and decoys it was built for.
+
+`lungfish-cli rnaseq install-reference` uses the served index only when all three hold:
+- `--build-index` is not given;
+- the Mac's salmon has that build;
+- the set it just built has that id.
+
+Otherwise it builds the index as above. On the served path, the check before any download is a count's memory (`SalmonQuantNeed`), not a build's. Free disk must cover the archive, its unpacked size and 16 GB.
+
+The archive is a zip holding `index/` and `index-key.json` and nothing else. `SalmonIndexCache.adopt`, the cache's second writer path, works in this order:
+1. Checks the archive's size and sha256, and that every entry is one of those two.
+2. Unpacks it into a held stage.
+3. Checks `index-key.json` against the key, the salmon build and the sha256 of this Mac's `reference-set.json`.
+4. Checks `index/info.json` against the key file's k, version and four hashes.
+5. Writes its own root record, named "RNA-seq salmon index, served" and carrying the archive's URL and sha256, with this Mac's paths.
+6. Renames the stage into place with `RENAME_EXCL`.
+
+No path of the Mac that built the index is served. Two builds of `macaca_mulatta-Mmul_10-ensembl116-lge-3f0fee25ce9e` with salmon 2.11.0 on galah gave byte-identical `index/` files and `index-key.json`. That is why a served index equals the one this Mac would build. The install removes the archive once it is adopted.
+
 ### The index a Linux plan pins
 
 `lungfish-cli rnaseq quant --write-plan` plans a run on a Linux machine with the index this Mac published for the set at `salmon-<salmon version of the image>-k<k>-<decoys>`. It never builds one. It pins each file under that folder's `index/` as a `reference` entry whose `index` holds `{key, tool}`, where the key is the folder name and the tool is the salmon `{id, version, build}` of `index-key.json`, so the batch copies the files to the staging folder with the plan. A set with no index of the image's salmon version in the cache is refused in words that name `lungfish-cli rnaseq index`, and an index of another salmon version counts as missing. The job's request figures are galah's until a node measures them (`Sources/LungfishWorkflow/RNASeq/SalmonPlanSubmit.swift:24-62`), and they reach no plan byte. CPUs equal salmon's `-p`, 8 unless `--request-cpus` names another number. Memory is the 5,960,744,960-byte peak of SRR23580170 (71.9 million pairs, 8 threads) plus 2 GiB, rounded up to a whole GiB, which is 8,192 MiB for Macaca_fascicularis_6.0. Disk is 1.25 times the sum of the reads, twice the reads when Trim Galore trims, the index and salmon's 1,077,186,560 bytes of temporary files, rounded up to a whole GiB, plus 8 GiB. A set of another genome has no measured peak, so it needs `--request-memory-mib`, `--request-cpus` and `--request-disk-gib` together, and the writer refuses in words without them.

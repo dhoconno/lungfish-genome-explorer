@@ -17,6 +17,13 @@ package struct ReferenceSetCatalogEntry: Sendable, Equatable, Identifiable {
     package var title: String
     /// The bytes of the genome and GTF downloads together.
     package var downloadBytes: Int64
+    /// The index served for the set these files build, nil when the Mac builds it (plan of 2026-11-27).
+    package var servedIndex: ServedSalmonIndex? = nil
+
+    /// The memory the install checks: a count's when the index is served, the index build's otherwise.
+    package var memoryNeedBytes: Int64 {
+        servedIndex == nil ? SalmonIndexNeed.peakMemoryBytes : SalmonQuantNeed.peakMemoryBytes
+    }
 
     package var row: ReferenceSetDefault {
         // Every entry names a row of `ReferenceSetDefault.all`, which `ReferenceSetCatalogTests` checks.

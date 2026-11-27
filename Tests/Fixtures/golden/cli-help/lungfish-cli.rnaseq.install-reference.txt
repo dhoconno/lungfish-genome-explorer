@@ -4,11 +4,14 @@ Lungfish checks that this Mac has the memory and free disk the salmon index
 needs, downloads the set's genome and GTF into the storage folder, checks each
 file's sha256 against the named set, builds the set as rnaseq reference-set
 --default does and builds its index at k 31 with the genome as decoys, as
-rnaseq index does. The downloads are kept, and a second run downloads and
-builds nothing. The sets are human/gencode-50, mouse/gencode-M39,
-rhesus/ensembl-116 and cynomolgus/refseq-GCF_037993035.2.
+rnaseq index does. When the set has a served index for this Mac's salmon,
+Lungfish downloads that index and checks its sha256 instead of building it,
+which needs only the memory of a count. --build-index builds it here instead.
+The downloads are kept, and a second run downloads and builds nothing. The sets
+are human/gencode-50, mouse/gencode-M39, rhesus/ensembl-116 and
+cynomolgus/refseq-GCF_037993035.2.
 
-USAGE: lungfish-cli rnaseq install-reference --default <default> [--storage-root <storage-root>] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
+USAGE: lungfish-cli rnaseq install-reference --default <default> [--storage-root <storage-root>] [--build-index] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
 
 OPTIONS:
   --default <default>     The named set to install: human/gencode-50,
@@ -17,6 +20,8 @@ OPTIONS:
   --storage-root <storage-root>
                           Managed storage root (default: the configured
                           location)
+  --build-index           Build the salmon index on this Mac even when a served
+                          one matches
   --format <format>       Output format (values: text, json, tsv; default: text)
   -v, --verbose           Increase output verbosity (can be repeated: -v, -vv,
                           -vvv)

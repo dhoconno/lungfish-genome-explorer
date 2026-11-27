@@ -25,7 +25,8 @@ final class RNASeqReferenceCatalogModel {
         var id: String { entry.id }
     }
 
-    private(set) var rows: [Row] = ReferenceSetCatalog.entries.map { Row(entry: $0, state: .notInstalled) }
+    let entries: [ReferenceSetCatalogEntry]
+    private(set) var rows: [Row]
     private(set) var installing: Set<String> = []
     var fraction: [String: Double] = [:]
     var message: [String: String] = [:]
@@ -34,7 +35,7 @@ final class RNASeqReferenceCatalogModel {
     private(set) var toolsMissing = false
     private var operationIDs: [String: UUID] = [:]
 
-    let systemRAMBytes = Int64(clamping: ProcessInfo.processInfo.physicalMemory)
+    let systemRAMBytes: Int64
     private let reporter: any OperationReporting
     private let storageRoot: @MainActor () -> URL
     private let toolsCheck: @Sendable () async -> Bool
@@ -47,8 +48,13 @@ final class RNASeqReferenceCatalogModel {
         storageRoot: @escaping @MainActor () -> URL = { ManagedStorageConfigStore().currentLocation().rootURL },
         launch: (@MainActor (CLIManagedToolsRunner.Invocation, UUID, @escaping @Sendable (Double, String) -> Void,
                              @escaping @Sendable (String) -> Void) async throws -> Void)? = nil,
-        toolsCheck: (@Sendable () async -> Bool)? = nil
+        toolsCheck: (@Sendable () async -> Bool)? = nil,
+        entries: [ReferenceSetCatalogEntry] = ReferenceSetCatalog.entries,
+        systemRAMBytes: Int64 = Int64(clamping: ProcessInfo.processInfo.physicalMemory)
     ) {
+        self.entries = entries
+        rows = entries.map { Row(entry: $0, state: .notInstalled) }
+        self.systemRAMBytes = systemRAMBytes
         self.reporter = reporter
         self.storageRoot = storageRoot
         self.toolsCheck = toolsCheck ?? { await ReferenceSetInstall.toolsMissing() }
@@ -57,12 +63,31 @@ final class RNASeqReferenceCatalogModel {
         }
     }
 
-    /// The words beside Download when this Mac cannot build the index, nil when it can. The command refuses in its own
-    /// words too, before any byte downloads.
+    /// The words below the rows when some row's Download is off for memory, nil when none is.
     var memoryRefusal: String? {
-        guard systemRAMBytes < ReferenceSetCatalog.indexMemoryBytes else { return nil }
-        return "Building the salmon index needs about 16.6 GB of memory, more than this Mac has. "
+        rows.lazy.compactMap { self.memoryRefusal($0.entry) }.first
+    }
+
+    /// The words when this Mac has less memory than `entry`'s install checks, nil when it has enough. A served index
+    /// checks a count's memory, and a built one the build's (plan of 2026-11-27). The command refuses in its own words
+    /// too, before any byte downloads.
+    func memoryRefusal(_ entry: ReferenceSetCatalogEntry) -> String? {
+        guard systemRAMBytes < entry.memoryNeedBytes else { return nil }
+        let need = String(format: "%.1f", Double(entry.memoryNeedBytes) / 1_073_741_824)
+        let what = entry.servedIndex == nil ? "Building the salmon index" : "Counting"
+        return "\(what) needs about \(need) GB of memory, more than this Mac has. "
             + "Count on a Linux machine instead, as the RNA-seq chapter of the manual shows."
+    }
+
+    /// The line under a row's description: what it downloads, keeps and needs.
+    func needWords(_ entry: ReferenceSetCatalogEntry) -> String {
+        guard let served = entry.servedIndex else {
+            return "Download \(LungfishFormatters.formatBytes(entry.downloadBytes)), about 18 GB kept, 64 GB free disk and "
+                + "16.6 GB of memory while it builds, about an hour"
+        }
+        let gigabytes = Int((Double(entry.downloadBytes + served.archiveBytes) / 1_000_000_000).rounded())
+        let memory = String(format: "%.1f", Double(entry.memoryNeedBytes) / 1_073_741_824)
+        return "Download about \(gigabytes) GB with the salmon index, about 18 GB kept, \(memory) GB of memory"
     }
 
     /// The words beside Download when the pack's tools are missing, nil when they are there.
@@ -80,16 +105,17 @@ final class RNASeqReferenceCatalogModel {
     func refresh() async {
         let root = storageRoot()
         toolsMissing = await toolsCheck()
+        let entries = self.entries
         let states = await Task.detached {
-            ReferenceSetCatalog.entries.map { ReferenceSetCatalog.state(of: $0, storageRoot: root) }
+            entries.map { ReferenceSetCatalog.state(of: $0, storageRoot: root) }
         }.value
-        rows = zip(ReferenceSetCatalog.entries, states).map { Row(entry: $0, state: $1) }
+        rows = zip(entries, states).map { Row(entry: $0, state: $1) }
     }
 
     /// Registers the install row and, only when it starts, runs the command on it.
     @discardableResult
     func install(_ entryID: String) -> OperationStartResult? {
-        guard !installing.contains(entryID), let entry = ReferenceSetCatalog.entry(entryID) else { return nil }
+        guard !installing.contains(entryID), let entry = entries.first(where: { $0.id == entryID }) else { return nil }
         let invocation = CLIManagedToolsRunner.installReference(defaultID: entryID)
         let result = reporter.begin(
             title: "RNA-seq Reference Set: \(entry.title)",

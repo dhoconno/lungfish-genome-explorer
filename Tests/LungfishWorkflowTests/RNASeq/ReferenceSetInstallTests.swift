@@ -50,8 +50,14 @@ final class ReferenceSetInstallTests: XCTestCase {
     final class Calls: @unchecked Sendable {
         let lock = NSLock()
         var indexed: [String] = []
+        var adopted: [String] = []
+        var preflights: [Bool] = []
         func note(_ id: String) { lock.withLock { indexed.append(id) } }
+        func adopt(_ name: String) { lock.withLock { adopted.append(name) } }
+        func preflight(_ served: Bool) { lock.withLock { preflights.append(served) } }
     }
+
+    static let salmonBuild = "salmon-2.11.0-h0_0"
 
     func installer(_ loader: CopyingArchiveLoader, calls: Calls = Calls(), refuse: Bool = false) -> ReferenceSetInstall {
         let root = self.root!
@@ -62,9 +68,62 @@ final class ReferenceSetInstallTests: XCTestCase {
                 calls.note(setID)
                 return root.appendingPathComponent("index-of-\(setID)")
             },
-            preflight: {
+            adopter: { archive, served, _ in
+                calls.adopt(archive.lastPathComponent)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: archive.path), "the archive is downloaded before it is adopted")
+                return root.appendingPathComponent("served-index-of-\(served.setID)")
+            },
+            salmonBuild: { Self.salmonBuild },
+            preflight: { served in
+                calls.preflight(served != nil)
                 if refuse { throw RunFitError.insufficientMemory(needBytes: 2, haveBytes: 1, basis: "test", linuxRoute: "Use Linux") }
             })
+    }
+
+    /// A served index for `setID`, an archive of a few bytes in the server folder.
+    func served(setID: String, salmonBuild: String = ReferenceSetInstallTests.salmonBuild) throws -> ServedSalmonIndex {
+        let archive = sources.appendingPathComponent("served-index.zip")
+        try Data("PK index".utf8).write(to: archive)
+        return ServedSalmonIndex(
+            url: archive.absoluteString, archiveBytes: archive.fileSizeBytes, archiveSHA256: try FileDigest.sha256(of: archive),
+            unpackedBytes: 100, setID: setID, salmonBuild: salmonBuild, k: 31, decoys: .genome)
+    }
+
+    // MARK: - The served index
+
+    func testAServedIndexForTheBuiltSetIsDownloadedAndAdoptedNotBuiltAndTheArchiveIsRemoved() async throws {
+        let first = try await installer(CopyingArchiveLoader()).install(row: try row())
+        let loader = CopyingArchiveLoader(), calls = Calls()
+        let outcome = try await installer(loader, calls: calls).install(row: try row(), served: try served(setID: first.setID))
+        XCTAssertEqual(calls.preflights, [true], "the check is the served need")
+        XCTAssertEqual(calls.indexed, [], "no index is built")
+        XCTAssertEqual(calls.adopted, ["served-index.zip"])
+        XCTAssertEqual(loader.downloads, ["served-index.zip"], "the genome and GTF are kept from the first install")
+        XCTAssertEqual(outcome.indexURL.lastPathComponent, "served-index-of-\(first.setID)")
+        let kept = root.appendingPathComponent("rnaseq-reference-downloads/test-one", isDirectory: true)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: kept.path).sorted(), ["test.annotation.gtf", "test.genome.fa"])
+    }
+
+    func testAServedIndexForAnotherSetIdIsNotDownloadedAndTheIndexIsBuilt() async throws {
+        let loader = CopyingArchiveLoader(), calls = Calls()
+        let outcome = try await installer(loader, calls: calls).install(row: try row(), served: try served(setID: "testus-other-lge-000000000000"))
+        XCTAssertEqual(calls.preflights, [true])
+        XCTAssertEqual(calls.adopted, [])
+        XCTAssertEqual(calls.indexed, [outcome.setID])
+        XCTAssertEqual(loader.downloads, ["test.genome.fa", "test.annotation.gtf"])
+    }
+
+    func testAnotherSalmonBuildOrBuildIndexChecksTheBuildNeedAndBuildsTheIndex() async throws {
+        for (build, force) in [("salmon-9.9.9-h0_0", false), (Self.salmonBuild, true)] {
+            let first = try await installer(CopyingArchiveLoader()).install(row: try row())
+            let loader = CopyingArchiveLoader(), calls = Calls()
+            _ = try await installer(loader, calls: calls)
+                .install(row: try row(), served: try served(setID: first.setID, salmonBuild: build), buildIndex: force)
+            XCTAssertEqual(calls.preflights, [false], build)
+            XCTAssertEqual(calls.adopted, [], build)
+            XCTAssertEqual(calls.indexed, [first.setID], build)
+            XCTAssertEqual(loader.downloads, [], build)
+        }
     }
 
     func testAnInstallDownloadsChecksBuildsTheSetAndIndexesItAndKeepsTheDownloads() async throws {

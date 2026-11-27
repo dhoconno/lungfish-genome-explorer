@@ -46,6 +46,11 @@ final class RNASeqInstallReferenceCommandTests: XCTestCase {
                        + "rhesus/ensembl-116, cynomolgus/refseq-GCF_037993035.2.")
     }
 
+    func testBuildIndexIsOffUnlessGiven() throws {
+        XCTAssertFalse(try RNASeqCommand.InstallReferenceSubcommand.parse(["--default", "human/gencode-50"]).buildIndex)
+        XCTAssertTrue(try RNASeqCommand.InstallReferenceSubcommand.parse(["--default", "human/gencode-50", "--build-index"]).buildIndex)
+    }
+
     func testThreadsIsRefusedInWords() {
         XCTAssertThrowsError(try RNASeqCommand.InstallReferenceSubcommand.parse(["--default", "human/gencode-50", "--threads", "4"]))
     }
@@ -55,7 +60,7 @@ final class RNASeqInstallReferenceCommandTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let command = try RNASeqCommand.InstallReferenceSubcommand.parse(["--default", "mouse/gencode-M39", "--storage-root", root.path])
-        let install = ReferenceSetInstall(storageRoot: root, preflight: { throw ReferenceSetInstallError.toolsMissing })
+        let install = ReferenceSetInstall(storageRoot: root, preflight: { _ in throw ReferenceSetInstallError.toolsMissing })
         let lines = Lines()
         do {
             try await command.execute(eventsOn: true, quiet: true, emit: { lines.all.append($0) }, install: install)

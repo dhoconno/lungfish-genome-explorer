@@ -57,13 +57,18 @@ package struct ReferenceSetInstall: Sendable {
 
     /// Builds the index of a published set. The default runs `SalmonIndexCache.ensure` at the catalog's k and decoys.
     package typealias Indexer = @Sendable (_ setID: String, _ argv: [String]) async throws -> URL
-    /// Checks the tools, memory and disk for the index before any byte is downloaded (ARCH trap 2, BIO trap 2, UX trap 5).
-    package typealias Preflight = @Sendable () async throws -> Void
+    /// Adopts a downloaded served index for its set. The default runs `SalmonIndexCache.adopt`.
+    package typealias Adopter = @Sendable (_ archive: URL, _ served: ServedSalmonIndex, _ argv: [String]) async throws -> URL
+    /// Checks the tools, memory and disk before any byte is downloaded (ARCH trap 2, BIO trap 2, UX trap 5). `served` is
+    /// true when the index will be downloaded, so the check is a count's memory and the archive's disk, not a build's.
+    package typealias Preflight = @Sendable (_ served: ServedSalmonIndex?) async throws -> Void
 
     let storageRoot: URL
     let loader: any DemoProjectArchiveLoading
     let owner: ReferenceSetOwner
     let indexer: Indexer
+    let adopter: Adopter
+    let salmonBuild: @Sendable () async throws -> String?
     let preflight: Preflight
 
     package init(
@@ -71,6 +76,8 @@ package struct ReferenceSetInstall: Sendable {
         loader: any DemoProjectArchiveLoading = URLSessionDemoProjectArchiveLoader(),
         owner: ReferenceSetOwner? = nil,
         indexer: Indexer? = nil,
+        adopter: Adopter? = nil,
+        salmonBuild: (@Sendable () async throws -> String?)? = nil,
         preflight: Preflight? = nil
     ) {
         self.storageRoot = storageRoot
@@ -82,10 +89,16 @@ package struct ReferenceSetInstall: Sendable {
             let request = SalmonIndexRequest(setID: setID, k: ReferenceSetCatalog.indexK, decoys: ReferenceSetCatalog.indexDecoys)
             return try await cache.ensure(request, linuxRoute: Self.linuxRoute, argv: argv).indexURL
         }
-        self.preflight = preflight ?? {
+        self.adopter = adopter ?? { archive, served, argv in
+            try await SalmonIndexCache(storageRoot: storageRoot, host: host).adopt(archive: archive, served: served, argv: argv).indexURL
+        }
+        self.salmonBuild = salmonBuild ?? { try? await SalmonIndexCache(storageRoot: storageRoot, host: host).localSalmonBuild() }
+        self.preflight = preflight ?? { served in
             if await Self.toolsMissing() { throw ReferenceSetInstallError.toolsMissing }
             let cacheFolder = storageRoot.appendingPathComponent(SalmonIndexCache.folderName, isDirectory: true)
-            try RunFitPreflight.require(need: SalmonIndexNeed.need(diskFolder: cacheFolder), host: host, linuxRoute: Self.linuxRoute)
+            try RunFitPreflight.require(
+                need: served.map { Self.servedNeed($0, diskFolder: cacheFolder) } ?? SalmonIndexNeed.need(diskFolder: cacheFolder),
+                host: host, linuxRoute: Self.linuxRoute)
         }
     }
 
@@ -105,23 +118,27 @@ package struct ReferenceSetInstall: Sendable {
     /// Installs the catalog entry `id`. A set and index already there are reused, and a download already checked is not
     /// fetched again.
     package func install(
-        _ id: String, argv: [String] = [], progress: @escaping @Sendable (ReferenceSetInstallProgress) -> Void = { _ in }
+        _ id: String, buildIndex: Bool = false, argv: [String] = [],
+        progress: @escaping @Sendable (ReferenceSetInstallProgress) -> Void = { _ in }
     ) async throws -> ReferenceSetInstallOutcome {
         guard let entry = ReferenceSetCatalog.entry(id) else {
             throw ReferenceSetInstallError.notInCatalog(id, offered: ReferenceSetCatalog.entries.map(\.id))
         }
-        return try await install(row: entry.row, argv: argv, progress: progress)
+        return try await install(row: entry.row, served: entry.servedIndex, buildIndex: buildIndex, argv: argv, progress: progress)
     }
 
-    /// Installs `row`. Tests pass a row of file URLs.
+    /// Installs `row`. Tests pass a row of file URLs. `served` is used when `buildIndex` is false, this Mac's salmon is
+    /// its build and the set built here has its id. Otherwise the index is built, and that build checks the Mac again.
     package func install(
-        row: ReferenceSetDefault, argv: [String] = [],
+        row: ReferenceSetDefault, served: ServedSalmonIndex? = nil, buildIndex: Bool = false, argv: [String] = [],
         progress: @escaping @Sendable (ReferenceSetInstallProgress) -> Void = { _ in }
     ) async throws -> ReferenceSetInstallOutcome {
         guard let genomeSHA = row.genomeSHA256, let annotationSHA = row.annotationSHA256 else {
             throw ReferenceSetInstallError.unpinned(row.id)
         }
-        try await preflight()
+        var usable: ServedSalmonIndex?
+        if let served, !buildIndex, try await salmonBuild() == served.salmonBuild { usable = served }
+        try await preflight(usable)
         let folder = downloadFolder(for: row)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
@@ -148,10 +165,42 @@ package struct ReferenceSetInstall: Sendable {
             annotation: local[1], expected: row)
         let set = try await owner.build(request, argv: argv)
 
-        progress(.stage("Building the salmon index, which takes about an hour"))
         try Task.checkCancellation()
+        if let usable, usable.setID == set.manifest.id, let url = URL(string: usable.url) {
+            let index = try await adoptServed(usable, from: url, folder: folder, argv: argv, progress: progress)
+            return ReferenceSetInstallOutcome(setID: set.manifest.id, setURL: set.url, indexURL: index)
+        }
+        progress(.stage("Building the salmon index, which takes about an hour"))
         let index = try await indexer(set.manifest.id, argv)
         return ReferenceSetInstallOutcome(setID: set.manifest.id, setURL: set.url, indexURL: index)
+    }
+
+    /// Downloads the served archive into the downloads folder, adopts it and removes it, since the index holds its bytes.
+    func adoptServed(
+        _ served: ServedSalmonIndex, from url: URL, folder: URL, argv: [String],
+        progress: @escaping @Sendable (ReferenceSetInstallProgress) -> Void
+    ) async throws -> URL {
+        let name = url.lastPathComponent
+        let archive = try await fetch(url, sha256: served.archiveSHA256, into: folder) { done, total in
+            let part = total.map { $0 > 0 ? min(Double(done) / Double($0), 1) : 0 } ?? 0
+            progress(.downloading(
+                fraction: part,
+                message: "Downloading the salmon index \(name), \(Self.megabytes(done)) of \(total.map(Self.megabytes) ?? "unknown")"))
+        }
+        defer { try? FileManager.default.removeItem(at: archive) }
+        progress(.stage("Unpacking and checking the salmon index"))
+        try Task.checkCancellation()
+        return try await adopter(archive, served, argv)
+    }
+
+    /// A served install's need: a count's memory, and on disk the archive, its unpacked index and 16 GB for the downloads
+    /// and the set, whose largest, human, keeps 7.6 GB (EVIDENCE.md of 2026-11-26).
+    static func servedNeed(_ served: ServedSalmonIndex, diskFolder: URL) -> RunFitNeed {
+        RunFitNeed(
+            peakMemoryBytes: SalmonQuantNeed.peakMemoryBytes, memoryBasis: SalmonQuantNeed.memoryBasis,
+            freeDiskBytes: served.archiveBytes + served.unpackedBytes + 16_000_000_000,
+            diskBasis: "the served archive and its unpacked index, plus 16 GB for the reference set and its downloads",
+            diskFolder: diskFolder)
     }
 
     /// The local copy of `url` in `folder`, named as the URL names it, since the set id hashes each input's file name

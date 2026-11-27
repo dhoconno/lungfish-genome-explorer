@@ -61,7 +61,7 @@ struct RNASeqReferenceSetsSection: View {
                 Text(ReferenceSetCatalog.description)
                     .font(.caption)
                     .foregroundStyle(Color.lungfishSecondaryText)
-                Text("Download \(LungfishFormatters.formatBytes(row.entry.downloadBytes)), about 18 GB kept, 64 GB free disk and 16.6 GB of memory while it builds, about an hour")
+                Text(model.needWords(row.entry))
                     .font(.caption)
                     .foregroundStyle(Color.lungfishSecondaryText)
                 if model.installing.contains(row.id) {
@@ -105,10 +105,14 @@ struct RNASeqReferenceSetsSection: View {
             } label: { Text("Download") }
             .controlSize(.small)
             .buttonStyle(.borderedProminent)
-            .disabled(model.memoryRefusal != nil || model.toolsMissing)
+            .disabled(model.memoryRefusal(row.entry) != nil || model.toolsMissing)
             .help(row.state == .notInstalled
-                ? "Download the genome and genes, build the set and its salmon index"
-                : "The set is here without its salmon index. Download builds the index.")
+                ? (row.entry.servedIndex == nil
+                    ? "Download the genome and genes, build the set and its salmon index"
+                    : "Download the genome, genes and salmon index, and build the set")
+                : (row.entry.servedIndex == nil
+                    ? "The set is here without its salmon index. Download builds the index."
+                    : "The set is here without its salmon index. Download gets the served index."))
             .accessibilityIdentifier(RNASeqReferenceSetsAccessibilityID.download(row.id))
         }
     }

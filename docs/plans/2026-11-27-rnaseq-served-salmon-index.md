@@ -17,14 +17,14 @@ A served index is used only when the set built on the Mac has the same id the in
 ## Design
 
 1. **Catalog row.** Each `ReferenceSetCatalogEntry` gains an optional `servedIndex`: the URL, byte count and sha256 of one archive, plus the set id, salmon build, k and decoys it was built for. These are copied from the `index-key.json` of the build that made it.
-2. **Archive.** One zip per index, holding the key folder `salmon-2.11.0-k31-genome-decoys/` as `SalmonIndexCache` publishes it: `index/`, `index-key.json` and `provenance/`, but not `uses/`. Download and checks reuse the demo project route: `DemoProjectArchiveLoading`, then `verifyArchive` (bytes and sha256), then `SafeZipExtractor`.
+2. **Archive.** One zip per index, holding the key folder's `index/` and `index-key.json` and nothing else. Its `provenance/` and `uses/` name the building Mac's paths, so the cache writes a new record on adopt. The download and checks reuse the demo project route: `DemoProjectArchiveLoading`, a size and sha256 check, then `SafeZipExtractor`, which reads Zip64 for the 4.5 GB `refseq.bin`.
 3. **Install order.** `ReferenceSetInstall.install` does preflight, downloads, then the set, as today. Then:
    - If the row has `servedIndex`, the set's id equals its id, and the local salmon build equals its build: download the archive into the cache's `.work` stage, check the archive's sha256, unpack, and check `index-key.json` and `info.json` with `SalmonIndexCache.settled`. Then rename it into place with `RENAME_EXCL`.
    - Otherwise: `SalmonIndexCache.ensure`, as today.
 
    One new method, `SalmonIndexCache.adopt(archive:expected:)`, is the only new writer. The cache keeps a single owner.
 4. **Preflight.** On the served path, check `SalmonQuantNeed` memory (6.4 GB) and the archive's size plus its unpacked size of free disk, not the build's 16.6 GB and 64 GB. The row's words and `memoryRefusal` follow which path the row will take.
-5. **Provenance.** The index's own `provenance/` records the galah build. The install adds a step "adopted served index" with the URL and sha256, so a result's record shows the index was downloaded and where it was built (`docs/contracts/RECORDING-PROVENANCE.md`).
+5. **Provenance.** The cache writes the index's record on adopt, named "RNA-seq salmon index, served", with the archive's URL and sha256 and this Mac's paths, so a result's record shows the index was downloaded (`docs/contracts/RECORDING-PROVENANCE.md`).
 6. **CLI parity.** `rnaseq install-reference` takes the same path, with `--build-index` to force a local build. `rnaseq index` is unchanged.
 7. **Making the archives.** A script, `scripts/rnaseq/serve-index.py`, zips a published key folder, prints the row's fields and checks that a second unpack equals the first. It runs on galah only, from the locked environment.
 
@@ -62,7 +62,7 @@ So a served index equals the one the Mac would build, given the same set id and 
 
 ## Order of work
 
-1. The tests and `SalmonIndexCache.adopt`, `servedIndex`, and the install branch, with no URL in any row. The served path is tested on file URLs.
+1. The tests and `SalmonIndexCache.adopt`, `servedIndex`, and the install branch, with no URL in any row. The served path is tested on file URLs. Done 2026-11-27: `SalmonIndexCache+Adopt.swift`, `ReferenceSetCatalogEntry.servedIndex` and `memoryNeedBytes`, the install branch, `--build-index`, the app's per-row memory check and words. The archive holds no `provenance/`, since that names the building Mac's paths. The cache writes the record on adopt.
 2. Build the four archives on galah with the script (mouse needs its index built first).
 3. Upload to the public LabKey area after the owner's yes on the file list, then put the URLs and pins in the rows, in one commit with a real install on a smaller-memory path (galah with the memory check set to a 16 GB host).
 4. Manual: the row's words, and the memory table in `02-counting-bulk-reads.md`.

@@ -106,6 +106,33 @@ final class RNASeqReferenceCatalogModelTests: XCTestCase {
         XCTAssertEqual(String(format: "%.1f", Double(ReferenceSetCatalog.indexMemoryBytes) / 1_073_741_824), "16.6")
     }
 
+    /// A 16 GB Mac can install a row whose index is served, since it checks a count's memory, not a build's.
+    func testOnA16GBMacOnlyARowWithAServedIndexHasDownloadOn() {
+        var served = ReferenceSetCatalog.entries[0]
+        served.servedIndex = ServedSalmonIndex(
+            url: "https://example.org/i.zip", archiveBytes: 8_000_000_000, archiveSHA256: String(repeating: "a", count: 64),
+            unpackedBytes: 10_000_000_000, setID: "s", salmonBuild: "salmon-2.11.0-h0_0", k: 31, decoys: .genome)
+        let built = ReferenceSetCatalog.entries[1]
+        let model = RNASeqReferenceCatalogModel(
+            reporter: RecordingOperationReporter(), storageRoot: { URL(fileURLWithPath: "/nonexistent-root") },
+            launch: { _, _, _, _ in }, toolsCheck: { false }, entries: [served, built], systemRAMBytes: 17_179_869_184)
+        XCTAssertNil(model.memoryRefusal(served))
+        XCTAssertEqual(model.memoryRefusal(built),
+                       "Building the salmon index needs about 16.6 GB of memory, more than this Mac has. "
+                       + "Count on a Linux machine instead, as the RNA-seq chapter of the manual shows.")
+        XCTAssertEqual(model.memoryRefusal, model.memoryRefusal(built))
+        XCTAssertEqual(model.needWords(served),
+                       "Download about 9 GB with the salmon index, about 18 GB kept, 6.0 GB of memory")
+        XCTAssertEqual(model.needWords(built),
+                       "Download 866.4 MB, about 18 GB kept, 64 GB free disk and 16.6 GB of memory while it builds, about an hour")
+        let tiny = RNASeqReferenceCatalogModel(
+            reporter: RecordingOperationReporter(), storageRoot: { URL(fileURLWithPath: "/nonexistent-root") },
+            launch: { _, _, _, _ in }, toolsCheck: { false }, entries: [served], systemRAMBytes: 4_294_967_296)
+        XCTAssertEqual(tiny.memoryRefusal(served),
+                       "Counting needs about 6.0 GB of memory, more than this Mac has. "
+                       + "Count on a Linux machine instead, as the RNA-seq chapter of the manual shows.")
+    }
+
     // MARK: - The quantify pane
 
     func testThePaneSaysWhereToDownloadASetWhenNoneIsThere() {

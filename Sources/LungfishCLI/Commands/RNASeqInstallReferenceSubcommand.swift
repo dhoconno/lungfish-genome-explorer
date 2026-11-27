@@ -15,7 +15,7 @@ extension RNASeqCommand {
             commandName: "install-reference",
             abstract: "Download a reference set, build it and build its salmon index",
             discussion: """
-                Lungfish checks that this Mac has the memory and free disk the salmon index needs, downloads the set's genome and GTF into the storage folder, checks each file's sha256 against the named set, builds the set as rnaseq reference-set --default does and builds its index at k 31 with the genome as decoys, as rnaseq index does. The downloads are kept, and a second run downloads and builds nothing. The sets are human/gencode-50, mouse/gencode-M39, rhesus/ensembl-116 and cynomolgus/refseq-GCF_037993035.2.
+                Lungfish checks that this Mac has the memory and free disk the salmon index needs, downloads the set's genome and GTF into the storage folder, checks each file's sha256 against the named set, builds the set as rnaseq reference-set --default does and builds its index at k 31 with the genome as decoys, as rnaseq index does. When the set has a served index for this Mac's salmon, Lungfish downloads that index and checks its sha256 instead of building it, which needs only the memory of a count. --build-index builds it here instead. The downloads are kept, and a second run downloads and builds nothing. The sets are human/gencode-50, mouse/gencode-M39, rhesus/ensembl-116 and cynomolgus/refseq-GCF_037993035.2.
                 """
         )
 
@@ -24,6 +24,9 @@ extension RNASeqCommand {
 
         @Option(name: .customLong("storage-root"), help: "Managed storage root (default: the configured location)")
         var storageRoot: String?
+
+        @Flag(name: .customLong("build-index"), help: "Build the salmon index on this Mac even when a served one matches")
+        var buildIndex = false
 
         @OptionGroup var globalOptions: GlobalOptions
 
@@ -65,12 +68,14 @@ extension RNASeqCommand {
             let argv = CommandLine.arguments
             let percent = PercentGate()
             let ended = await ManagedToolLeaf.cancellingOnSIGTERM { () async throws -> ReferenceSetInstallOutcome in
-                try await installer.install(id, argv: argv) { step in
+                try await installer.install(id, buildIndex: buildIndex, argv: argv) { step in
                     switch step {
                     case .downloading(let fraction, let message):
                         // One event a whole percent, since the loader reports every network chunk.
                         if percent.advance(to: Int(fraction * 100)) { events.emitProgress(fraction, message: message) }
                     case .stage(let message):
+                        // A served index downloads after the set is built, from 0 again.
+                        percent.reset()
                         events.emitLog(.info, message)
                         if !eventsOn { say(message) }
                     }
@@ -109,5 +114,9 @@ private final class PercentGate: Sendable {
             last = value
             return true
         }
+    }
+
+    func reset() {
+        last.withLock { $0 = -1 }
     }
 }

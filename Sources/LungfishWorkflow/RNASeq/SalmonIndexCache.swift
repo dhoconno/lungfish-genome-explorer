@@ -121,6 +121,8 @@ public enum SalmonIndexError: Error, LocalizedError, Equatable, Sendable {
     case publishedIndexDiffers(path: String)
     case notFound(path: String)
     case inUse(index: String, results: [String])
+    /// A served index that is not the one its row names, so nothing was published.
+    case servedIndexDiffers(String)
 
     public var errorDescription: String? {
         switch self {
@@ -140,6 +142,8 @@ public enum SalmonIndexError: Error, LocalizedError, Equatable, Sendable {
             return "The index at \(path) does not match its \(SalmonIndexKeyFile.filename). Remove that folder and build the index again."
         case .notFound(let path):
             return "There is no index at \(path)."
+        case .servedIndexDiffers(let reason):
+            return reason
         case .inUse(let index, let results):
             let count = results.count == 1 ? "a result" : "\(results.count) results"
             return "The index at \(index) stays, because \(count) still name it: \(results.joined(separator: ", ")). "
