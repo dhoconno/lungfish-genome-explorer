@@ -80,6 +80,7 @@ nav:
     - Extracting Sequences: chapters/02-sequences/03-extracting-and-comparing.md
     - Aligning Sequences: chapters/02-sequences/04-aligning-sequences.md
     - Building Trees: chapters/02-sequences/05-building-trees.md
+    - Importing Application Exports: chapters/02-sequences/06-importing-application-exports.md
 
   - Reads (FASTQ):
     - Importing Sequencing Reads: chapters/03-reads/01-importing-fastq.md
@@ -90,6 +91,7 @@ nav:
     - Subsetting and Extraction: chapters/03-reads/06-subsetting-and-extraction.md
     - Oxford Nanopore Runs: chapters/03-reads/07-ont-runs.md
     - Read Processing: chapters/03-reads/08-read-processing.md
+    - Demultiplexing by Barcode: chapters/03-reads/09-demultiplexing-barcodes.md
 
   - Alignments:
     - Mapping Reads to a Reference: chapters/04-alignments/01-mapping-reads-to-a-reference.md
@@ -132,6 +134,7 @@ nav:
   - Workflows:
     - Exporting as Nextflow or Snakemake: chapters/08-workflows/02-exporting-as-nextflow-or-snakemake.md
     - Running External Workflows: chapters/08-workflows/03-running-external-workflows.md
+    - Running on a Linux Machine: chapters/08-workflows/04-running-on-a-linux-machine.md
 
   - MHC Allele Genotyping:
     - What Is MHC Genotyping: chapters/09-genotyping/01-what-is-mhc-genotyping.md
@@ -145,6 +148,13 @@ nav:
     - Designing a Tiled Amplicon Scheme: chapters/10-primer-design/03-designing-a-tiled-amplicon-scheme.md
     - Designing qPCR and dPCR Assays: chapters/10-primer-design/04-designing-qpcr-and-dpcr-assays.md
     - Reviewing and Ordering Primers: chapters/10-primer-design/05-reviewing-and-ordering-primers.md
+
+  - RNA-seq:
+    - What Is RNA-seq: chapters/11-rna-seq/01-what-is-rna-seq.md
+    - Counting Bulk RNA-seq Reads: chapters/11-rna-seq/02-counting-bulk-reads.md
+    - Reading and Exporting Bulk RNA-seq Counts: chapters/11-rna-seq/03-reading-and-exporting-bulk-counts.md
+    - Single-Cell RNA-seq Counts: chapters/11-rna-seq/04-single-cell-counts.md
+    - The Cell Map: chapters/11-rna-seq/05-the-cell-map.md
 
   - Reference:
     - CLI Reference: chapters/appendices/cli-reference.md
