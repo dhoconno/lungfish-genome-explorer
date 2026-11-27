@@ -48,4 +48,35 @@ extension BuildDbCommand.TaxTriageSubcommand {
         }
         return stats
     }
+
+    /// The references of the row whose primary accession is `accession` in `sample`, every strain the row sums in gcfmap
+    /// order (`taxTriageStrainGroups`, TT-STRAIN-GROUP), the primary first. Its reads can sit on any of them, as
+    /// Influenza A's sat on segments 2 and 5 and not on segment 4 in the NTC-P batch (3.2 TTREADS). No reference is in
+    /// two rows' lists. An accession no row holds stands alone.
+    static func organismAccessions(
+        rows: [TaxTriageTaxonomyRow], accessionMap: [TaxTriageAccessionEntry]
+    ) -> (String, String) -> [String] {
+        let gcfmaps = Dictionary(grouping: accessionMap, by: \.sample)
+        var listOf: [String: [String]] = [:]
+        for (sample, sampleRows) in Dictionary(grouping: rows, by: \.sample) {
+            let gcfmap = (gcfmaps[sample] ?? []).map { (accession: $0.accession, organism: $0.organism) }
+            let groups = taxTriageStrainGroups(organisms: sampleRows.map(\.organism), gcfmap: gcfmap)
+            let claimed = Set(groups.values.joined())
+            for row in sampleRows {
+                guard let primary = row.primaryAccession else { continue }
+                if let list = groups[row.organism] {
+                    listOf["\(sample)\t\(primary)"] = list
+                } else if let organism = gcfmap.first(where: { $0.accession == primary })?.organism {
+                    // A row linked by its tax ID (TT-TAXID-SYNONYM) counts every unclaimed reference of the gcfmap
+                    // organism its primary accession belongs to.
+                    var seen: Set<String> = []
+                    listOf["\(sample)\t\(primary)"] = gcfmap
+                        .filter { $0.organism == organism && !claimed.contains($0.accession) }
+                        .map(\.accession)
+                        .filter { seen.insert($0).inserted }
+                }
+            }
+        }
+        return { [listOf] sample, accession in listOf["\(sample)\t\(accession)"] ?? [accession] }
+    }
 }
