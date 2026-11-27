@@ -808,7 +808,7 @@ struct DatabasesTabView: View {
                 databaseList
             }
 
-            Divider()
+            RNASeqReferenceSetsSection(model: .shared)
 
             // Footer with storage info
             storageFooter

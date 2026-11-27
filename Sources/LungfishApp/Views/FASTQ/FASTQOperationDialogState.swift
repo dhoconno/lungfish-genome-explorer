@@ -1999,7 +1999,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .kraken2: return "Kraken2"
         case .esViritu: return "EsViritu"
         case .taxTriage: return "TaxTriage"
-        case .rnaSeqQuant: return "Quantify RNA-seq Reads"
+        case .rnaSeqQuant: return "Count Reads per Gene"
         }
     }
 

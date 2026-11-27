@@ -46,7 +46,7 @@ final class RNASeqExportDialogStateTests: XCTestCase {
         let export = try XCTUnwrap(state.tools.first { $0.id == "builtin.rnaseq-export" })
         let pseudobulk = try XCTUnwrap(state.tools.first { $0.id == "builtin.rnaseq-pseudobulk" })
         XCTAssertEqual(export.kind, .rnaSeqExport)
-        XCTAssertEqual(export.title, "Export RNA-seq Counts")
+        XCTAssertEqual(export.title, "Export Counts and Analysis Scripts")
         XCTAssertEqual(export.availability, .available)
         XCTAssertEqual(pseudobulk.kind, .rnaSeqPseudobulk)
         XCTAssertEqual(pseudobulk.title, "Pseudobulk RNA-seq Cells")

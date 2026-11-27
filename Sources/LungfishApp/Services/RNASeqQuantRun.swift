@@ -168,7 +168,7 @@ enum RNASeqQuantRoute {
         let count = request.bundleURLs.count
         let noun = count == 1 ? "sample" : "samples"
         let started = operations.begin(
-            title: "Quantify RNA-seq",
+            title: "Count Reads per Gene",
             detail: "Counting \(count) \(noun) against \(request.setID)",
             operationType: .rnaSeqQuantification,
             targetBundleURL: nil,
@@ -208,7 +208,7 @@ enum RNASeqQuantRoute {
                 _ = operations.acknowledgeCancellation(id: id, detail: "Cancelled. No result was written.")
             } catch {
                 operations.log(id: id, level: .error, message: error.localizedDescription)
-                _ = operations.fail(id: id, detail: "Quantification failed", errorMessage: error.localizedDescription)
+                _ = operations.fail(id: id, detail: "Counting reads per gene failed", errorMessage: error.localizedDescription)
             }
         }
     }

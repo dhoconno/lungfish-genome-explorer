@@ -294,7 +294,7 @@ final class CLIImportRunnerTests: XCTestCase {
     }
 
     @MainActor
-    func testTheRNASeqCardsOpenTheirPanelsAndSayWhatAnExternalInputMeans() throws {
+    func testTheRNASeqCardsOpenTheirPanelsAndSayWhereCountingFASTQFilesStarts() throws {
         let model = ImportCenterViewModel()
         let bulk = try XCTUnwrap(model.allCards.first { $0.id == "rnaseq-counts" })
         let cells = try XCTUnwrap(model.allCards.first { $0.id == "rnaseq-single-cell" })
@@ -307,9 +307,17 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertTrue(bulkPanel.canChooseFiles && bulkPanel.canChooseDirectories && bulkPanel.allowsMultipleSelection)
         XCTAssertFalse(cellPanel.canChooseFiles)
         XCTAssertTrue(cellPanel.canChooseDirectories && cellPanel.allowsMultipleSelection)
+        // The cards name what they import and where counting FASTQ files starts (focus group 2026-11-26). The words on
+        // inputs outside the project moved to the two sheets.
+        XCTAssertEqual(bulk.title, "Existing Bulk RNA-seq Counts")
+        XCTAssertEqual(cells.title, "Existing Single-cell Counts")
+        XCTAssertNotNil(bulk.description.range(of: "import them as Sequencing Read Files, then use Tools > RNA-seq > "
+            + FASTQOperationToolID.rnaSeqQuant.title), bulk.description)
+        XCTAssertTrue(model.allCards.contains { $0.title == "Sequencing Read Files" })
+        XCTAssertNotNil(cells.description.range(of: "use Single-cell Plan for a Linux Machine"), cells.description)
+        XCTAssertTrue(model.allCards.contains { $0.title == "Single-cell Plan for a Linux Machine" })
+        XCTAssertNotNil(RNASeqImportWords.externalInputs.range(of: "<external>/<name>"))
         for card in [bulk, cells] {
-            XCTAssertTrue((card.description.range(of: "<external>/<name>") != nil), card.description)
-            XCTAssertTrue((card.description.range(of: "does not replay") != nil), card.description)
             XCTAssertLessThanOrEqual(card.description.count, 190, "the card shows three lines of its description (ImportCenterView.swift:217)")
             XCTAssertEqual(card.tab, .sequencingReads)
         }

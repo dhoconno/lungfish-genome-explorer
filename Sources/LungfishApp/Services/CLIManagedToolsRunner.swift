@@ -79,6 +79,11 @@ struct CLIManagedToolsRunner {
         Invocation(subcommand: "conda db update", arguments: [catalogID, "--yes", "--format", "json"])
     }
 
+    /// `rnaseq install-reference --default <id>`, the Databases tab's RNA-seq reference row (2026-11-26).
+    static func installReference(defaultID: String) -> Invocation {
+        Invocation(subcommand: "rnaseq install-reference", arguments: ["--default", defaultID, "--format", "json"])
+    }
+
     /// The items an Update Tools selection names: its environments, its databases and, when
     /// removals are on, the retired environments of the plan, the ids `tools update --only` takes.
     static func itemIDs(of selection: PlanSelection, in plan: ReconciliationPlan) -> [String] {
@@ -96,6 +101,7 @@ struct CLIManagedToolsRunner {
     ///   - overlay: Called on the main actor with each progress message the row takes.
     ///   - progress: Called with the fraction and message of each `progress` event, for a caller
     ///     that shows them beside the row.
+    ///   - stage: Called with the message of each info `log` event, a step that reports no fraction.
     /// - Returns: The transport's result, whose `message` is the command's `complete` message.
     /// - Throws: `CancellationError` once the row's cancel is acknowledged, else the transport's
     ///   `RunError`, whose description is the command's `failed` message.
@@ -104,7 +110,8 @@ struct CLIManagedToolsRunner {
         _ invocation: Invocation,
         operationID: UUID,
         overlay: (@MainActor @Sendable (String) -> Void)? = nil,
-        progress: (@Sendable (Double, String) -> Void)? = nil
+        progress: (@Sendable (Double, String) -> Void)? = nil,
+        stage: (@Sendable (String) -> Void)? = nil
     ) async throws -> CLISubprocessTransport.Result {
         let bridge = OperationCenterCLIBridge.onEvent(operationID: operationID, overlay: overlay)
         do {
@@ -116,6 +123,7 @@ struct CLIManagedToolsRunner {
                 onEvent: { event in
                     bridge(event)
                     if case .progress(let fraction, let message) = event { progress?(fraction, message) }
+                    if case .log(.info, let message) = event { stage?(message) }
                 }
             )
         } catch is CancellationError {
@@ -131,10 +139,11 @@ struct CLIManagedToolsRunner {
         operationID: UUID,
         overlay: (@MainActor @Sendable (String) -> Void)? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil,
+        stage: (@Sendable (String) -> Void)? = nil,
         cliURLOverride: URL? = nil
     ) async throws -> CLISubprocessTransport.Result {
         let runner = CLIManagedToolsRunner(cliURLOverride: cliURLOverride)
         OperationCenter.shared.setCancelCallback(for: operationID) { runner.cancel() }
-        return try await runner.run(invocation, operationID: operationID, overlay: overlay, progress: progress)
+        return try await runner.run(invocation, operationID: operationID, overlay: overlay, progress: progress, stage: stage)
     }
 }

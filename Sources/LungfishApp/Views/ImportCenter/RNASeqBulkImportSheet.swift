@@ -176,6 +176,9 @@ struct RNASeqBulkImportSheet: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .accessibilityIdentifier("rnaseq-import-inputs")
+            Text(RNASeqImportWords.externalInputs)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 12) {
                 RNASeqImportNameRow(model: model)
                 RNASeqImportSampleSheetRow(model: model)

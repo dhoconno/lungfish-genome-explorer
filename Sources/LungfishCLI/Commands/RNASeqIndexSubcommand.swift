@@ -84,6 +84,11 @@ extension RNASeqCommand {
         /// `--storage-root`, else the configured location, set in this process before anything reads it, as
         /// `rnaseq reference-set` does, so salmon comes from the root the index is written under.
         func resolvedStorageRoot() throws -> URL {
+            try Self.resolveStorageRoot(storageRoot)
+        }
+
+        /// `--storage-root` as `rnaseq index` and `rnaseq install-reference` read it.
+        static func resolveStorageRoot(_ storageRoot: String?) throws -> URL {
             guard let storageRoot, !storageRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return ManagedStorageConfigStore().currentLocation().rootURL
             }

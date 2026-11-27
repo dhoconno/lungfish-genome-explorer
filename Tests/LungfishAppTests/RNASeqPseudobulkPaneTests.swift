@@ -183,7 +183,7 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
     private func exportState() throws -> WorkflowOperationDialogState {
         let suite = makeTestDefaultsSuite(prefix: "RNASeqPseudobulkPaneTests")
         return try OperationsDialogFixtures.workflowState(
-            selecting: "Export RNA-seq Counts", defaults: suite.defaults,
+            selecting: "Export Counts and Analysis Scripts", defaults: suite.defaults,
             enabling: { $0.setWorkflow(WorkflowLibraryCatalog.rnaSeqExportItem, enabled: true) })
     }
 
@@ -371,7 +371,7 @@ final class RNASeqPseudobulkPaneTests: XCTestCase {
          "Cluster the amplicons with Savont and genotype each cluster's consensus sequence against an MHC allele library."),
         ("12S Amplicon Matching", "Review unresolved 12S sequences",
          "Matches merged reads, unmerged pairs or both to deduplicated FASTA without substitutions, counting each merged read or agreeing pair once."),
-        ("Export RNA-seq Counts", "Write counts and scripts",
+        ("Export Counts and Analysis Scripts", "Write counts and scripts",
          "Exports bulk results together (DESeq2, edgeR, limma voom and dream) or one single-cell result (Seurat and Scanpy) with matching scripts."),
         ("Pseudobulk RNA-seq Cells", "Sum UMIs by sample and label",
          "Sum the UMIs of a single-cell RNA-seq result by sample and label into a new bulk result."),

@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// The rows are P5-REFS's table (records `lanes/P5-REFS.md:9-18`). 5.1 downloads nothing: the person passes the files
-// and the owner checks their sha256 against the row. Every row pins its genome and its GTF.
+// The rows are P5-REFS's table (records `lanes/P5-REFS.md:9-18`), plus the mouse GENCODE row of 2026-11-26. With
+// `rnaseq reference-set --default` the person passes the files and the owner checks their sha256 against the row. The
+// rows that `ReferenceSetCatalog` lists are downloaded by `rnaseq install-reference`. Every row pins its genome and its GTF.
 
 import Foundation
 
@@ -39,6 +40,7 @@ public struct ReferenceSetDefault: Sendable, Equatable {
     }
 
     static let gencode = "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_50/"
+    static let gencodeMouse = "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_mouse/release_M39/"
     static let ensembl = "https://ftp.ensembl.org/pub/"
     static let ncbi = "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/"
 
@@ -46,6 +48,11 @@ public struct ReferenceSetDefault: Sendable, Equatable {
         row("human/gencode-50", "human default", "Homo sapiens", "GRCh38", nil, "GENCODE", "50",
             gencode + "GRCh38.primary_assembly.genome.fa.gz", "b760d18dbb651dd14dfc290083371b3ef3bff122d43a9cefb13ca4ecf38f05ca",
             gencode + "gencode.v50.primary_assembly.annotation.gtf.gz", "89bbad69a8c89fee5fadec0a2f14a098752d27a4ef7f24e4de9bac681e1b18f4"),
+        // GENCODE M39 is Ensembl 116, the Ensembl release of GENCODE 50 (BIO ruling 2026-11-26). GENCODE publishes md5
+        // only, so the sha256 was taken from bytes whose size and MD5SUMS md5 matched.
+        row("mouse/gencode-M39", "mouse default", "Mus musculus", "GRCm39", nil, "GENCODE", "M39",
+            gencodeMouse + "GRCm39.primary_assembly.genome.fa.gz", "82724ccc3726f7bbc3d1cf46a86bbda753f05c1c1b27772e3ff87641fc71669f",
+            gencodeMouse + "gencode.vM39.primary_assembly.annotation.gtf.gz", "d6da97913ce30f99883fc1216b111569f9947cf203886a5afb607b59228574d4"),
         row("rhesus/ensembl-116", "rhesus default", "Macaca mulatta", "Mmul_10", "GCA_003339765.3", "Ensembl", "116",
             ensembl + "release-116/fasta/macaca_mulatta/dna/Macaca_mulatta.Mmul_10.dna.toplevel.fa.gz",
             "679dd90651c50366858152b62989c26d587340711e60622458815d19b272fd3a",

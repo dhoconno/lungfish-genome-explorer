@@ -10,6 +10,8 @@ SUBCOMMANDS:
   reference-set           Build a reference set from a genome, an annotation
                           and extra sequences
   index                   Build or reuse the salmon index of a reference set
+  install-reference       Download a reference set, build it and build its
+                          salmon index
   quant                   Count bulk RNA-seq reads in a project with salmon
   export                  Export RNA-seq counts for DESeq2, edgeR and limma
   pseudobulk              Sum a single-cell result's UMIs by sample and label

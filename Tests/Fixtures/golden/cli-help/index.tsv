@@ -208,6 +208,7 @@ lungfish-cli import-fastq	shown	0	lungfish-cli.import-fastq.txt
 lungfish-cli rnaseq	shown	0	lungfish-cli.rnaseq.txt
 lungfish-cli rnaseq reference-set	shown	0	lungfish-cli.rnaseq.reference-set.txt
 lungfish-cli rnaseq index	shown	0	lungfish-cli.rnaseq.index.txt
+lungfish-cli rnaseq install-reference	shown	0	lungfish-cli.rnaseq.install-reference.txt
 lungfish-cli rnaseq quant	shown	0	lungfish-cli.rnaseq.quant.txt
 lungfish-cli rnaseq export	shown	0	lungfish-cli.rnaseq.export.txt
 lungfish-cli rnaseq pseudobulk	shown	0	lungfish-cli.rnaseq.pseudobulk.txt

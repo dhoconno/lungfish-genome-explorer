@@ -13,6 +13,12 @@ import SwiftUI
 struct RNASeqQuantReferenceSetChoice: Identifiable, Equatable, Sendable {
     let id: String
     let species: String?
+    /// The salmon indexes the set has, as `k<k>-<decoys>` of their key folder names, nil when not read.
+    var indexes: Set<String>? = nil
+
+    static func indexName(k: Int, decoys: RNASeqQuantRunRequest.Decoys) -> String {
+        "k\(k)-\(decoys == .genome ? SalmonIndexDecoys.genome.rawValue : SalmonIndexDecoys.none.rawValue)"
+    }
 
     var label: String {
         guard let species, !species.isEmpty else { return id }
@@ -35,8 +41,23 @@ enum RNASeqQuantReferenceSets {
                     .appendingPathComponent(ReferenceSetManifest.filename)
                 let species = (try? Data(contentsOf: manifest))
                     .flatMap { try? JSONDecoder().decode(ManifestSpecies.self, from: $0) }?.species
-                return RNASeqQuantReferenceSetChoice(id: String(name.dropLast(suffix.count)), species: species)
+                let id = String(name.dropLast(suffix.count))
+                return RNASeqQuantReferenceSetChoice(
+                    id: id, species: species, indexes: indexes(setID: id, storageRoot: storageRoot, fileManager: fileManager))
             }
+    }
+
+    /// The published salmon indexes of `setID`, by the `k<k>-<decoys>` end of each key folder that holds `index/info.json`.
+    static func indexes(setID: String, storageRoot: URL, fileManager: FileManager = .default) -> Set<String> {
+        let folder = storageRoot.appendingPathComponent(SalmonIndexCache.folderName, isDirectory: true)
+            .appendingPathComponent(setID, isDirectory: true)
+        let names = (try? fileManager.contentsOfDirectory(atPath: folder.path)) ?? []
+        return Set(names.compactMap { name -> String? in
+            guard name.hasPrefix("salmon-"), let k = name.range(of: "-k", options: .backwards),
+                  fileManager.fileExists(atPath: folder.appendingPathComponent("\(name)/\(SalmonIndexCache.indexFolderName)/info.json").path)
+            else { return nil }
+            return String(name[name.index(after: k.lowerBound)...])
+        })
     }
 
     private struct ManifestSpecies: Decodable {
@@ -52,7 +73,8 @@ enum RNASeqQuantDefaults {
     static let decoysHelp = "genome (the default) for the index with the genome as decoys, or none"
     static let trimHelp = "Trim the reads with Trim Galore before salmon (default: not trimmed)"
     static let polyGHelp = "With --trim: on passes --poly_g to Trim Galore, off (the default) --no_poly_g"
-    static let indexNote = "Lungfish counts on the reference set's own index and never builds one. A set without an index for these settings stops the run, and the Operations row says so."
+    static let indexNote = "Lungfish counts on the reference set's own index and never builds one here. A set downloaded in Plugin Manager has its index at k 31 with the genome as decoys."
+    static let noSetMessage = "Download a reference set in Plugin Manager to count these reads."
 }
 
 /// The quantify row's settings, held beside the dialog state so the state file carries one property.
@@ -100,11 +122,16 @@ final class RNASeqQuantDialogModel {
         let bundles = Self.bundleURLs(from: inputs)
         if bundles.isEmpty { return "Select at least one FASTQ bundle." }
         if !bundles.allSatisfy(Self.isFASTQBundle) {
-            return "Quantification counts FASTQ bundles, one sample each. Import the reads as a FASTQ bundle first."
+            return "Counting reads per gene takes FASTQ bundles, one sample each. Import the reads as Sequencing Read Files first."
         }
-        if availableSets.isEmpty { return "No reference set is installed under the storage root. Make one with lungfish-cli rnaseq reference-set and its index with lungfish-cli rnaseq index, then reopen this dialog." }
-        if referenceSetID == nil { return "Choose a reference set." }
+        if availableSets.isEmpty { return RNASeqQuantDefaults.noSetMessage }
+        guard let referenceSetID else { return "Choose a reference set." }
         if !kIsValid { return "k is an odd number up to 31." }
+        if let indexes = availableSets.first(where: { $0.id == referenceSetID })?.indexes,
+           !indexes.contains(RNASeqQuantReferenceSetChoice.indexName(k: k, decoys: decoys)) {
+            return "This reference set has no salmon index for k \(k) \(decoys == .genome ? "with" : "without") genome decoys. "
+                + "Choose k 31 with genome decoys, or download the set again in Plugin Manager, which builds that index."
+        }
         return nil
     }
 
@@ -132,6 +159,10 @@ struct RNASeqQuantPane: View {
             .padding(.vertical, 20)
         }
         .task { state.rnaSeqQuant.refreshSets() }
+        // An install in Plugin Manager posts this, so the picker fills without reopening the dialog (UX trap 1).
+        .onReceive(NotificationCenter.default.publisher(for: .managedResourcesDidChange)) { _ in
+            state.rnaSeqQuant.refreshSets()
+        }
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -149,13 +180,21 @@ private struct RNASeqQuantSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             group("Reference set") {
-                Picker("Reference set", selection: $model.referenceSetID) {
-                    Text("Choose a reference set").tag(String?.none)
-                    ForEach(model.availableSets) { choice in
-                        Text(choice.label).tag(String?.some(choice.id))
+                if model.availableSets.isEmpty {
+                    Text(RNASeqQuantDefaults.noSetMessage).font(.body)
+                    Button("Download Reference Set\u{2026}") {
+                        PluginManagerWindowController.show(tab: .databases)
                     }
+                    .accessibilityIdentifier("rnaseq-quant-download-reference-set")
+                } else {
+                    Picker("Reference set", selection: $model.referenceSetID) {
+                        Text("Choose a reference set").tag(String?.none)
+                        ForEach(model.availableSets) { choice in
+                            Text(choice.label).tag(String?.some(choice.id))
+                        }
+                    }
+                    .accessibilityIdentifier("rnaseq-quant-reference-set")
                 }
-                .accessibilityIdentifier("rnaseq-quant-reference-set")
                 caption(RNASeqQuantDefaults.indexNote)
             }
             group("Index") {

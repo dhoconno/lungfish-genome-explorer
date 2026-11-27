@@ -175,7 +175,7 @@ enum WorkflowLibraryCatalog {
 
     static let rnaSeqExportItem = WorkflowLibraryItem(
         id: rnaSeqExportID,
-        title: "Export RNA-seq Counts",
+        title: "Export Counts and Analysis Scripts",
         subtitle: "Write counts and scripts",
         categoryID: .rnaSeq,
         maturity: .core,

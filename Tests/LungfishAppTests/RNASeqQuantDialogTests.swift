@@ -184,7 +184,7 @@ final class RNASeqQuantDialogTests: XCTestCase {
         let state = FASTQOperationDialogState(
             initialCategory: .rnaSeq, selectedInputURLs: [bundle], projectURL: project, availableToolIDs: nil)
         state.selectTool(.rnaSeqQuant)
-        XCTAssertEqual(state.readinessText, "No reference set is installed under the storage root. Make one with lungfish-cli rnaseq reference-set and its index with lungfish-cli rnaseq index, then reopen this dialog.")
+        XCTAssertEqual(state.readinessText, "Download a reference set in Plugin Manager to count these reads.")
         state.rnaSeqQuant.availableSets = [RNASeqQuantReferenceSetChoice(id: "grch38", species: "Homo sapiens")]
         state.rnaSeqQuant.referenceSetID = "grch38"
         state.rnaSeqQuant.trim = true

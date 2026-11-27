@@ -3077,7 +3077,7 @@ features:
       The pack with id rna-seq, in category Transcriptomics, installs salmon
       and gffread for bulk RNA-seq on this Mac, at the versions the tool lock
       pins. The RNA-seq category of the Tools menu needs it, since salmon
-      comes from it, and Quantify RNA-seq Reads is its tool.
+      comes from it, and Count Reads per Gene is its tool.
   plugins.single-cell-pack:
     title: Single-Cell Analysis pack
     entry_points:
@@ -3352,9 +3352,9 @@ features:
       attachments/, ready for BAM primer trimming. Chapters:
       10-primer-design/05 and appendices/primer-schemes.
   rnaseq.quant:
-    title: Quantify RNA-seq reads
+    title: Count reads per gene
     entry_points:
-      - "Tools > RNA-seq > Quantify RNA-seq Reads…"
+      - "Tools > RNA-seq > Count Reads per Gene…"
       - "CLI: lungfish-cli rnaseq quant"
     inputs: [fastq-bundle, rnaseq-reference-set]
     outputs: [rnaseq-result]
@@ -3381,12 +3381,16 @@ features:
       - Tests/LungfishAppViewTests/ToolsMenuStructureTests.swift
     notes: >-
       The Tools menu has an RNA-seq category after Genotyping with one tool,
-      Quantify RNA-seq Reads. The category needs the rna-seq pack, where
+      Count Reads per Gene. The category needs the rna-seq pack, where
       salmon comes from. The pane lists the reference sets under the storage
-      root's rnaseq-reference-sets folder and sets k, decoys, trimming and
+      root's rnaseq-reference-sets folder. With none, it says to download one
+      in Plugin Manager and shows Download Reference Set…, which opens the
+      Databases tab, and it fills again when an install there finishes. A set
+      with no salmon index for the chosen k and decoys keeps Run off. It sets
+      k, decoys, trimming and
       poly-G trimming, each with the help words of the command. One run
       makes one result for all chosen FASTQ bundles, by lungfish-cli rnaseq
-      quant with --format json. The Operations row reads RNA-seq Quant and
+      quant with --format json. The Operations row reads Count Reads per Gene and
       records the command that runs, which Copy CLI Command gives. A virtual
       bundle is named by its folder, and the command writes its reads to the
       run's work folder before salmon starts. A cancel ends the command
@@ -3429,7 +3433,7 @@ features:
   rnaseq.export:
     title: Export RNA-seq counts for DESeq2, edgeR, limma voom and dream
     entry_points:
-      - "Tools > RNA-seq > Export RNA-seq Counts…"
+      - "Tools > RNA-seq > Export Counts and Analysis Scripts…"
       - "CLI: lungfish-cli rnaseq export"
     inputs: [rnaseq-result, sample-sheet]
     outputs: [export-folder]
@@ -3453,7 +3457,7 @@ features:
       - Tests/LungfishAppWorkflowTests/WorkflowOperationDialogStateTests.swift
     notes: >-
       The RNA-seq category of the Tools menu has two more tools after
-      Quantify RNA-seq Reads, Export RNA-seq Counts and Pseudobulk RNA-seq
+      Count Reads per Gene, Export Counts and Analysis Scripts and Pseudobulk RNA-seq
       Cells. Both are core tools, so they show whether or not any workflow
       is enabled, and each opens the Workflow Operations window on its own
       row. The export pane takes one or more RNA-seq results, which a person
@@ -3558,8 +3562,8 @@ features:
   import.rnaseq-counts:
     title: Import RNA-seq counts
     entry_points:
-      - "Import Center > Sequencing Reads > RNA-seq Counts"
-      - "Import Center > Sequencing Reads > Single-cell Counts"
+      - "Import Center > Sequencing Reads > Existing Bulk RNA-seq Counts"
+      - "Import Center > Sequencing Reads > Existing Single-cell Counts"
       - "CLI: lungfish-cli import rnaseq"
     inputs: [salmon-quant-folder, rnaseq-count-table, cellranger-outs-folder, starsolo-folder]
     outputs: [rnaseq-result]
@@ -3582,10 +3586,13 @@ features:
       - Tests/LungfishAppTests/CLIRunnerArgvRoundTripTests.swift
       - Tests/LungfishAppTests/FastqIngestCancelReplayTests.swift
     notes: >-
-      Two cards on the Sequencing Reads tab of the Import Center. RNA-seq
-      Counts imports salmon quant folders, or one count table of genes by
-      samples, as one RNA-seq result. Single-cell Counts imports Cell Ranger
-      outs folders or STARsolo run folders as one single-cell result. Each
+      Two cards on the Sequencing Reads tab of the Import Center. Existing
+      Bulk RNA-seq Counts imports salmon quant folders, or one count table of
+      genes by samples, as one RNA-seq result, and its description says that
+      counting FASTQ files starts from Sequencing Read Files and Tools >
+      RNA-seq > Count Reads per Gene. Existing Single-cell Counts imports Cell
+      Ranger outs folders or STARsolo run folders as one single-cell result.
+      Each
       opens a sheet that asks for what the command needs, such as the unit
       of a count table, a sample sheet, a reference set and, with a reference
       set, one BAM for each single-cell sample, and says what is wrong with
@@ -3779,7 +3786,7 @@ features:
     title: Read a single-cell RNA-seq result
     entry_points:
       - "Sidebar: select an RNA-seq result (.lungfishrnaseq) of single-cell modality"
-      - "Import Center > Sequencing Reads > Single-cell Counts"
+      - "Import Center > Sequencing Reads > Existing Single-cell Counts"
     inputs: [rnaseq-result]
     outputs: []
     viewport_class: RNASeqSingleCellViewController
@@ -4293,6 +4300,8 @@ features:
   rnaseq.reference-set:
     title: Build an RNA-seq reference set and its index
     entry_points:
+      - "Plugin Manager > Databases > RNA-seq Reference Sets > Download"
+      - "CLI: lungfish-cli rnaseq install-reference"
       - "CLI: lungfish-cli rnaseq reference-set"
       - "CLI: lungfish-cli rnaseq index"
       - "CLI: lungfish-cli rnaseq index-plan"
@@ -4302,6 +4311,11 @@ features:
     viewport_class: none
     sources:
       - Sources/LungfishCLI/Commands/RNASeqReferenceSetSubcommand.swift
+      - Sources/LungfishCLI/Commands/RNASeqInstallReferenceSubcommand.swift
+      - Sources/LungfishWorkflow/RNASeq/ReferenceSetCatalog.swift
+      - Sources/LungfishWorkflow/RNASeq/ReferenceSetInstall.swift
+      - Sources/LungfishApp/Views/PluginManager/RNASeqReferenceCatalogModel.swift
+      - Sources/LungfishApp/Views/PluginManager/RNASeqReferenceSetsSection.swift
       - Sources/LungfishCLI/Commands/RNASeqIndexSubcommand.swift
       - Sources/LungfishCLI/Commands/RNASeqIndexPlanSubcommand.swift
       - Sources/LungfishCLI/Commands/RNASeqIndexAdoptSubcommand.swift
@@ -4311,8 +4325,15 @@ features:
       Builds a reference set from a genome, an annotation and extra sequences
       under the storage root, then builds or reuses its salmon index, or
       writes and adopts a plan that builds its STAR index on a Linux machine.
-      The app has no dialog for this step, and the Quantify RNA-seq Reads
-      pane lists only the sets that are already installed.
+      Plugin Manager > Databases lists two sets under RNA-seq Reference
+      Sets, human GRCh38 with GENCODE 50 and mouse GRCm39 with GENCODE M39.
+      Download runs lungfish-cli rnaseq install-reference --default <id>
+      on an Operations row of type download, which checks memory and free
+      disk first, downloads and checks the genome and GTF, builds the set and
+      builds its salmon index at k 31 with genome decoys. A row reads Ready to
+      count once the set and that index are there. On a Mac with less memory
+      than the index needs, Download is off and the words say why. Other
+      species are built with rnaseq reference-set and rnaseq index.
   rnaseq.cell-map-select:
     title: Save or pseudobulk a cell map selection
     entry_points:
