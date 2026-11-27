@@ -44,7 +44,7 @@ The owner directed on 2026-11-27: "We already have a public LabKey folder that w
 That is the public area of `docs/development/large-files.md`, `https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/`. Anyone can read it without signing in, and LGE writes to it only through `scripts/lge-files/lge-files.sh`, never with a raw key.
 
 - **Folder.** Each archive goes in `databases/rnaseq-index/<set id>/salmon-2.11.0-k31-genome-decoys/`. Rule 6 applies: a file a row pins is never overwritten or removed while a supported build pins it, and a new salmon or set gets a new folder.
-- **Manifest.** A committed `databases/rnaseq-index/large-files.tsv` lists the area, remote path, bytes, sha256 and URL of each archive (rule 4).
+- **Manifest.** A committed `scripts/rnaseq/large-files.tsv` lists the area, remote path, bytes, sha256 and URL of each archive (rule 4).
 - **Checks.**
   - The server answers HEAD with 401, so the loader and every check use GET.
   - Before the first upload, a test must show that an anonymous GET of a file over 8 GB streams to the end. Neither `put` nor a download of that size has been tried here.
@@ -85,9 +85,30 @@ The mouse set and index were installed for this step: 3,325 s, exit 0, set `mus_
 
 The largest archive is 5.9 GB, so the open hosting check is now that an anonymous GET of a file of about 6 GB from the public LabKey area streams to the end.
 
+## Uploaded (2026-11-27)
+
+On the owner's "Yes, upload", the four archives went to the public LGE LabKey area with `scripts/lge-files/lge-files.sh put`, taking 78 to 111 s each. Each remote size matched. `scripts/rnaseq/large-files.tsv` lists them.
+
+An anonymous `curl` of each, with no credentials, streamed the whole file to `shasum -a 256`. Every sha256 matched the catalog pin:
+
+| Archive | Time | Rate |
+|---|---|---|
+| Human | 657 s | 8.9 MB/s |
+| Mouse | 554 s | 7.9 MB/s |
+| Rhesus | 719 s | 7.3 MB/s |
+| Cynomolgus | 814 s | 7.2 MB/s |
+
+So the hosting check is met at 5.9 GB, the largest archive, and no archive needs splitting. `ReferenceSetCatalog.entries` now names each served index.
+
+**Real install from LabKey (mouse).** The committed catalog's CLI ran `rnaseq install-reference --default mouse/gencode-M39` into a fresh storage root, which held only the conda link and the kept genome and GTF downloads.
+- It built the set, downloaded the 4.4 GB archive from the public area and adopted it, with no salmon build.
+- It took 2,157 s with a peak resident set of 1.3 GB, against 3,325 s and 20.3 GB for the local build.
+- The adopted `index/` and `index-key.json` were byte-identical to galah's build.
+- The archive was removed afterwards, and only the genome and GTF stayed in the downloads folder.
+
 ## Order of work
 
 1. The tests and `SalmonIndexCache.adopt`, `servedIndex`, and the install branch, with no URL in any row. The served path is tested on file URLs. Done 2026-11-27: `SalmonIndexCache+Adopt.swift`, `ReferenceSetCatalogEntry.servedIndex` and `memoryNeedBytes`, the install branch, `--build-index`, the app's per-row memory check and words. The archive holds no `provenance/`, since that names the building Mac's paths. The cache writes the record on adopt.
 2. Build the four archives on galah with the script (mouse needs its index built first). Done 2026-11-27, above.
-3. Upload to the public LabKey area after the owner's yes on the file list, then put the URLs and pins in the rows, in one commit with a real install on a smaller-memory path (galah with the memory check set to a 16 GB host).
+3. Done 2026-11-27, above. Upload to the public LabKey area after the owner's yes on the file list, then put the URLs and pins in the rows, in one commit with a real install on a smaller-memory path (galah with the memory check set to a 16 GB host).
 4. Manual: the row's words, and the memory table in `02-counting-bulk-reads.md`.

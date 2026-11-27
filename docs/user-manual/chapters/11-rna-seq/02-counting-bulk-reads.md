@@ -83,7 +83,7 @@ Three questions settle the route. Do counts already exist? Does your Mac have th
 | salmon on Linux, needs a Mac with more than 16 GB | Many samples, once that Mac has the index | You have a Linux machine and the index | No Mac of yours can build the index |
 | STAR chain on Linux | Counts from genome alignments | You must match a STAR study, or your Mac is small | You have no Linux machine |
 
-Memory, or RAM, is a computer's working space, and **Apple menu > About This Mac** shows how much yours has. LGE checks for about 16.6 GB of memory and 64 GB of free disk before it builds any salmon index, whatever the size of the set. So a Mac that shows 16 GB or less is refused even for the 92 ERCC sequences alone, and the build stops before it starts. The message suggests running salmon, or the [nf-core](../../GLOSSARY.md#nf-core)/rnaseq workflow, on a Linux machine and importing its salmon folders with `lungfish-cli import rnaseq`.
+Memory, or RAM, is a computer's working space, and **Apple menu > About This Mac** shows how much yours has. The four reference sets in Plugin Manager come with a prebuilt salmon index, so installing one needs only the memory of a count. LGE checks for about 16.6 GB of memory and 64 GB of free disk before it builds any salmon index itself, whatever the size of the set. So a Mac that shows 16 GB or less is refused even for the 92 ERCC sequences alone, and the build stops before it starts. The message suggests running salmon, or the [nf-core](../../GLOSSARY.md#nf-core)/rnaseq workflow, on a Linux machine and importing its salmon folders with `lungfish-cli import rnaseq`.
 
 This chapter's fixture uses the import, because its counts already exist and an import needs no index.
 
@@ -97,6 +97,7 @@ Two steps check the Mac's memory and free disk first.
 
 | Step | Memory | Free disk |
 |---|---|---|
+| Install a reference set in Plugin Manager | About 6 GB | About 29 to 33 GB while it installs |
 | Build a salmon index | About 16.6 GB | About 64 GB |
 | Quantify with salmon | About 6 GB | About 1.1 GB, plus room to unpack the largest sample's reads |
 
@@ -134,7 +135,7 @@ If someone else has counted the reads, go to [the import section](#import-salmon
 
 ### Install a reference set in Plugin Manager
 
-Plugin Manager installs four named defaults, each with its salmon index, in one step.
+Plugin Manager installs four named defaults, each with a prebuilt salmon index, in one step.
 
 | Row | Named default |
 |---|---|
@@ -145,7 +146,7 @@ Plugin Manager installs four named defaults, each with its salmon index, in one 
 
 The cynomolgus set's assembly has no mitochondrial genome, so its counts hold no mitochondrial genes such as MT-CO1. Reads from mitochondrial transcripts stay unmapped. To count them, build the set `cynomolgus/ensembl-107` in Terminal instead, as the sections below show.
 
- Each row reads "Genome, genes and salmon index for counting bulk reads." Under that, it gives the download size and what the build needs, about 18 GB kept on disk, 64 GB of free disk and 16.6 GB of memory while it builds, and about an hour.
+Each row reads "Genome, genes and salmon index for counting bulk reads." Under that, it gives the download size with the index, from about 5 to about 7 GB, about 18 GB kept on disk, and 6.0 GB of memory.
 
 1. Install the **RNA-Seq Analysis** pack on the **Packs** tab of Plugin Manager if your Mac does not have it, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
 2. Choose **Tools > Plugin Manager…** and click the **Databases** tab. The **RNA-seq Reference Sets** section sits below the metagenomics databases.
@@ -153,9 +154,15 @@ The cynomolgus set's assembly has no mitochondrial genome, so its counts hold no
 4. Watch the row in the [Operations Panel](../../GLOSSARY.md#operations-panel) whose title starts with "RNA-seq Reference Set" and ends with the set's name. The Plugin Manager row shows each step under its name while it runs.
 5. Wait for the Plugin Manager row to read **Ready to count**. The Operations row's detail then says the set "is ready to count".
 
-Download checks the Mac's memory and free disk first. It then downloads the genome FASTA and the GTF into the storage folder and checks each file's SHA-256 [checksum](../../GLOSSARY.md#checksum), a fingerprint of the file's bytes, against the named default. Last, it builds the set as [Build a reference set with rnaseq reference-set](#build-a-reference-set-with-rnaseq-reference-set) does and its salmon index at k 31 with the genome as decoys, as [Build the salmon index with rnaseq index](#build-the-salmon-index-with-rnaseq-index) does. The downloads are kept, so a second Download builds nothing. To stop, click **Cancel** on the Plugin Manager row or on the Operations row. The Operations row then reads Cancelled, and the files that finished downloading are kept for the next Download. If a step fails, the Operations row reads "Could not install" and the set's name, and the Plugin Manager row says what failed.
+Download checks the Mac's memory and free disk first. It then does three things:
 
-On a Mac with less memory than the index needs, **Download** is off, and a line below the rows reads "Building the salmon index needs about 16.6 GB of memory, more than this Mac has." Plan the count for a Linux machine instead, as [Plan salmon or STAR counting for a Linux machine](#plan-salmon-or-star-counting-for-a-linux-machine) shows.
+1. It downloads the genome FASTA and the GTF into the storage folder and checks each file's SHA-256 [checksum](../../GLOSSARY.md#checksum), a fingerprint of the file's bytes, against the named default.
+2. It builds the set as [Build a reference set with rnaseq reference-set](#build-a-reference-set-with-rnaseq-reference-set) does.
+3. It downloads the set's salmon index, built ahead of time at k 31 with the genome as decoys, from the LGE file server. It checks the index's checksum and that the index belongs to the set this Mac just built, then unpacks it.
+
+If the index does not belong to the set, or this Mac's salmon is another version, Download builds the index here instead, as [Build the salmon index with rnaseq index](#build-the-salmon-index-with-rnaseq-index) does, which needs 16.6 GB of memory and about an hour. The genome and GTF downloads are kept, so a second Download downloads and builds nothing. To stop, click **Cancel** on the Plugin Manager row or on the Operations row. The Operations row then reads Cancelled, and the files that finished downloading are kept for the next Download. If a step fails, the Operations row reads "Could not install" and the set's name, and the Plugin Manager row says what failed.
+
+On a Mac with less memory than a count needs, **Download** is off, and a line below the rows reads "Counting needs about 6.0 GB of memory, more than this Mac has." Plan the count for a Linux machine instead, as [Plan salmon or STAR counting for a Linux machine](#plan-salmon-or-star-counting-for-a-linux-machine) shows.
 
 Without the pack, **Download** is off, and the line below the rows reads "Install the RNA-Seq Analysis pack first, on the Packs tab of Plugin Manager. It holds salmon and gffread."
 

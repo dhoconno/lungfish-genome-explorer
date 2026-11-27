@@ -4331,10 +4331,12 @@ features:
       T2T-MFA8v1.1 with RefSeq.
       Download runs lungfish-cli rnaseq install-reference --default <id>
       on an Operations row of type download, which checks memory and free
-      disk first, downloads and checks the genome and GTF, builds the set and
-      builds its salmon index at k 31 with genome decoys. A row reads Ready to
-      count once the set and that index are there. On a Mac with less memory
-      than the index needs, or without the RNA-Seq Analysis pack, Download is off and the words say why. Cancel on the row cancels its Operations row. Other
+      disk first, downloads and checks the genome and GTF, builds the set, and
+      downloads its prebuilt salmon index (k 31, genome decoys) from the
+      public LGE LabKey area, checking its sha256 and that it belongs to the
+      set just built, or builds the index when it does not. A row reads Ready
+      to count once the set and that index are there. On a Mac with less
+      memory than a count needs, or without the RNA-Seq Analysis pack, Download is off and the words say why. Cancel on the row cancels its Operations row. Other
       species are built with rnaseq reference-set and rnaseq index.
   rnaseq.cell-map-select:
     title: Save or pseudobulk a cell map selection

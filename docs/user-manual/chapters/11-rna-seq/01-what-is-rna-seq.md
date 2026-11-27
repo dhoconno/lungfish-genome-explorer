@@ -122,7 +122,7 @@ For a Linux run, LGE prepares a plan folder containing instructions and files. W
 | salmon | About 16.6 GiB of memory and 64 GB of free disk. LGE checks both before every build, even for a small set. | Mac only. A Linux salmon plan uses an index already built on a Mac. |
 | STAR | 40 GiB of memory in LGE's plan for the cynomolgus macaque genome Macaca_fascicularis_6.0 | Linux |
 
-A 16 GB Mac falls short of the salmon index build requirement. With that Mac and no Linux machine, you can import counts made elsewhere. An import needs no index, so you can still review counts and export them on your Mac.
+A 16 GB Mac falls short of the salmon index build requirement, but it can install the human, mouse, rhesus macaque and cynomolgus macaque sets from Plugin Manager, which come with a prebuilt index, and count against them. For other sets on that Mac, with no Linux machine, you can import counts made elsewhere. An import needs no index, so you can still review counts and export them on your Mac.
 
 For uncounted 10x reads, **Single-cell Plan for a Linux Machine** plans a run with STARsolo. In a 10x read pair, one read holds the barcode and UMI and the other holds the RNA sequence. The introns preset, which counts introns as well as exons, returns a folder LGE cannot adopt.
 

@@ -112,7 +112,8 @@ final class RNASeqReferenceCatalogModelTests: XCTestCase {
         served.servedIndex = ServedSalmonIndex(
             url: "https://example.org/i.zip", archiveBytes: 8_000_000_000, archiveSHA256: String(repeating: "a", count: 64),
             unpackedBytes: 10_000_000_000, setID: "s", salmonBuild: "salmon-2.11.0-h0_0", k: 31, decoys: .genome)
-        let built = ReferenceSetCatalog.entries[1]
+        var built = ReferenceSetCatalog.entries[1]
+        built.servedIndex = nil
         let model = RNASeqReferenceCatalogModel(
             reporter: RecordingOperationReporter(), storageRoot: { URL(fileURLWithPath: "/nonexistent-root") },
             launch: { _, _, _, _ in }, toolsCheck: { false }, entries: [served, built], systemRAMBytes: 17_179_869_184)

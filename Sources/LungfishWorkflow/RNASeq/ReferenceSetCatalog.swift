@@ -45,15 +45,39 @@ package enum ReferenceSetInstallState: Sendable, Equatable {
 }
 
 package enum ReferenceSetCatalog {
+    // The macaque entries are each species' default row of P5-REFS (owner, 2026-11-27): Ensembl 116 for rhesus, the
+    // same Ensembl release as GENCODE 50 and M39, and the T2T RefSeq assembly for cynomolgus. Each serves its index from
+    // the public LGE LabKey area (owner, 2026-11-27), archived by `scripts/rnaseq/serve-index.py` from galah's build
+    // (`docs/plans/2026-11-27-rnaseq-served-salmon-index.md`).
     package static let entries: [ReferenceSetCatalogEntry] = [
-        ReferenceSetCatalogEntry(id: "human/gencode-50", title: "Human, GRCh38 with GENCODE 50", downloadBytes: 970_285_312),
-        ReferenceSetCatalogEntry(id: "mouse/gencode-M39", title: "Mouse, GRCm39 with GENCODE M39", downloadBytes: 866_420_506),
-        // The macaque entries are each species' default row of P5-REFS (owner, 2026-11-27): Ensembl 116 for rhesus, the
-        // same Ensembl release as GENCODE 50 and M39, and the T2T RefSeq assembly for cynomolgus.
-        ReferenceSetCatalogEntry(id: "rhesus/ensembl-116", title: "Rhesus macaque, Mmul_10 with Ensembl 116", downloadBytes: 892_739_343),
-        ReferenceSetCatalogEntry(id: "cynomolgus/refseq-GCF_037993035.2", title: "Cynomolgus macaque, T2T-MFA8v1.1 with RefSeq",
-                                 downloadBytes: 954_363_387),
+        ReferenceSetCatalogEntry(
+            id: "human/gencode-50", title: "Human, GRCh38 with GENCODE 50", downloadBytes: 970_285_312,
+            servedIndex: served(set: "homo_sapiens-GRCh38-gencode50-lge-c287524e9a53", bytes: 5_817_381_408,
+                                sha256: "b0d09323c726c37a244b8b35fdae96f787086b0d41cefff13b71274c4a967a0b", unpacked: 10_505_298_684)),
+        ReferenceSetCatalogEntry(
+            id: "mouse/gencode-M39", title: "Mouse, GRCm39 with GENCODE M39", downloadBytes: 866_420_506,
+            servedIndex: served(set: "mus_musculus-GRCm39-gencodem39-lge-398effa30daf", bytes: 4_398_536_780,
+                                sha256: "457e1402928324405620a89f3016dae95d646803125850c25dbcffebdb2abbb7", unpacked: 8_694_199_814)),
+        ReferenceSetCatalogEntry(
+            id: "rhesus/ensembl-116", title: "Rhesus macaque, Mmul_10 with Ensembl 116", downloadBytes: 892_739_343,
+            servedIndex: served(set: "macaca_mulatta-Mmul_10-ensembl116-lge-3f0fee25ce9e", bytes: 5_275_380_007,
+                                sha256: "c870d7d3338c499ae3dd15c20bad64e47f8e390bce7742e7dd94a1ee87e8e27a", unpacked: 8_449_585_883)),
+        ReferenceSetCatalogEntry(
+            id: "cynomolgus/refseq-GCF_037993035.2", title: "Cynomolgus macaque, T2T-MFA8v1.1 with RefSeq", downloadBytes: 954_363_387,
+            servedIndex: served(set: "macaca_fascicularis-T2T-MFA8v1.1-refseqrs_2025_03-lge-b514efeeb33d", bytes: 5_875_003_363,
+                                sha256: "e7e702bab69248a44d4da29174d84c149c08ddf904c9d1fcc59f13cab1688c3d", unpacked: 9_602_008_677)),
     ]
+
+    /// The public LGE LabKey folder of the served indexes (`docs/development/large-files.md`).
+    package static let servedIndexBase = "https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/databases/rnaseq-index/"
+
+    /// A served index of `set` built by salmon 2.11.0 at k 31 with genome decoys, at its folder of the public area.
+    static func served(set: String, bytes: Int64, sha256: String, unpacked: Int64) -> ServedSalmonIndex {
+        let key = "salmon-2.11.0-k31-genome-decoys"
+        return ServedSalmonIndex(
+            url: servedIndexBase + "\(set)/\(key)/\(set)-\(key).zip", archiveBytes: bytes, archiveSHA256: sha256,
+            unpackedBytes: unpacked, setID: set, salmonBuild: "salmon-2.11.0-hfc06a8d_0", k: 31, decoys: .genome)
+    }
 
     package static let description = "Genome, genes and salmon index for counting bulk reads."
 

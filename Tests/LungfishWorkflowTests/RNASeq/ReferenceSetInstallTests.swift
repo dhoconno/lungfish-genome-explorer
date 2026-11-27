@@ -91,6 +91,36 @@ final class ReferenceSetInstallTests: XCTestCase {
 
     // MARK: - The served index
 
+    /// Every catalog entry serves its index from the public LGE LabKey area (owner, 2026-11-27), built by the salmon
+    /// the tools lock pins, so a Mac with the RNA-Seq pack takes the served path.
+    func testEveryCatalogEntryServesAnIndexBuiltByTheLockedSalmonFromThePublicArea() throws {
+        let lock = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json")
+        let text = try String(contentsOf: lock, encoding: .utf8)
+        let spec = try XCTUnwrap(text.range(of: #"bioconda::salmon=[0-9.]+=[A-Za-z0-9_]+"#, options: .regularExpression))
+        let parts = text[spec].dropFirst("bioconda::".count).split(separator: "=")
+        let locked = "salmon-\(parts[1])-\(parts[2])"
+        for entry in ReferenceSetCatalog.entries {
+            let served = try XCTUnwrap(entry.servedIndex, entry.id)
+            XCTAssertEqual(served.salmonBuild, locked, entry.id)
+            XCTAssertEqual(served.k, ReferenceSetCatalog.indexK, entry.id)
+            XCTAssertEqual(served.decoys, ReferenceSetCatalog.indexDecoys, entry.id)
+            let folder = "https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/databases/rnaseq-index/"
+                + "\(served.setID)/salmon-\(parts[1])-k31-genome-decoys/"
+            XCTAssertEqual(served.url, folder + "\(served.setID)-salmon-\(parts[1])-k31-genome-decoys.zip", entry.id)
+            XCTAssertEqual(served.archiveSHA256.count, 64, entry.id)
+            XCTAssertGreaterThan(served.unpackedBytes, served.archiveBytes, entry.id)
+            XCTAssertLessThan(entry.memoryNeedBytes, 8_000_000_000, entry.id)
+        }
+        // The set ids name each species' assembly and annotation, as the set builder writes them.
+        XCTAssertEqual(ReferenceSetCatalog.entries.compactMap { $0.servedIndex?.setID }, [
+            "homo_sapiens-GRCh38-gencode50-lge-c287524e9a53", "mus_musculus-GRCm39-gencodem39-lge-398effa30daf",
+            "macaca_mulatta-Mmul_10-ensembl116-lge-3f0fee25ce9e",
+            "macaca_fascicularis-T2T-MFA8v1.1-refseqrs_2025_03-lge-b514efeeb33d",
+        ])
+    }
+
     func testAServedIndexForTheBuiltSetIsDownloadedAndAdoptedNotBuiltAndTheArchiveIsRemoved() async throws {
         let first = try await installer(CopyingArchiveLoader()).install(row: try row())
         let loader = CopyingArchiveLoader(), calls = Calls()
