@@ -96,6 +96,21 @@ public struct PluginPack: Sendable, Codable, Identifiable, Hashable {
     public var toolRequirements: [PackToolRequirement] {
         requirements.isEmpty ? packages.map { PackToolRequirement.package($0) } : requirements
     }
+
+    /// The conda environments the installer writes this pack's tools into.
+    /// There is one for each tool requirement that is not a managed database,
+    /// in install order, and each name appears once. The names come from the
+    /// requirements, which `fromManifest` fills from the tools lock, so a tool
+    /// installed into an environment named unlike itself is found. `gatk4`
+    /// goes into `gatk-core`, `whatshap` into `phasing`, and the four
+    /// single-cell tools into `sc-embed`.
+    public var installEnvironmentNames: [String] {
+        var seen: Set<String> = []
+        return toolRequirements
+            .filter { $0.managedDatabaseID == nil }
+            .map(\.environment)
+            .filter { seen.insert($0).inserted }
+    }
 }
 
 public extension PluginPack {
