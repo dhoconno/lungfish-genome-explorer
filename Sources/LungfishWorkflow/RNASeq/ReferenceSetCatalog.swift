@@ -19,6 +19,9 @@ package struct ReferenceSetCatalogEntry: Sendable, Equatable, Identifiable {
     package var downloadBytes: Int64
     /// The index served for the set these files build, nil when the Mac builds it (plan of 2026-11-27).
     package var servedIndex: ServedSalmonIndex? = nil
+    /// The disk space the set uses once installed: the set, its unpacked index and the kept genome and GTF, measured on
+    /// galah with du on 2026-11-27. It is the only figure the Plugin Manager row shows (owner, 2026-11-27).
+    package var installedBytes: Int64 = 0
 
     /// The memory the install checks: a count's when the index is served, the index build's otherwise.
     package var memoryNeedBytes: Int64 {
@@ -53,19 +56,19 @@ package enum ReferenceSetCatalog {
         ReferenceSetCatalogEntry(
             id: "human/gencode-50", title: "Human, GRCh38 with GENCODE 50", downloadBytes: 970_285_312,
             servedIndex: served(set: "homo_sapiens-GRCh38-gencode50-lge-c287524e9a53", bytes: 5_817_381_408,
-                                sha256: "b0d09323c726c37a244b8b35fdae96f787086b0d41cefff13b71274c4a967a0b", unpacked: 10_505_298_684)),
+                                sha256: "b0d09323c726c37a244b8b35fdae96f787086b0d41cefff13b71274c4a967a0b", unpacked: 10_505_298_684), installedBytes: 18_600_000_000),
         ReferenceSetCatalogEntry(
             id: "mouse/gencode-M39", title: "Mouse, GRCm39 with GENCODE M39", downloadBytes: 866_420_506,
             servedIndex: served(set: "mus_musculus-GRCm39-gencodem39-lge-398effa30daf", bytes: 4_398_536_780,
-                                sha256: "457e1402928324405620a89f3016dae95d646803125850c25dbcffebdb2abbb7", unpacked: 8_694_199_814)),
+                                sha256: "457e1402928324405620a89f3016dae95d646803125850c25dbcffebdb2abbb7", unpacked: 8_694_199_814), installedBytes: 15_000_000_000),
         ReferenceSetCatalogEntry(
             id: "rhesus/ensembl-116", title: "Rhesus macaque, Mmul_10 with Ensembl 116", downloadBytes: 892_739_343,
             servedIndex: served(set: "macaca_mulatta-Mmul_10-ensembl116-lge-3f0fee25ce9e", bytes: 5_275_380_007,
-                                sha256: "c870d7d3338c499ae3dd15c20bad64e47f8e390bce7742e7dd94a1ee87e8e27a", unpacked: 8_449_585_883)),
+                                sha256: "c870d7d3338c499ae3dd15c20bad64e47f8e390bce7742e7dd94a1ee87e8e27a", unpacked: 8_449_585_883), installedBytes: 10_900_000_000),
         ReferenceSetCatalogEntry(
             id: "cynomolgus/refseq-GCF_037993035.2", title: "Cynomolgus macaque, T2T-MFA8v1.1 with RefSeq", downloadBytes: 954_363_387,
             servedIndex: served(set: "macaca_fascicularis-T2T-MFA8v1.1-refseqrs_2025_03-lge-b514efeeb33d", bytes: 5_875_003_363,
-                                sha256: "e7e702bab69248a44d4da29174d84c149c08ddf904c9d1fcc59f13cab1688c3d", unpacked: 9_602_008_677)),
+                                sha256: "e7e702bab69248a44d4da29174d84c149c08ddf904c9d1fcc59f13cab1688c3d", unpacked: 9_602_008_677), installedBytes: 13_500_000_000),
     ]
 
     /// The public LGE LabKey folder of the served indexes (`docs/development/large-files.md`).
@@ -79,7 +82,7 @@ package enum ReferenceSetCatalog {
             unpackedBytes: unpacked, setID: set, salmonBuild: "salmon-2.11.0-hfc06a8d_0", k: 31, decoys: .genome)
     }
 
-    package static let description = "Genome, genes and salmon index for counting bulk reads."
+    package static let description = "Genome, genes and salmon index for counting bulk RNA-seq reads."
 
     /// The one index the catalog builds and the quantify pane's defaults name (BIO ruling 2026-11-26, item 4).
     package static let indexK = 31

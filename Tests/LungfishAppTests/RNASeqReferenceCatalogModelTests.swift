@@ -84,11 +84,14 @@ final class RNASeqReferenceCatalogModelTests: XCTestCase {
         let model = model(reporter: RecordingOperationReporter(), launches: Launches(), toolsMissing: true)
         await model.refresh()
         XCTAssertTrue(model.toolsMissing)
-        XCTAssertEqual(model.toolsRefusal,
-                       "Install the RNA-Seq Analysis pack first, on the Packs tab of Plugin Manager. It holds salmon and gffread.")
+        // The words sit on each row that is not installed, and only while Download is off (editorial ruling 2026-11-27).
+        XCTAssertEqual(model.rows.map { model.statusLine($0) },
+                       Array(repeating: "Install the RNA-Seq Analysis pack first, on the Packs tab.", count: 4))
+        XCTAssertTrue(model.rows.allSatisfy { !model.canDownload($0) })
         let ready = self.model(reporter: RecordingOperationReporter(), launches: Launches())
         await ready.refresh()
-        XCTAssertNil(ready.toolsRefusal)
+        XCTAssertEqual(ready.rows.map { ready.statusLine($0) }, [nil, nil, nil, nil])
+        XCTAssertTrue(ready.rows.allSatisfy { ready.canDownload($0) })
     }
 
     func testCancelOnTheRowCancelsItsOperationsRow() async throws {
@@ -106,7 +109,8 @@ final class RNASeqReferenceCatalogModelTests: XCTestCase {
         XCTAssertEqual(String(format: "%.1f", Double(ReferenceSetCatalog.indexMemoryBytes) / 1_073_741_824), "16.6")
     }
 
-    /// A 16 GB Mac can install a row whose index is served, since it checks a count's memory, not a build's.
+    /// A 16 GB Mac can install a row whose index is served, since it checks a count's memory, not a build's. The
+    /// refusal sits on the row only while its Download is off (UX and editorial rulings 2026-11-27).
     func testOnA16GBMacOnlyARowWithAServedIndexHasDownloadOn() {
         var served = ReferenceSetCatalog.entries[0]
         served.servedIndex = ServedSalmonIndex(
@@ -117,21 +121,31 @@ final class RNASeqReferenceCatalogModelTests: XCTestCase {
         let model = RNASeqReferenceCatalogModel(
             reporter: RecordingOperationReporter(), storageRoot: { URL(fileURLWithPath: "/nonexistent-root") },
             launch: { _, _, _, _ in }, toolsCheck: { false }, entries: [served, built], systemRAMBytes: 17_179_869_184)
-        XCTAssertNil(model.memoryRefusal(served))
-        XCTAssertEqual(model.memoryRefusal(built),
-                       "Building the salmon index needs about 16.6 GB of memory, more than this Mac has. "
-                       + "Count on a Linux machine instead, as the RNA-seq chapter of the manual shows.")
-        XCTAssertEqual(model.memoryRefusal, model.memoryRefusal(built))
-        XCTAssertEqual(model.needWords(served),
-                       "Download about 9 GB with the salmon index, about 18 GB kept, 6.0 GB of memory")
-        XCTAssertEqual(model.needWords(built),
-                       "Download 866.4 MB, about 18 GB kept, 64 GB free disk and 16.6 GB of memory while it builds, about an hour")
+        let rows = model.rows
+        XCTAssertNil(model.statusLine(rows[0]))
+        XCTAssertTrue(model.canDownload(rows[0]))
+        XCTAssertEqual(model.statusLine(rows[1]),
+                       "Building the salmon index needs 17 GB of memory, more than this Mac has. "
+                       + "Count on a Linux computer instead, as the RNA-seq chapter of the manual shows.")
+        XCTAssertFalse(model.canDownload(rows[1]))
         let tiny = RNASeqReferenceCatalogModel(
             reporter: RecordingOperationReporter(), storageRoot: { URL(fileURLWithPath: "/nonexistent-root") },
             launch: { _, _, _, _ in }, toolsCheck: { false }, entries: [served], systemRAMBytes: 4_294_967_296)
-        XCTAssertEqual(tiny.memoryRefusal(served),
-                       "Counting needs about 6.0 GB of memory, more than this Mac has. "
-                       + "Count on a Linux machine instead, as the RNA-seq chapter of the manual shows.")
+        XCTAssertEqual(tiny.statusLine(tiny.rows[0]),
+                       "Counting needs 6 GB of memory, more than this Mac has. "
+                       + "Count on a Linux computer instead, as the RNA-seq chapter of the manual shows.")
+    }
+
+    /// The owner's direction of 2026-11-27: the row shows one figure, the disk space the set uses once installed.
+    func testEachRowShowsOnlyTheDiskSpaceItsSetUsesOnceInstalled() {
+        let model = model(reporter: RecordingOperationReporter(), launches: Launches())
+        XCTAssertEqual(model.rows.map { model.sizeWords($0.entry) }, ["18.6 GB", "15 GB", "10.9 GB", "13.5 GB"])
+        XCTAssertEqual(ReferenceSetCatalog.description, "Genome, genes and salmon index for counting bulk RNA-seq reads.")
+        XCTAssertEqual(RNASeqReferenceCatalogModel.sizeHelp, "Disk space this set uses once installed")
+        XCTAssertEqual(RNASeqReferenceCatalogModel.installedWords, "Installed")
+        XCTAssertEqual(model.statusLine(RNASeqReferenceCatalogModel.Row(entry: model.rows[0].entry, state: .setWithoutIndex(setID: "s"))),
+                       "Partly installed. Download adds the missing salmon index.")
+        XCTAssertNil(model.statusLine(RNASeqReferenceCatalogModel.Row(entry: model.rows[0].entry, state: .ready(setID: "s"))))
     }
 
     // MARK: - The quantify pane

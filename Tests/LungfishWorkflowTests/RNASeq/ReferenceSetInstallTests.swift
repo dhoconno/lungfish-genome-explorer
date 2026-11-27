@@ -74,6 +74,7 @@ final class ReferenceSetInstallTests: XCTestCase {
                 return root.appendingPathComponent("served-index-of-\(served.setID)")
             },
             salmonBuild: { Self.salmonBuild },
+            publishedIndex: { _ in nil },
             preflight: { served in
                 calls.preflight(served != nil)
                 if refuse { throw RunFitError.insufficientMemory(needBytes: 2, haveBytes: 1, basis: "test", linuxRoute: "Use Linux") }
@@ -159,7 +160,7 @@ final class ReferenceSetInstallTests: XCTestCase {
             storageRoot: root, loader: NoLengthLoader(),
             owner: ReferenceSetOwner(storageRoot: root, deriver: StandInTranscriptDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil)),
             indexer: { _, _ in XCTFail("no index is built"); return root },
-            adopter: { _, _, _ in root }, salmonBuild: { Self.salmonBuild }, preflight: { _ in })
+            adopter: { _, _, _ in root }, salmonBuild: { Self.salmonBuild }, publishedIndex: { _ in nil }, preflight: { _ in })
         let served = try served(setID: first.setID)
         _ = try await install.install(row: try row(), served: served) { steps.add($0) }
         let downloads = steps.all.compactMap { step -> (Double, String)? in
@@ -167,7 +168,45 @@ final class ReferenceSetInstallTests: XCTestCase {
             return nil
         }
         XCTAssertEqual(downloads.map(\.0), [0.5, 1.0])
-        XCTAssertNil(downloads.last?.1.range(of: "unknown"), downloads.last?.1 ?? "")
+        let size = served.archiveBytes
+        XCTAssertEqual(downloads.last?.1, "Downloading the salmon index, \(LungfishFormatters.formatBytes(size)) of \(LungfishFormatters.formatBytes(size))")
+    }
+
+    /// The row's words name what downloads, not its file name, and the set build says it can take a while (editorial
+    /// ruling 2026-11-27).
+    func testTheProgressWordsNameTheGenomeTheGenesAndTheSetBuild() async throws {
+        let steps = Steps()
+        _ = try await installer(CopyingArchiveLoader()).install(row: try row()) { steps.add($0) }
+        let words = steps.all.map { step -> String in
+            switch step {
+            case .downloading(_, let message): return message
+            case .stage(let message): return message
+            }
+        }
+        XCTAssertTrue(words.contains { $0.hasPrefix("Downloading the genome, ") }, "\(words)")
+        XCTAssertTrue(words.contains { $0.hasPrefix("Downloading the genes, ") }, "\(words)")
+        XCTAssertNotNil(words.firstIndex(of: "Building the reference set. This can take a while."), "\(words)")
+        XCTAssertFalse(words.contains { $0.range(of: "test.genome.fa") != nil }, "\(words)")
+    }
+
+    /// A second Download of an installed set downloads nothing, the served index included.
+    func testAnIndexAlreadyPublishedIsUsedWithNoArchiveDownload() async throws {
+        let first = try await installer(CopyingArchiveLoader()).install(row: try row())
+        let loader = CopyingArchiveLoader(), calls = Calls()
+        let root = self.root!
+        let install = ReferenceSetInstall(
+            storageRoot: root, loader: loader,
+            owner: ReferenceSetOwner(storageRoot: root, deriver: StandInTranscriptDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil)),
+            indexer: { setID, _ in calls.note(setID); return root },
+            adopter: { archive, _, _ in calls.adopt(archive.lastPathComponent); return root },
+            salmonBuild: { Self.salmonBuild },
+            publishedIndex: { served in root.appendingPathComponent("published-\(served.setID)") },
+            preflight: { _ in })
+        let outcome = try await install.install(row: try row(), served: try served(setID: first.setID))
+        XCTAssertEqual(loader.downloads, [], "nothing downloads")
+        XCTAssertEqual(calls.adopted, [])
+        XCTAssertEqual(calls.indexed, [])
+        XCTAssertEqual(outcome.indexURL.lastPathComponent, "published-\(first.setID)")
     }
 
     func testAServedIndexForAnotherSetIdIsNotDownloadedAndTheIndexIsBuilt() async throws {

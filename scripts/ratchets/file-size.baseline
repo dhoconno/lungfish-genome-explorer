@@ -36,7 +36,7 @@ Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift 1005
 Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift 868
 Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift 806
 Sources/LungfishApp/Views/Operations/OperationsPanelViewController.swift 1054
-Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1283
+Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift 1270
 Sources/LungfishApp/Views/PluginManager/PluginManagerViewModel.swift 1054
 Sources/LungfishApp/Views/PrimerDesign/PrimerDesignDialogState.swift 1049
 Sources/LungfishApp/Views/Results/Reference/ReferenceBundleViewportController.swift 1849

@@ -63,36 +63,43 @@ final class RNASeqReferenceCatalogModel {
         }
     }
 
-    /// The words below the rows when some row's Download is off for memory, nil when none is.
-    var memoryRefusal: String? {
-        rows.lazy.compactMap { self.memoryRefusal($0.entry) }.first
+    // The row's words (UX and editorial rulings of 2026-11-27, `docs/reports/2026-11-26-rnaseq-novice-path/`). The
+    // owner's direction: the row shows only the disk space a set uses once installed.
+
+    static let sizeHelp = "Disk space this set uses once installed"
+    static let installedWords = "Installed"
+    static let installedHelp = "Plugin Manager cannot remove a reference set yet."
+    static let packRefusal = "Install the RNA-Seq Analysis pack first, on the Packs tab."
+    static let partlyInstalled = "Partly installed. Download adds the missing salmon index."
+
+    /// The one figure on a row, such as "18.6 GB".
+    func sizeWords(_ entry: ReferenceSetCatalogEntry) -> String {
+        LungfishFormatters.formatBytes(entry.installedBytes)
     }
 
     /// The words when this Mac has less memory than `entry`'s install checks, nil when it has enough. A served index
-    /// checks a count's memory, and a built one the build's (plan of 2026-11-27). The command refuses in its own words
-    /// too, before any byte downloads.
+    /// checks a count's memory, and a built one the build's. The command refuses in its own words too.
     func memoryRefusal(_ entry: ReferenceSetCatalogEntry) -> String? {
         guard systemRAMBytes < entry.memoryNeedBytes else { return nil }
-        let need = String(format: "%.1f", Double(entry.memoryNeedBytes) / 1_073_741_824)
+        let need = String(format: "%.0f", Double(entry.memoryNeedBytes) / 1_073_741_824)
         let what = entry.servedIndex == nil ? "Building the salmon index" : "Counting"
-        return "\(what) needs about \(need) GB of memory, more than this Mac has. "
-            + "Count on a Linux machine instead, as the RNA-seq chapter of the manual shows."
+        return "\(what) needs \(need) GB of memory, more than this Mac has. "
+            + "Count on a Linux computer instead, as the RNA-seq chapter of the manual shows."
     }
 
-    /// The line under a row's description: what it downloads, keeps and needs.
-    func needWords(_ entry: ReferenceSetCatalogEntry) -> String {
-        guard let served = entry.servedIndex else {
-            return "Download \(LungfishFormatters.formatBytes(entry.downloadBytes)), about 18 GB kept, 64 GB free disk and "
-                + "16.6 GB of memory while it builds, about an hour"
-        }
-        let gigabytes = Int((Double(entry.downloadBytes + served.archiveBytes) / 1_000_000_000).rounded())
-        let memory = String(format: "%.1f", Double(entry.memoryNeedBytes) / 1_073_741_824)
-        return "Download about \(gigabytes) GB with the salmon index, about 18 GB kept, \(memory) GB of memory"
+    /// Whether the row's Download is on: no refusal for memory or the pack.
+    func canDownload(_ row: Row) -> Bool {
+        memoryRefusal(row.entry) == nil && !toolsMissing
     }
 
-    /// The words beside Download when the pack's tools are missing, nil when they are there.
-    var toolsRefusal: String? {
-        toolsMissing ? ReferenceSetInstallError.toolsMissing.localizedDescription : nil
+    /// The row's one status line, nil when the icon and the action say it all. A refusal shows only while Download
+    /// is off, on the row whose Download it turns off.
+    func statusLine(_ row: Row) -> String? {
+        if row.state.isReady { return nil }
+        if let refusal = memoryRefusal(row.entry) { return refusal }
+        if toolsMissing { return Self.packRefusal }
+        if case .setWithoutIndex = row.state { return Self.partlyInstalled }
+        return nil
     }
 
     /// Cancels the running install of `entryID` through its Operations row, which sends the command SIGTERM.

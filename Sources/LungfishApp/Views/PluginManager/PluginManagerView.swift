@@ -801,14 +801,8 @@ struct DatabasesTabView: View {
 
             Divider()
 
-            // Database list
-            if viewModel.databases.isEmpty {
-                loadingPlaceholder
-            } else {
-                databaseList
-            }
-
-            RNASeqReferenceSetsSection(model: .shared)
+            // Database list, with the RNA-seq reference sets as its last section (UX ruling 2026-11-27)
+            databaseList
 
             // Footer with storage info
             storageFooter
@@ -877,20 +871,6 @@ struct DatabasesTabView: View {
         .background(Color.lungfishCanvasBackground)
     }
 
-    // MARK: - Loading
-
-    private var loadingPlaceholder: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.large)
-                .tint(.lungfishCreamsicleFallback)
-            Text("Loading database catalog...")
-                .foregroundStyle(Color.lungfishSecondaryText)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.lungfishCanvasBackground)
-    }
-
     // MARK: - Database List (grouped by tool)
 
     /// Groups databases by their tool property for sectioned display.
@@ -921,6 +901,12 @@ struct DatabasesTabView: View {
 
     private var databaseList: some View {
         List {
+            if viewModel.databases.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small).tint(.lungfishCreamsicleFallback)
+                    Text("Loading database catalog...").foregroundStyle(Color.lungfishSecondaryText)
+                }
+            }
             ForEach(groupedDatabases, id: \.tool) { section in
                 Section {
                     ForEach(section.databases) { db in
@@ -962,6 +948,7 @@ struct DatabasesTabView: View {
                         .foregroundStyle(Color.lungfishSecondaryText)
                 }
             }
+            RNASeqReferenceSetsSection(model: .shared)
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
         .scrollContentBackground(.hidden)

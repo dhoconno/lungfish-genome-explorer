@@ -45,6 +45,14 @@ extension SalmonIndexCache {
         try await salmonVersion().build
     }
 
+    /// The published index of the key `served` names with this Mac's salmon version, nil when none is there or this
+    /// Mac's salmon is another build. It starts no process.
+    package func publishedIndex(for served: ServedSalmonIndex) async throws -> SalmonIndexOutcome? {
+        let salmon = try await salmonVersion()
+        guard salmon.build == served.salmonBuild else { return nil }
+        return try published(SalmonIndexKey(setID: served.setID, salmonVersion: salmon.version, k: served.k, decoys: served.decoys))
+    }
+
     /// Adopts the served index in `archive` for its set. A published index of the same key is used as it is. Every check
     /// runs before the stage is renamed into place, and a failed one publishes nothing.
     ///

@@ -58,6 +58,19 @@ extension SalmonIndexCacheTests {
         XCTAssertEqual(try entries(setFolder(set.manifest.id)), [outcome.url.lastPathComponent], "no stage is left")
     }
 
+    func testPublishedIndexFindsTheServedKeyOnlyOnceItIsThere() async throws {
+        let (archive, served, _) = try await servedArchive()
+        let none = try await cache().publishedIndex(for: served)
+        XCTAssertNil(none)
+        let outcome = try await adopt(archive, served)
+        let found = try await cache().publishedIndex(for: served)
+        XCTAssertEqual(found?.url, outcome.url)
+        var other = served
+        other.salmonBuild = "salmon-9.9.9-h0_0"
+        let otherBuild = try await cache().publishedIndex(for: other)
+        XCTAssertNil(otherBuild)
+    }
+
     func testAnArchiveWhoseSha256DiffersPublishesNothing() async throws {
         var (archive, served, set) = try await servedArchive()
         served.archiveSHA256 = String(repeating: "0", count: 64)

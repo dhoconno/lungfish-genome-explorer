@@ -69,6 +69,8 @@ package struct ReferenceSetInstall: Sendable {
     let indexer: Indexer
     let adopter: Adopter
     let salmonBuild: @Sendable () async throws -> String?
+    /// The index the served row names when it is already published under the storage root, so nothing downloads.
+    let publishedIndex: @Sendable (ServedSalmonIndex) async throws -> URL?
     let preflight: Preflight
 
     package init(
@@ -78,6 +80,7 @@ package struct ReferenceSetInstall: Sendable {
         indexer: Indexer? = nil,
         adopter: Adopter? = nil,
         salmonBuild: (@Sendable () async throws -> String?)? = nil,
+        publishedIndex: (@Sendable (ServedSalmonIndex) async throws -> URL?)? = nil,
         preflight: Preflight? = nil
     ) {
         self.storageRoot = storageRoot
@@ -93,6 +96,9 @@ package struct ReferenceSetInstall: Sendable {
             try await SalmonIndexCache(storageRoot: storageRoot, host: host).adopt(archive: archive, served: served, argv: argv).indexURL
         }
         self.salmonBuild = salmonBuild ?? { try? await SalmonIndexCache(storageRoot: storageRoot, host: host).localSalmonBuild() }
+        self.publishedIndex = publishedIndex ?? { served in
+            try await SalmonIndexCache(storageRoot: storageRoot, host: host).publishedIndex(for: served)?.indexURL
+        }
         self.preflight = preflight ?? { served in
             if await Self.toolsMissing() { throw ReferenceSetInstallError.toolsMissing }
             let cacheFolder = storageRoot.appendingPathComponent(SalmonIndexCache.folderName, isDirectory: true)
@@ -146,17 +152,15 @@ package struct ReferenceSetInstall: Sendable {
         var local: [URL] = []
         for (index, (source, sha)) in files.enumerated() {
             guard let url = URL(string: source) else { throw ReferenceSetInstallError.download(file: source, reason: "The address is not a URL.") }
-            let name = url.lastPathComponent
+            let what = index == 0 ? "the genome" : "the genes"
             let share = 1.0 / Double(files.count)
             local.append(try await fetch(url, sha256: sha, into: folder) { done, total in
                 let part = total.map { $0 > 0 ? min(Double(done) / Double($0), 1) : 0 } ?? 0
-                progress(.downloading(
-                    fraction: (Double(index) + part) * share,
-                    message: "Downloading \(name), \(Self.megabytes(done)) of \(total.map(Self.megabytes) ?? "unknown")"))
+                progress(.downloading(fraction: (Double(index) + part) * share, message: Self.downloadWords(what, done, total)))
             })
         }
 
-        progress(.stage("Building the reference set from the genome and the genes"))
+        progress(.stage("Building the reference set. This can take a while."))
         try Task.checkCancellation()
         let request = ReferenceSetRequest(
             name: "\(row.species) \(row.assemblyName) \(row.annotationSource) \(row.annotationRelease)", species: row.species,
@@ -167,7 +171,13 @@ package struct ReferenceSetInstall: Sendable {
 
         try Task.checkCancellation()
         if let usable, usable.setID == set.manifest.id, let url = URL(string: usable.url) {
-            let index = try await adoptServed(usable, from: url, folder: folder, argv: argv, progress: progress)
+            // A second Download of an installed set downloads nothing (walk of 2026-11-27).
+            let index: URL
+            if let published = try await publishedIndex(usable) {
+                index = published
+            } else {
+                index = try await adoptServed(usable, from: url, folder: folder, argv: argv, progress: progress)
+            }
             return ReferenceSetInstallOutcome(setID: set.manifest.id, setURL: set.url, indexURL: index)
         }
         progress(.stage("Building the salmon index, which takes about an hour"))
@@ -180,13 +190,11 @@ package struct ReferenceSetInstall: Sendable {
         _ served: ServedSalmonIndex, from url: URL, folder: URL, argv: [String],
         progress: @escaping @Sendable (ReferenceSetInstallProgress) -> Void
     ) async throws -> URL {
-        let name = url.lastPathComponent
         let archive = try await fetch(url, sha256: served.archiveSHA256, into: folder) { done, total in
             // The LabKey server sends no Content-Length, so the row's archive bytes stand in for it.
             let known = (total ?? 0) > 0 ? total! : served.archiveBytes
             let part = known > 0 ? min(Double(done) / Double(known), 1) : 0
-            progress(.downloading(
-                fraction: part, message: "Downloading the salmon index \(name), \(Self.megabytes(done)) of \(Self.megabytes(known))"))
+            progress(.downloading(fraction: part, message: Self.downloadWords("the salmon index", done, known)))
         }
         defer { try? FileManager.default.removeItem(at: archive) }
         progress(.stage("Unpacking and checking the salmon index"))
@@ -250,7 +258,11 @@ package struct ReferenceSetInstall: Sendable {
         return error.localizedDescription
     }
 
-    static func megabytes(_ bytes: Int64) -> String {
-        "\(Int((Double(bytes) / 1_000_000).rounded())) MB"
+    /// "Downloading the genome, 412.3 MB of 900 MB", or "…, 412.3 MB so far" with no total (editorial ruling
+    /// 2026-11-27).
+    static func downloadWords(_ what: String, _ done: Int64, _ total: Int64?) -> String {
+        let got = LungfishFormatters.formatBytes(done)
+        guard let total, total > 0 else { return "Downloading \(what), \(got) so far" }
+        return "Downloading \(what), \(got) of \(LungfishFormatters.formatBytes(total))"
     }
 }
