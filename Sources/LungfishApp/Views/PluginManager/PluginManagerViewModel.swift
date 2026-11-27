@@ -170,6 +170,8 @@ final class PluginManagerViewModel {
     private let packStatusProvider: any PluginPackStatusProviding
     private let notificationCenter: NotificationCenter
     private let operationCenter: OperationCenter
+    /// The conda root this window lists and removes environments in.
+    let condaManager: CondaManager
 
     /// Current status for the required setup pack.
     var requiredSetupPack: PluginPackStatus?
@@ -347,11 +349,13 @@ final class PluginManagerViewModel {
         packStatusProvider: any PluginPackStatusProviding = PluginPackStatusService.shared,
         notificationCenter: NotificationCenter = .default,
         automaticallyRefresh: Bool = true,
-        operationCenter: OperationCenter = .shared
+        operationCenter: OperationCenter = .shared,
+        condaManager: CondaManager = .shared
     ) {
         self.packStatusProvider = packStatusProvider
         self.notificationCenter = notificationCenter
         self.operationCenter = operationCenter
+        self.condaManager = condaManager
         refreshStorageLocationState()
         self.storageLocationChangeObserver = StorageLocationChangeObserver(
             notificationCenter: notificationCenter
@@ -375,7 +379,7 @@ final class PluginManagerViewModel {
             defer { isLoading = false }
 
             do {
-                let envs = try await CondaManager.shared.listEnvironments()
+                let envs = try await condaManager.listEnvironments()
                 applyInstalledEnvironments(envs)
                 logger.info("Found \(envs.count, privacy: .public) conda environments")
             } catch {
@@ -394,7 +398,7 @@ final class PluginManagerViewModel {
     func loadPackages(for environment: String) {
         Task {
             do {
-                let packages = try await CondaManager.shared.listInstalled(in: environment)
+                let packages = try await condaManager.listInstalled(in: environment)
                 installedPackages[environment] = packages.sorted { $0.name < $1.name }
             } catch {
                 handleError(error, context: "listing packages in '\(environment)'")
@@ -409,7 +413,7 @@ final class PluginManagerViewModel {
             defer { removingEnvironments.remove(name) }
 
             do {
-                try await CondaManager.shared.removeEnvironment(name: name)
+                try await condaManager.removeEnvironment(name: name)
                 logger.info("Removed environment '\(name, privacy: .public)'")
                 refreshInstalled()
             } catch {
@@ -429,7 +433,7 @@ final class PluginManagerViewModel {
             var failedNames: [String] = []
             for name in names {
                 do {
-                    try await CondaManager.shared.removeEnvironment(name: name)
+                    try await condaManager.removeEnvironment(name: name)
                     logger.info("Removed orphaned environment '\(name, privacy: .public)'")
                 } catch {
                     failedNames.append(name)
@@ -557,7 +561,7 @@ final class PluginManagerViewModel {
         }
     }
 
-    /// Removes all environments for packages in a plugin pack.
+    /// Removes the environments a plugin pack installs into.
     func removePack(_ pack: PluginPack) {
         installingPacks.insert(pack.id)
         packProgressMessage[pack.id] = "Removing..."
@@ -568,16 +572,7 @@ final class PluginManagerViewModel {
                 packProgressMessage.removeValue(forKey: pack.id)
             }
 
-            for packageName in pack.packages {
-                guard installedEnvironmentNames.contains(packageName) else { continue }
-
-                do {
-                    try await CondaManager.shared.removeEnvironment(name: packageName)
-                    logger.info("Pack '\(pack.id, privacy: .public)': removed \(packageName, privacy: .public)")
-                } catch {
-                    logger.error("Pack '\(pack.id, privacy: .public)': failed to remove \(packageName, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
-            }
+            await removeInstalledEnvironments(of: pack)
 
             await packStatusProvider.invalidateVisibleStatusesCache()
             refreshInstalled()
