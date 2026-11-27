@@ -5,6 +5,7 @@
 import SwiftUI
 import LungfishKit
 import LungfishCore
+import LungfishWorkflow
 
 /// General preferences: zoom, undo, VCF import, temp file retention.
 struct GeneralSettingsTab: View {
@@ -222,23 +223,9 @@ struct GeneralSettingsTab: View {
 
     private func refreshProvenanceSigningStatus() async {
         hasStoredProvenanceSigningKey = await settings.hasStoredProvenanceSigningPrivateKey()
-        let hasEnvironmentKey = ProcessInfo.processInfo.environment["LUNGFISH_PROVENANCE_SIGNING_KEY"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .isEmpty == false
-
-        switch settings.provenanceSigningProvider {
-        case "local":
-            if hasStoredProvenanceSigningKey {
-                provenanceSigningStatus = "Local signing is enabled with a stored Keychain key."
-            } else if hasEnvironmentKey {
-                provenanceSigningStatus = "Local signing is enabled with LUNGFISH_PROVENANCE_SIGNING_KEY."
-            } else {
-                provenanceSigningStatus = "Local signing is enabled but no signing key is stored."
-            }
-        case "cosign":
-            provenanceSigningStatus = "Cosign signing is documented as a command plan; local verification uses sidecar artifacts."
-        default:
-            provenanceSigningStatus = "Provenance signing is off."
-        }
+        provenanceSigningStatus = ProvenanceSigningConfiguration.settingsStatus(
+            provider: settings.provenanceSigningProvider,
+            hasStoredKey: hasStoredProvenanceSigningKey
+        )
     }
 }
