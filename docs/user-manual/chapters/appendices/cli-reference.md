@@ -4850,7 +4850,7 @@ LGE first checks that this Mac has the memory and free disk the salmon index nee
 
 | Argument or flag | What it does |
 |---|---|
-| `--default <default>` | The named set to install, `human/gencode-50` or `mouse/gencode-M39`. |
+| `--default <default>` | The named set to install, `human/gencode-50`, `mouse/gencode-M39`, `rhesus/ensembl-116` or `cynomolgus/refseq-GCF_037993035.2`. |
 | `--storage-root <storage-root>` | Managed storage root. The default is the configured location. |
 | `--format <format>` | Output format, `text`, `json` or `tsv`. The default is `text`. |
 

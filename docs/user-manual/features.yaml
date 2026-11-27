@@ -4325,8 +4325,10 @@ features:
       Builds a reference set from a genome, an annotation and extra sequences
       under the storage root, then builds or reuses its salmon index, or
       writes and adopts a plan that builds its STAR index on a Linux machine.
-      Plugin Manager > Databases lists two sets under RNA-seq Reference
-      Sets, human GRCh38 with GENCODE 50 and mouse GRCm39 with GENCODE M39.
+      Plugin Manager > Databases lists four sets under RNA-seq Reference
+      Sets, human GRCh38 with GENCODE 50, mouse GRCm39 with GENCODE M39,
+      rhesus macaque Mmul_10 with Ensembl 116 and cynomolgus macaque
+      T2T-MFA8v1.1 with RefSeq.
       Download runs lungfish-cli rnaseq install-reference --default <id>
       on an Operations row of type download, which checks memory and free
       disk first, downloads and checks the genome and GTF, builds the set and

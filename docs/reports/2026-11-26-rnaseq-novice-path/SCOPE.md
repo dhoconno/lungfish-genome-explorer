@@ -22,3 +22,7 @@ The owner asked overnight for the smallest useful version of `docs/reports/2026-
 ## Deferred, as backlog rows in `docs/plans/backlog-later.tsv`
 
 RNASEQ-COMPARE-IN-APP (in-app DESeq2, not small: needs an R environment, a condition grid and a result kind), RNASEQ-TENX-GUIDED (with the Import Embedding and plan-card renames), RNASEQ-FASTQ-START (guided sample grid), RNASEQ-CATALOG-MORE-ROWS, RNASEQ-SMALL-MAC-INDEX, RNASEQ-QUANT-WORDS-LATER (Not host words, picker row names, Advanced disclosure), RNASEQ-INSTALL-REFERENCE-REPLAY. RNASEQ-QUANT-NO-REFERENCE-SET-SCREEN is closed by this change and deleted.
+
+## Added 2026-11-27: the macaques
+
+The owner asked for rhesus and cynomolgus macaque. The manager added each species' default row of P5-REFS, as already pinned in `ReferenceSetDefaults.swift`, not a new choice: `rhesus/ensembl-116`, the same Ensembl release as GENCODE 50 and M39, and `cynomolgus/refseq-GCF_037993035.2`, the T2T assembly BIO set as the cynomolgus default. Neither had been built before, so both were installed on galah before the commit (`EVIDENCE.md`). The T2T assembly has no mitochondrial genome, so the manual says so and names `cynomolgus/ensembl-107` for mitochondrial counts.

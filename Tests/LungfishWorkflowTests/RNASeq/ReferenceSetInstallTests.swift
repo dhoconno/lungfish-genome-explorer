@@ -114,17 +114,17 @@ final class ReferenceSetInstallTests: XCTestCase {
 
     func testAnIdOutsideTheCatalogIsRefusedWithTheOfferedIds() async throws {
         do {
-            _ = try await installer(CopyingArchiveLoader()).install("rhesus/ensembl-116")
+            _ = try await installer(CopyingArchiveLoader()).install("rhesus/ensembl-100")
             XCTFail("an id outside the catalog was installed")
         } catch let error as ReferenceSetInstallError {
-            XCTAssertEqual(error, .notInCatalog("rhesus/ensembl-116", offered: ["human/gencode-50", "mouse/gencode-M39"]))
+            XCTAssertEqual(error, .notInCatalog("rhesus/ensembl-100", offered: ["human/gencode-50", "mouse/gencode-M39", "rhesus/ensembl-116", "cynomolgus/refseq-GCF_037993035.2"]))
         }
     }
 
     // MARK: - The catalog
 
-    func testTheCatalogOffersHumanAndMouseEachAPinnedNamedDefault() {
-        XCTAssertEqual(ReferenceSetCatalog.entries.map(\.id), ["human/gencode-50", "mouse/gencode-M39"])
+    func testTheCatalogOffersHumanMouseRhesusAndCynomolgusEachAPinnedNamedDefault() {
+        XCTAssertEqual(ReferenceSetCatalog.entries.map(\.id), ["human/gencode-50", "mouse/gencode-M39", "rhesus/ensembl-116", "cynomolgus/refseq-GCF_037993035.2"])
         for entry in ReferenceSetCatalog.entries {
             let row = entry.row
             XCTAssertEqual(row.genomeSHA256?.count, 64, entry.id)
@@ -133,6 +133,14 @@ final class ReferenceSetInstallTests: XCTestCase {
             XCTAssertGreaterThan(entry.downloadBytes, 800_000_000, entry.id)
         }
         XCTAssertEqual(ReferenceSetCatalog.entry("mouse/gencode-M39")?.row.species, "Mus musculus")
+        // Each macaque entry is its species' default row (P5-REFS), so the catalog and `--default` agree.
+        for id in ["rhesus/ensembl-116", "cynomolgus/refseq-GCF_037993035.2"] {
+            XCTAssertEqual(ReferenceSetCatalog.entry(id)?.row.role.hasSuffix(" default"), true, id)
+        }
+        XCTAssertEqual(ReferenceSetCatalog.entries.map(\.title), [
+            "Human, GRCh38 with GENCODE 50", "Mouse, GRCm39 with GENCODE M39",
+            "Rhesus macaque, Mmul_10 with Ensembl 116", "Cynomolgus macaque, T2T-MFA8v1.1 with RefSeq",
+        ])
     }
 
     func testTheStateReadsNotInstalledThenSetWithoutIndexThenReady() async throws {

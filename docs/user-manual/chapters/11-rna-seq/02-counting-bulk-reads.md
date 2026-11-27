@@ -45,14 +45,14 @@ STAR is a [splice-aware mapper](../../GLOSSARY.md#splice-aware-mapper), a progra
 
 | Task | Where you do it | What it makes |
 |---|---|---|
-| Install a human or mouse reference set and its salmon index | **Plugin Manager > Databases**, under **RNA-seq Reference Sets** | A set and an index in the storage folder |
+| Install a human, mouse, rhesus macaque or cynomolgus macaque reference set and its salmon index | **Plugin Manager > Databases**, under **RNA-seq Reference Sets** | A set and an index in the storage folder |
 | Build a reference set and its salmon index for another species | `lungfish-cli`, the typed-command twin of the app, in Terminal | A set and an index in the storage folder |
 | Count reads per gene with salmon | **Tools > RNA-seq > Count Reads per Gene…** | One result in the project |
 | Import counts another tool made | The **Existing Bulk RNA-seq Counts** card of the [Import Center](../../GLOSSARY.md#import-center) | One result in the project |
 | Plan salmon or STAR for a Linux machine | The **RNA-seq Plan for a Linux Machine** card | A plan folder, and no result until you adopt the run |
 | Adopt the counts a Linux run returned | The **RNA-seq Linux Run Result** card | One result in the project |
 
-Each result is a folder whose name ends in `.lungfishrnaseq`, in the project's **Analyses** folder. It records its counting route, which is the tool, its version, and every setting that changes counts. Plugin Manager downloads the human and mouse sets and builds their index in one step. A set for another species, or one with added sequences such as spike-ins, is built in [Terminal](../../GLOSSARY.md#terminal), the Mac app where you type commands.
+Each result is a folder whose name ends in `.lungfishrnaseq`, in the project's **Analyses** folder. It records its counting route, which is the tool, its version, and every setting that changes counts. Plugin Manager downloads the human, mouse, rhesus macaque and cynomolgus macaque sets and builds their index in one step. A set for another species or another assembly, or one with added sequences such as spike-ins, is built in [Terminal](../../GLOSSARY.md#terminal), the Mac app where you type commands.
 
 If you already have counts, import them, and if you have reads, check your Mac's memory first, because the salmon index decides whether you can count on the Mac.
 
@@ -110,7 +110,7 @@ The `rnaseq-bulk` fixture comes from the [rnaseq-bulk fixture folder](https://gi
 | `salmon-probe-c1/` | `ERCC92.fa`, `ERCC92.gtf`, and the first 6,000 read pairs of SRR896663 |
 | `salmon-c1/` | Two older salmon folders counted on another index, for the refusal check |
 
-Plugin Manager installs the human and mouse sets with their index. Building a set or an index for another species happens in Terminal. Open Terminal from **Applications > Utilities**, click in its window, paste a command with Command-V, and press Return to run it. A `\` at the end of a line means the command continues on the next line, so paste the whole block. [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains how to read the commands, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to make `lungfish-cli` work there.
+Plugin Manager installs the human, mouse, rhesus macaque and cynomolgus macaque sets with their index. Building a set or an index for another species or assembly happens in Terminal. Open Terminal from **Applications > Utilities**, click in its window, paste a command with Command-V, and press Return to run it. A `\` at the end of a line means the command continues on the next line, so paste the whole block. [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains how to read the commands, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to make `lungfish-cli` work there.
 
 The plan and adopt procedures need what [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md#before-you-start) lists, which is a login to the Linux machine, a staging folder there, and the tool image. If you have no Linux machine, ask your university's research computing group for a login and for the image.
 
@@ -120,7 +120,7 @@ On a Mac that shows more than 16 GB in **About This Mac**, the species decides w
 
 | Your samples | Sections in order |
 |---|---|
-| Human or mouse | [Install a reference set in Plugin Manager](#install-a-reference-set-in-plugin-manager), then [Count reads per gene with salmon](#count-reads-per-gene-with-salmon) |
+| Human, mouse, rhesus macaque or cynomolgus macaque | [Install a reference set in Plugin Manager](#install-a-reference-set-in-plugin-manager), then [Count reads per gene with salmon](#count-reads-per-gene-with-salmon) |
 | Another species, or a set with added sequences such as spike-ins | [Build a reference set with rnaseq reference-set](#build-a-reference-set-with-rnaseq-reference-set), [Build the salmon index with rnaseq index](#build-the-salmon-index-with-rnaseq-index), then [Count reads per gene with salmon](#count-reads-per-gene-with-salmon) |
 
 A Mac that shows 16 GB or less skips the salmon index and the Count Reads per Gene pane. If you have reads and a Linux machine, follow these sections in order.
@@ -134,11 +134,22 @@ If someone else has counted the reads, go to [the import section](#import-salmon
 
 ### Install a reference set in Plugin Manager
 
-Plugin Manager installs two named defaults, each with its salmon index, in one step. **Human, GRCh38 with GENCODE 50** is the named default `human/gencode-50`, and **Mouse, GRCm39 with GENCODE M39** is `mouse/gencode-M39`. Each row reads "Genome, genes and salmon index for counting bulk reads." Under that, it gives the download size and what the build needs, about 18 GB kept on disk, 64 GB of free disk and 16.6 GB of memory while it builds, and about an hour.
+Plugin Manager installs four named defaults, each with its salmon index, in one step.
+
+| Row | Named default |
+|---|---|
+| **Human, GRCh38 with GENCODE 50** | `human/gencode-50` |
+| **Mouse, GRCm39 with GENCODE M39** | `mouse/gencode-M39` |
+| **Rhesus macaque, Mmul_10 with Ensembl 116** | `rhesus/ensembl-116` |
+| **Cynomolgus macaque, T2T-MFA8v1.1 with RefSeq** | `cynomolgus/refseq-GCF_037993035.2` |
+
+The cynomolgus set's assembly has no mitochondrial genome, so its counts hold no mitochondrial genes such as MT-CO1. Reads from mitochondrial transcripts stay unmapped. To count them, build the set `cynomolgus/ensembl-107` in Terminal instead, as the sections below show.
+
+ Each row reads "Genome, genes and salmon index for counting bulk reads." Under that, it gives the download size and what the build needs, about 18 GB kept on disk, 64 GB of free disk and 16.6 GB of memory while it builds, and about an hour.
 
 1. Install the **RNA-Seq Analysis** pack on the **Packs** tab of Plugin Manager if your Mac does not have it, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
 2. Choose **Tools > Plugin Manager…** and click the **Databases** tab. The **RNA-seq Reference Sets** section sits below the metagenomics databases.
-3. Click **Download** on the **Human, GRCh38 with GENCODE 50** row or the **Mouse, GRCm39 with GENCODE M39** row.
+3. Click **Download** on the row of your species.
 4. Watch the row in the [Operations Panel](../../GLOSSARY.md#operations-panel) whose title starts with "RNA-seq Reference Set" and ends with the set's name. The Plugin Manager row shows each step under its name while it runs.
 5. Wait for the Plugin Manager row to read **Ready to count**. The Operations row's detail then says the set "is ready to count".
 
@@ -148,7 +159,7 @@ On a Mac with less memory than the index needs, **Download** is off, and a line 
 
 Without the pack, **Download** is off, and the line below the rows reads "Install the RNA-Seq Analysis pack first, on the Packs tab of Plugin Manager. It holds salmon and gffread."
 
-The Terminal sections that follow are for other species, or for a human or mouse set with added sequences such as the ERCC spike-ins. [On the command line](#on-the-command-line) shows `rnaseq install-reference`, which does what Download does.
+The Terminal sections that follow are for other species, for the other macaque assemblies in the table of named defaults, or for a set with added sequences such as the ERCC spike-ins. [On the command line](#on-the-command-line) shows `rnaseq install-reference`, which does what Download does.
 
 ### Build a reference set with rnaseq reference-set
 
@@ -204,7 +215,7 @@ The index lives in the storage folder, filed by set, salmon version, k, and deco
 
 ### Count reads per gene with salmon
 
-This procedure counts the fixture's 6,000 read pairs of SRR896663 against a set built with the ERCC extra and its index, from the two sections above, so it needs a Mac that shows more than 16 GB. For your own human or mouse samples, the set from Plugin Manager serves. On a smaller Mac, follow the list at the top of this Procedure.
+This procedure counts the fixture's 6,000 read pairs of SRR896663 against a set built with the ERCC extra and its index, from the two sections above, so it needs a Mac that shows more than 16 GB. For your own samples of the four species Plugin Manager installs, its set serves. On a smaller Mac, follow the list at the top of this Procedure.
 
 1. Import `SRR896663_1.fastq.gz` and `SRR896663_2.fastq.gz` from `salmon-probe-c1/` as one [paired-end](../../GLOSSARY.md#paired-end) bundle, as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) shows.
 2. Select the bundle in the sidebar. To count several samples into one result, Command-click each bundle, one per sample.
@@ -481,7 +492,7 @@ The fixture shows the fourth case. Importing `salmon-c1/SRR896663` with `salmon-
 
 Skip this section if you never open Terminal. It shows the install that Download runs in Plugin Manager, then repeats the fixture import and the salmon route for a Mac with more than 16 GB, following [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). [RNA-seq](../appendices/cli-reference.md#rna-seq) in the CLI Reference lists every flag of these commands, and the [On the command line](../08-workflows/04-running-on-a-linux-machine.md#on-the-command-line) section of Running on a Linux Machine gives the commands of the Linux route.
 
-This command installs the human set and its index, as [Install a reference set in Plugin Manager](#install-a-reference-set-in-plugin-manager) describes. For mouse, give `--default mouse/gencode-M39`. It needs the **RNA-Seq Analysis** pack and a Mac that shows more than 16 GB.
+This command installs the human set and its index, as [Install a reference set in Plugin Manager](#install-a-reference-set-in-plugin-manager) describes. For mouse, rhesus or cynomolgus, give `--default mouse/gencode-M39`, `--default rhesus/ensembl-116` or `--default cynomolgus/refseq-GCF_037993035.2`. It needs the **RNA-Seq Analysis** pack and a Mac that shows more than 16 GB.
 
 ```bash
 lungfish-cli rnaseq install-reference --default human/gencode-50

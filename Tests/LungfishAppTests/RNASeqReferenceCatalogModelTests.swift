@@ -76,8 +76,8 @@ final class RNASeqReferenceCatalogModelTests: XCTestCase {
     func testTheRowsReadEachEntryAsNotInstalledOnAnEmptyRoot() async {
         let model = model(reporter: RecordingOperationReporter(), launches: Launches())
         await model.refresh()
-        XCTAssertEqual(model.rows.map(\.id), ["human/gencode-50", "mouse/gencode-M39"])
-        XCTAssertEqual(model.rows.map(\.state), [.notInstalled, .notInstalled])
+        XCTAssertEqual(model.rows.map(\.id), ["human/gencode-50", "mouse/gencode-M39", "rhesus/ensembl-116", "cynomolgus/refseq-GCF_037993035.2"])
+        XCTAssertEqual(model.rows.map(\.state), [.notInstalled, .notInstalled, .notInstalled, .notInstalled])
     }
 
     func testDownloadIsOffWithThePacksWordsWhenItsToolsAreMissing() async {

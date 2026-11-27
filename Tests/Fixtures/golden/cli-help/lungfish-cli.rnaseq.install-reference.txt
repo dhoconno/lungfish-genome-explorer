@@ -5,13 +5,15 @@ needs, downloads the set's genome and GTF into the storage folder, checks each
 file's sha256 against the named set, builds the set as rnaseq reference-set
 --default does and builds its index at k 31 with the genome as decoys, as
 rnaseq index does. The downloads are kept, and a second run downloads and
-builds nothing. The sets are human/gencode-50 and mouse/gencode-M39.
+builds nothing. The sets are human/gencode-50, mouse/gencode-M39,
+rhesus/ensembl-116 and cynomolgus/refseq-GCF_037993035.2.
 
 USAGE: lungfish-cli rnaseq install-reference --default <default> [--storage-root <storage-root>] [--format <format>] [--verbose ...] [--quiet] [--progress] [--no-progress] [--debug] [--log-file <log-file>] [--no-color] [--threads <threads>]
 
 OPTIONS:
-  --default <default>     The named set to install: human/gencode-50 or
-                          mouse/gencode-M39
+  --default <default>     The named set to install: human/gencode-50,
+                          mouse/gencode-M39, rhesus/ensembl-116 or
+                          cynomolgus/refseq-GCF_037993035.2
   --storage-root <storage-root>
                           Managed storage root (default: the configured
                           location)

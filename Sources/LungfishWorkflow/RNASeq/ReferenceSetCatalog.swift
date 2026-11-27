@@ -41,6 +41,11 @@ package enum ReferenceSetCatalog {
     package static let entries: [ReferenceSetCatalogEntry] = [
         ReferenceSetCatalogEntry(id: "human/gencode-50", title: "Human, GRCh38 with GENCODE 50", downloadBytes: 970_285_312),
         ReferenceSetCatalogEntry(id: "mouse/gencode-M39", title: "Mouse, GRCm39 with GENCODE M39", downloadBytes: 866_420_506),
+        // The macaque entries are each species' default row of P5-REFS (owner, 2026-11-27): Ensembl 116 for rhesus, the
+        // same Ensembl release as GENCODE 50 and M39, and the T2T RefSeq assembly for cynomolgus.
+        ReferenceSetCatalogEntry(id: "rhesus/ensembl-116", title: "Rhesus macaque, Mmul_10 with Ensembl 116", downloadBytes: 892_739_343),
+        ReferenceSetCatalogEntry(id: "cynomolgus/refseq-GCF_037993035.2", title: "Cynomolgus macaque, T2T-MFA8v1.1 with RefSeq",
+                                 downloadBytes: 954_363_387),
     ]
 
     package static let description = "Genome, genes and salmon index for counting bulk reads."

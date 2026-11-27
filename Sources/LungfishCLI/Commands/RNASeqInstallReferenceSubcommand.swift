@@ -15,11 +15,11 @@ extension RNASeqCommand {
             commandName: "install-reference",
             abstract: "Download a reference set, build it and build its salmon index",
             discussion: """
-                Lungfish checks that this Mac has the memory and free disk the salmon index needs, downloads the set's genome and GTF into the storage folder, checks each file's sha256 against the named set, builds the set as rnaseq reference-set --default does and builds its index at k 31 with the genome as decoys, as rnaseq index does. The downloads are kept, and a second run downloads and builds nothing. The sets are human/gencode-50 and mouse/gencode-M39.
+                Lungfish checks that this Mac has the memory and free disk the salmon index needs, downloads the set's genome and GTF into the storage folder, checks each file's sha256 against the named set, builds the set as rnaseq reference-set --default does and builds its index at k 31 with the genome as decoys, as rnaseq index does. The downloads are kept, and a second run downloads and builds nothing. The sets are human/gencode-50, mouse/gencode-M39, rhesus/ensembl-116 and cynomolgus/refseq-GCF_037993035.2.
                 """
         )
 
-        @Option(name: .customLong("default"), help: "The named set to install: human/gencode-50 or mouse/gencode-M39")
+        @Option(name: .customLong("default"), help: "The named set to install: human/gencode-50, mouse/gencode-M39, rhesus/ensembl-116 or cynomolgus/refseq-GCF_037993035.2")
         var defaultID: String
 
         @Option(name: .customLong("storage-root"), help: "Managed storage root (default: the configured location)")

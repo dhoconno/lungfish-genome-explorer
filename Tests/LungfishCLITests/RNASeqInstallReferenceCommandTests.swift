@@ -31,7 +31,7 @@ final class RNASeqInstallReferenceCommandTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("install-ref-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let command = try RNASeqCommand.InstallReferenceSubcommand.parse(["--default", "rhesus/ensembl-116", "--storage-root", root.path])
+        let command = try RNASeqCommand.InstallReferenceSubcommand.parse(["--default", "rhesus/ensembl-100", "--storage-root", root.path])
         let lines = Lines()
         do {
             try await command.execute(eventsOn: true, quiet: true, emit: { lines.all.append($0) })
@@ -42,7 +42,8 @@ final class RNASeqInstallReferenceCommandTests: XCTestCase {
         let seen = try events(lines)
         XCTAssertEqual(seen.map { $0["event"] as? String }, ["failed"])
         XCTAssertEqual(seen.first?["error"] as? String,
-                       "rhesus/ensembl-116 is not a reference set Lungfish installs. The sets are human/gencode-50, mouse/gencode-M39.")
+                       "rhesus/ensembl-100 is not a reference set Lungfish installs. The sets are human/gencode-50, mouse/gencode-M39, "
+                       + "rhesus/ensembl-116, cynomolgus/refseq-GCF_037993035.2.")
     }
 
     func testThreadsIsRefusedInWords() {
