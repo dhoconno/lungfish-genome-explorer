@@ -30,10 +30,14 @@ final class RNASeqReferenceCatalogModel {
     var fraction: [String: Double] = [:]
     var message: [String: String] = [:]
     var failure: [String: String] = [:]
+    /// True when gffread or salmon is missing, so Download is off and the words name the pack (UX trap 5).
+    private(set) var toolsMissing = false
+    private var operationIDs: [String: UUID] = [:]
 
     let systemRAMBytes = Int64(clamping: ProcessInfo.processInfo.physicalMemory)
     private let reporter: any OperationReporting
     private let storageRoot: @MainActor () -> URL
+    private let toolsCheck: @Sendable () async -> Bool
     private let launch: @MainActor (_ invocation: CLIManagedToolsRunner.Invocation, _ operationID: UUID,
                                     _ progress: @escaping @Sendable (Double, String) -> Void,
                                     _ stage: @escaping @Sendable (String) -> Void) async throws -> Void
@@ -42,10 +46,12 @@ final class RNASeqReferenceCatalogModel {
         reporter: any OperationReporting = OperationCenter.shared,
         storageRoot: @escaping @MainActor () -> URL = { ManagedStorageConfigStore().currentLocation().rootURL },
         launch: (@MainActor (CLIManagedToolsRunner.Invocation, UUID, @escaping @Sendable (Double, String) -> Void,
-                             @escaping @Sendable (String) -> Void) async throws -> Void)? = nil
+                             @escaping @Sendable (String) -> Void) async throws -> Void)? = nil,
+        toolsCheck: (@Sendable () async -> Bool)? = nil
     ) {
         self.reporter = reporter
         self.storageRoot = storageRoot
+        self.toolsCheck = toolsCheck ?? { await ReferenceSetInstall.toolsMissing() }
         self.launch = launch ?? { invocation, operationID, progress, stage in
             _ = try await CLIManagedToolsRunner.launch(invocation, operationID: operationID, progress: progress, stage: stage)
         }
@@ -55,13 +61,25 @@ final class RNASeqReferenceCatalogModel {
     /// words too, before any byte downloads.
     var memoryRefusal: String? {
         guard systemRAMBytes < ReferenceSetCatalog.indexMemoryBytes else { return nil }
-        return "Building the salmon index needs about 18 GB of memory, more than this Mac has. "
+        return "Building the salmon index needs about 16.6 GB of memory, more than this Mac has. "
             + "Count on a Linux machine instead, as the RNA-seq chapter of the manual shows."
+    }
+
+    /// The words beside Download when the pack's tools are missing, nil when they are there.
+    var toolsRefusal: String? {
+        toolsMissing ? ReferenceSetInstallError.toolsMissing.localizedDescription : nil
+    }
+
+    /// Cancels the running install of `entryID` through its Operations row, which sends the command SIGTERM.
+    func cancel(_ entryID: String) {
+        guard let id = operationIDs[entryID] else { return }
+        reporter.cancel(id: id)
     }
 
     /// Reads what the storage root holds of each entry, off the main actor.
     func refresh() async {
         let root = storageRoot()
+        toolsMissing = await toolsCheck()
         let states = await Task.detached {
             ReferenceSetCatalog.entries.map { ReferenceSetCatalog.state(of: $0, storageRoot: root) }
         }.value
@@ -81,11 +99,13 @@ final class RNASeqReferenceCatalogModel {
         )
         guard case .started(let operationID) = result else { return result }
         installing.insert(entryID)
+        operationIDs[entryID] = operationID
         failure[entryID] = nil
         message[entryID] = "Starting\u{2026}"
         Task {
             defer {
                 installing.remove(entryID)
+                operationIDs[entryID] = nil
                 fraction[entryID] = nil
                 message[entryID] = nil
             }

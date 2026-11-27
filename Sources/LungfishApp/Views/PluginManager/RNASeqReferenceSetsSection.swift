@@ -36,7 +36,7 @@ struct RNASeqReferenceSetsSection: View {
             ForEach(model.rows) { row in
                 rowView(row)
             }
-            if let refusal = model.memoryRefusal {
+            if let refusal = model.memoryRefusal ?? model.toolsRefusal {
                 Text(refusal)
                     .font(.caption)
                     .foregroundStyle(Color.lungfishSecondaryText)
@@ -61,7 +61,7 @@ struct RNASeqReferenceSetsSection: View {
                 Text(ReferenceSetCatalog.description)
                     .font(.caption)
                     .foregroundStyle(Color.lungfishSecondaryText)
-                Text("Download \(LungfishFormatters.formatBytes(row.entry.downloadBytes)), about 12 GB kept, 64 GB free disk and 18 GB of memory while it builds, about an hour")
+                Text("Download \(LungfishFormatters.formatBytes(row.entry.downloadBytes)), about 12 GB kept, 64 GB free disk and 16.6 GB of memory while it builds, about an hour")
                     .font(.caption)
                     .foregroundStyle(Color.lungfishSecondaryText)
                 if model.installing.contains(row.id) {
@@ -88,7 +88,11 @@ struct RNASeqReferenceSetsSection: View {
     @ViewBuilder
     private func action(_ row: RNASeqReferenceCatalogModel.Row) -> some View {
         if model.installing.contains(row.id) {
-            ProgressView().controlSize(.small)
+            Button(role: .cancel) {
+                model.cancel(row.id)
+            } label: { Text("Cancel") }
+            .controlSize(.small)
+            .help("Cancel this install. Finished downloads are kept for the next Download.")
         } else if row.state.isReady {
             Text("Ready to count")
                 .font(.caption)
@@ -101,7 +105,7 @@ struct RNASeqReferenceSetsSection: View {
             } label: { Text("Download") }
             .controlSize(.small)
             .buttonStyle(.borderedProminent)
-            .disabled(model.memoryRefusal != nil)
+            .disabled(model.memoryRefusal != nil || model.toolsMissing)
             .help(row.state == .notInstalled
                 ? "Download the genome and genes, build the set and its salmon index"
                 : "The set is here without its salmon index. Download builds the index.")

@@ -83,12 +83,18 @@ package struct ReferenceSetInstall: Sendable {
             return try await cache.ensure(request, linuxRoute: Self.linuxRoute, argv: argv).indexURL
         }
         self.preflight = preflight ?? {
-            for tool in [NativeTool.gffread, .salmon] where (try? await NativeToolRunner.shared.toolPath(for: tool)) == nil {
-                throw ReferenceSetInstallError.toolsMissing
-            }
+            if await Self.toolsMissing() { throw ReferenceSetInstallError.toolsMissing }
             let cacheFolder = storageRoot.appendingPathComponent(SalmonIndexCache.folderName, isDirectory: true)
             try RunFitPreflight.require(need: SalmonIndexNeed.need(diskFolder: cacheFolder), host: host, linuxRoute: Self.linuxRoute)
         }
+    }
+
+    /// Whether gffread or salmon, the RNA-Seq Analysis pack's tools, is missing under the storage root.
+    package static func toolsMissing() async -> Bool {
+        for tool in [NativeTool.gffread, .salmon] where (try? await NativeToolRunner.shared.toolPath(for: tool)) == nil {
+            return true
+        }
+        return false
     }
 
     package func downloadFolder(for row: ReferenceSetDefault) -> URL {

@@ -18,14 +18,17 @@ final class RNASeqReferenceCatalogModelTests: XCTestCase {
 
     func model(
         reporter: RecordingOperationReporter, launches: Launches, root: URL = URL(fileURLWithPath: "/nonexistent-root"),
-        failing: Error? = nil
+        failing: Error? = nil, toolsMissing: Bool = false, hold: Bool = false
     ) -> RNASeqReferenceCatalogModel {
-        RNASeqReferenceCatalogModel(reporter: reporter, storageRoot: { root }, launch: { invocation, _, progress, stage in
+        RNASeqReferenceCatalogModel(reporter: reporter, storageRoot: { root }, launch: { invocation, operationID, progress, stage in
+            // As `CLIManagedToolsRunner.launch` does on the shared center, the row's Cancel reaches the run.
+            reporter.setCancelCallback(for: operationID) {}
             launches.argv.append(invocation.argv)
             progress(0.5, "Downloading genome.fa.gz, 1 MB of 2 MB")
             stage("Building the salmon index, which takes about an hour")
+            if hold { try await Task.sleep(nanoseconds: 300_000_000) }
             if let failing { throw failing }
-        })
+        }, toolsCheck: { toolsMissing })
     }
 
     func waitUntilIdle(_ model: RNASeqReferenceCatalogModel) async {
@@ -75,6 +78,32 @@ final class RNASeqReferenceCatalogModelTests: XCTestCase {
         await model.refresh()
         XCTAssertEqual(model.rows.map(\.id), ["human/gencode-50", "mouse/gencode-M39"])
         XCTAssertEqual(model.rows.map(\.state), [.notInstalled, .notInstalled])
+    }
+
+    func testDownloadIsOffWithThePacksWordsWhenItsToolsAreMissing() async {
+        let model = model(reporter: RecordingOperationReporter(), launches: Launches(), toolsMissing: true)
+        await model.refresh()
+        XCTAssertTrue(model.toolsMissing)
+        XCTAssertEqual(model.toolsRefusal,
+                       "Install the RNA-Seq Analysis pack first, on the Packs tab of Plugin Manager. It holds salmon and gffread.")
+        let ready = self.model(reporter: RecordingOperationReporter(), launches: Launches())
+        await ready.refresh()
+        XCTAssertNil(ready.toolsRefusal)
+    }
+
+    func testCancelOnTheRowCancelsItsOperationsRow() async throws {
+        let reporter = RecordingOperationReporter()
+        let model = model(reporter: reporter, launches: Launches(), hold: true)
+        model.install("human/gencode-50")
+        for _ in 0..<50 where reporter.items.first?.hasCancelCallback != true { try await Task.sleep(nanoseconds: 5_000_000) }
+        model.cancel("human/gencode-50")
+        XCTAssertTrue(try XCTUnwrap(reporter.items.first).cancelRequested)
+        await waitUntilIdle(model)
+    }
+
+    func testTheMemoryWordsUseTheUnitsTheRestOfTheAppUses() {
+        XCTAssertEqual(ReferenceSetCatalog.indexMemoryBytes, 17_780_281_048)
+        XCTAssertEqual(String(format: "%.1f", Double(ReferenceSetCatalog.indexMemoryBytes) / 1_073_741_824), "16.6")
     }
 
     // MARK: - The quantify pane
