@@ -1,7 +1,7 @@
 # Captured from Lungfish Preview 2026.11.18 (14772) with capture-window.sh (2026-11-26 docs refresh, sitting 1)
 id: rnaseq-quantify-pane
 chapter: 11-rna-seq/02-counting-bulk-reads
-caption: The Quantify RNA-seq Reads pane of the FASTQ/FASTA Operations dialog, with its Reference set, Index, and Trimming groups at their defaults.
+caption: The Count Reads per Gene pane of the FASTQ/FASTA Operations dialog, with its Reference set, Index, and Trimming groups at their defaults.
 viewport_class: fastq
 app_state:
   fixture: docs/user-manual/fixtures/rnaseq-bulk
@@ -23,8 +23,8 @@ steps:
   # PROSE-ONLY: in the file panel press Command-Shift-G, type the path of salmon-probe-c1, press Return
   # PROSE-ONLY: click SRR896663_1.fastq.gz, Shift-click SRR896663_2.fastq.gz, click Open
   # PROSE-ONLY: in the Import FASTQ sheet keep the defaults (Platform Unknown / Other, Pairing Paired-end) and click Import
-  # PROSE-ONLY: with the new bundle selected choose Tools > RNA-seq > Quantify RNA-seq Reads...
-  # PROSE-ONLY: capture the sheet as it opens. No reference set is installed, so the pop-up reads Choose a reference set and the footer says so
+  # PROSE-ONLY: with the new bundle selected choose Tools > RNA-seq > Count Reads per Gene...
+  # PROSE-ONLY: capture the sheet as it opens. No reference set is installed, so the Reference set group reads "Download a reference set in Plugin Manager to count these reads." above a Download Reference Set... button, and the footer says the same
   # PROSE-ONLY: click Cancel and never Run
 crop:
   mode: region

@@ -10,7 +10,7 @@ tools: []
 parameters_refs: [rnaseq.export]
 entry_points:
   - "Sidebar: select an RNA-seq result (.lungfishrnaseq) of bulk modality"
-  - "Tools > RNA-seq > Export RNA-seq Counts…"
+  - "Tools > RNA-seq > Export Counts and Analysis Scripts…"
   - "CLI: lungfish-cli rnaseq quality, lungfish-cli rnaseq export"
 shots:
   - id: rnaseq-bulk-view
@@ -18,7 +18,7 @@ shots:
   - id: rnaseq-correlation-tab
     caption: "The Correlation tab of the same result, with one square for each pair of its six samples and the scale line under the plot."
   - id: rnaseq-export-dialog
-    caption: "The Workflow Operations window on its Export RNA-seq Counts row, with the SEQC result chosen and the design and contrast filled in."
+    caption: "The Workflow Operations window on its Export Counts and Analysis Scripts row, with the SEQC result chosen and the design and contrast filled in."
 illustrations: []
 glossary_refs: [library, mapping, ribosomal-rna, fixture, spike-in-control, inspector, operations-panel, tsv, manifest, checksum, paired-end, terminal, provenance]
 features_refs: [viewport.rnaseq-result, rnaseq.bulk-view, rnaseq.quality, rnaseq.export]
@@ -37,7 +37,7 @@ When you select a bulk result in the sidebar, LGE opens it in its own viewer. A 
 
 The quality numbers tell you whether each sample's [library](../../GLOSSARY.md#library), the prepared fragments that were sequenced, worked well enough to compare. They give its size in reads or read pairs, the percent of them that the counting program could place, a form of [mapping](../../GLOSSARY.md#mapping), and the share that landed on [ribosomal RNA](../../GLOSSARY.md#ribosomal-rna). [Read counts, library size, CPM, and TPM](01-what-is-rna-seq.md#read-counts-library-size-cpm-and-tpm) introduces library size and CPM.
 
-The usual goal of a bulk experiment is to find differential expression, a difference in a gene's expression between groups of samples that is larger than the spread among samples within each group. LGE does not test for it. **Export RNA-seq Counts…** writes the counts, a table of samples, and scripts for DESeq2, edgeR, and limma, three packages for R, a free language for statistics. You run the scripts in R, and R runs the test. [Before you start](#before-you-start) says where to get R.
+The usual goal of a bulk experiment is to find differential expression, a difference in a gene's expression between groups of samples that is larger than the spread among samples within each group. LGE does not test for it. **Export Counts and Analysis Scripts…** writes the counts, a table of samples, and scripts for DESeq2, edgeR, and limma, three packages for R, a free language for statistics. You run the scripts in R, and R runs the test. [Before you start](#before-you-start) says where to get R.
 
 So check the **Quality** and **Correlation** tabs first, then export, and run the statistics in R.
 
@@ -84,9 +84,9 @@ This chapter runs DESeq2 on the fixture with the design `group`, the contrast `g
 
 ## Before you start
 
-You need a project that holds the fixture's counts as one result. Import the six folders of `salmon-seqc-ercc/` from the `rnaseq-bulk` fixture with the **RNA-seq Counts** card, as [Import salmon folders or a count table with the RNA-seq Counts card](02-counting-bulk-reads.md#import-salmon-folders-or-a-count-table-with-the-rna-seq-counts-card) shows. Choose the fixture's `samples.tsv` as the sample sheet and its `tx2gene.tsv` as the **Transcript-to-gene table**, and name the result "SEQC A and B on ERCC92 genes". The transcript-to-gene table adds the gene counts that the export needs. [Fixture files](../01-foundations/06-the-lungfish-project.md#fixture-files) explains where the fixture folders live, and the fixture's `README.md` gives its source, license, and citation.
+You need a project that holds the fixture's counts as one result. Import the six folders of `salmon-seqc-ercc/` from the `rnaseq-bulk` fixture with the **Existing Bulk RNA-seq Counts** card, as [Import salmon folders or a count table with the Existing Bulk RNA-seq Counts card](02-counting-bulk-reads.md#import-salmon-folders-or-a-count-table-with-the-existing-bulk-rna-seq-counts-card) shows. Choose the fixture's `samples.tsv` as the sample sheet and its `tx2gene.tsv` as the **Transcript-to-gene table**, and name the result "SEQC A and B on ERCC92 genes". The transcript-to-gene table adds the gene counts that the export needs. [Fixture files](../01-foundations/06-the-lungfish-project.md#fixture-files) explains where the fixture folders live, and the fixture's `README.md` gives its source, license, and citation.
 
-For your own samples, the **Design** and **Contrasts** fields name columns of the sample table, which has one row per sample. The result's own table holds `group` when the [sample sheet](02-counting-bulk-reads.md#import-salmon-folders-or-a-count-table-with-the-rna-seq-counts-card) you gave at import has a `group` column. A column it lacks, such as `batch`, comes from a second sheet that you choose in **Sample sheet (optional)** at export. Save it from a spreadsheet as tab-separated text, with a first row of column names and one row for each sample, named as the **Sample** column of the **Quality** tab names them. For six samples, three treated and three control, in two batches that each hold both groups, it reads as follows.
+For your own samples, the **Design** and **Contrasts** fields name columns of the sample table, which has one row per sample. The result's own table holds `group` when the [sample sheet](02-counting-bulk-reads.md#import-salmon-folders-or-a-count-table-with-the-existing-bulk-rna-seq-counts-card) you gave at import has a `group` column. A column it lacks, such as `batch`, comes from a second sheet that you choose in **Sample sheet (optional)** at export. Save it from a spreadsheet as tab-separated text, with a first row of column names and one row for each sample, named as the **Sample** column of the **Quality** tab names them. For six samples, three treated and three control, in two batches that each hold both groups, it reads as follows.
 
 | sample | group | batch |
 |---|---|---|
@@ -99,7 +99,7 @@ For your own samples, the **Design** and **Contrasts** fields name columns of th
 
 The first column may be called `sample` or `sample_id`. The sheet may leave out `group` when the result holds it, and where both hold a value, the sheet's value wins. It must name every sample of the result and no other, or the export refuses and lists the difference. Keep all six libraries in one result, since a batch is a column of the sheet and not a second result, and one counting route covers both sequencing runs.
 
-Reading and exporting need no plugin pack, since **Export RNA-seq Counts…** is a core tool of LGE. Running the scripts is optional and needs R and three packages, since LGE runs no script itself. R comes from [CRAN](https://cran.r-project.org/bin/macosx/), R's main download site, and its installer normally adds `Rscript`, the command that runs a script. The packages come from Bioconductor, a library of R tools for biology, through [its install page](https://bioconductor.org/install/). Start R by typing `R` in [Terminal](../../GLOSSARY.md#terminal), the app where you type commands, and enter these two lines.
+Reading and exporting need no plugin pack, since **Export Counts and Analysis Scripts…** is a core tool of LGE. Running the scripts is optional and needs R and three packages, since LGE runs no script itself. R comes from [CRAN](https://cran.r-project.org/bin/macosx/), R's main download site, and its installer normally adds `Rscript`, the command that runs a script. The packages come from Bioconductor, a library of R tools for biology, through [its install page](https://bioconductor.org/install/). Start R by typing `R` in [Terminal](../../GLOSSARY.md#terminal), the app where you type commands, and enter these two lines.
 
 ```r
 if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")
@@ -120,9 +120,9 @@ Install `sva` for a batch step and `variancePartition` for dream the same way, w
 
 <!-- SHOT: rnaseq-bulk-view -->
 
-### Export counts with Export RNA-seq Counts
+### Export counts with Export Counts and Analysis Scripts
 
-1. Choose **Tools > RNA-seq > Export RNA-seq Counts…**. The **Workflow Operations** window opens on the **Export RNA-seq Counts** row.
+1. Choose **Tools > RNA-seq > Export Counts and Analysis Scripts…**. The **Workflow Operations** window opens on the **Export Counts and Analysis Scripts** row.
 2. Under **Inputs**, in **RNA-seq results**, click **Choose…**.
 3. In the panel that opens, select `SEQC_A_and_B_on_ERCC92_genes.lungfishrnaseq` in the project's `Analyses` folder, and click **Open**.
 
@@ -139,7 +139,7 @@ Leave **Sample sheet (optional)** empty. The result's own sample table already h
 
 ## Settings
 
-### Export RNA-seq Counts settings
+### Export Counts and Analysis Scripts settings
 
 The pane has no advanced settings. **RNA-seq results** and **Sample sheet (optional)** sit under **Inputs**. **Export folder**, **Design**, **Contrasts**, **Adjusted p-value cutoff**, **Fold-change bar**, **Batch column**, and **Batch correction** sit under **Primary settings**, and the two batch controls always show. **Directory** sits under **Output**.
 

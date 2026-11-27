@@ -4,20 +4,21 @@ chapter_id: 11-rna-seq/02-counting-bulk-reads
 audience: bench-scientist
 prereqs: [11-rna-seq/01-what-is-rna-seq, 03-reads/01-importing-fastq, 01-foundations/07-plugin-packs]
 estimated_reading_min: 26
-task: Build a reference set, count bulk RNA-seq reads with salmon on the Mac, plan salmon or STAR counting for a Linux machine, or import counts another tool made.
+task: Install or build a reference set, count bulk RNA-seq reads with salmon on the Mac, plan salmon or STAR counting for a Linux machine, or import counts another tool made.
 tags: [rna-seq, bulk, salmon, star, featurecounts, reference-set, quantification, counts, linux]
 tools: [salmon, gffread, trim-galore, star, featurecounts]
 parameters_refs: [rnaseq.quant, import.rnaseq-adopt]
 entry_points:
-  - "Tools > RNA-seq > Quantify RNA-seq Reads…"
-  - "Import Center > Sequencing Reads > RNA-seq Counts"
+  - "Plugin Manager > Databases > RNA-seq Reference Sets > Download"
+  - "Tools > RNA-seq > Count Reads per Gene…"
+  - "Import Center > Sequencing Reads > Existing Bulk RNA-seq Counts"
   - "Import Center > Sequencing Reads > RNA-seq Plan for a Linux Machine"
   - "Import Center > Sequencing Reads > RNA-seq Linux Run Result"
-  - "CLI: lungfish-cli rnaseq reference-set, lungfish-cli rnaseq index, lungfish-cli rnaseq index-plan, lungfish-cli rnaseq index-adopt"
+  - "CLI: lungfish-cli rnaseq install-reference, lungfish-cli rnaseq reference-set, lungfish-cli rnaseq index, lungfish-cli rnaseq index-plan, lungfish-cli rnaseq index-adopt"
   - "CLI: lungfish-cli rnaseq quant, lungfish-cli import rnaseq"
 shots:
   - id: rnaseq-quantify-pane
-    caption: "The Quantify RNA-seq Reads pane of the FASTQ/FASTA Operations dialog, with its Reference set, Index, and Trimming groups at their defaults."
+    caption: "The Count Reads per Gene pane of the FASTQ/FASTA Operations dialog, with its Reference set, Index, and Trimming groups at their defaults."
   - id: rnaseq-counts-import-sheet
     caption: "The Import RNA-seq Counts sheet with the six salmon folders of the rnaseq-bulk fixture and its sample sheet chosen."
   - id: rnaseq-plan-sheet
@@ -30,7 +31,7 @@ brand_reviewed: false
 lead_approved: false
 ---
 
-<!-- SCOPE: Building a reference set, quantifying reads with salmon on the Mac, planning salmon or STAR for a Linux machine, and importing counts another tool made. -->
+<!-- SCOPE: Installing or building a reference set, counting reads with salmon on the Mac, planning salmon or STAR for a Linux machine, and importing counts another tool made. -->
 
 ## What it is
 
@@ -44,13 +45,14 @@ STAR is a [splice-aware mapper](../../GLOSSARY.md#splice-aware-mapper), a progra
 
 | Task | Where you do it | What it makes |
 |---|---|---|
-| Build a reference set and its salmon index | `lungfish-cli`, the typed-command twin of the app, in Terminal | A set and an index in the storage folder |
-| Quantify reads with salmon | **Tools > RNA-seq > Quantify RNA-seq Reads…** | One result in the project |
-| Import counts another tool made | The **RNA-seq Counts** card of the [Import Center](../../GLOSSARY.md#import-center) | One result in the project |
+| Install a human or mouse reference set and its salmon index | **Plugin Manager > Databases**, under **RNA-seq Reference Sets** | A set and an index in the storage folder |
+| Build a reference set and its salmon index for another species | `lungfish-cli`, the typed-command twin of the app, in Terminal | A set and an index in the storage folder |
+| Count reads per gene with salmon | **Tools > RNA-seq > Count Reads per Gene…** | One result in the project |
+| Import counts another tool made | The **Existing Bulk RNA-seq Counts** card of the [Import Center](../../GLOSSARY.md#import-center) | One result in the project |
 | Plan salmon or STAR for a Linux machine | The **RNA-seq Plan for a Linux Machine** card | A plan folder, and no result until you adopt the run |
 | Adopt the counts a Linux run returned | The **RNA-seq Linux Run Result** card | One result in the project |
 
-Each result is a folder whose name ends in `.lungfishrnaseq`, in the project's **Analyses** folder. It records its counting route, which is the tool, its version, and every setting that changes counts. The app has no window for building a set or an index, so those two steps run in [Terminal](../../GLOSSARY.md#terminal), the Mac app where you type commands.
+Each result is a folder whose name ends in `.lungfishrnaseq`, in the project's **Analyses** folder. It records its counting route, which is the tool, its version, and every setting that changes counts. Plugin Manager downloads the human and mouse sets and builds their index in one step. A set for another species, or one with added sequences such as spike-ins, is built in [Terminal](../../GLOSSARY.md#terminal), the Mac app where you type commands.
 
 If you already have counts, import them, and if you have reads, check your Mac's memory first, because the salmon index decides whether you can count on the Mac.
 
@@ -66,9 +68,9 @@ Because the mixes are known, the ratio of each spike-in between A and B is known
 
 Three questions settle the route. Do counts already exist? Does your Mac have the memory to build a salmon index? Can you use a Linux machine? A Mac that **About This Mac** shows with 16 GB of memory or less cannot build the salmon index, so it can only import counts or plan counting for a Linux machine. [The four counting routes](01-what-is-rna-seq.md#the-four-counting-routes) explains how the tools themselves count.
 
-**Import counts another tool made.** The **RNA-seq Counts** card reads salmon quant folders, the folder salmon writes for each sample, or one count table with one row per gene and one column per sample. It builds no index and runs on any Mac.
+**Import counts another tool made.** The **Existing Bulk RNA-seq Counts** card reads salmon quant folders, the folder salmon writes for each sample, or one count table with one row per gene and one column per sample. It builds no index and runs on any Mac.
 
-**Quantify with salmon on the Mac.** LGE counts each [FASTQ](../../GLOSSARY.md#fastq) [bundle](../../GLOSSARY.md#bundle), the folder that holds one sample's reads, against the set's index on your Mac. This route suits a few samples on a Mac with more than 16 GB of memory, since building the index needs about 16.6 GB.
+**Count with salmon on the Mac.** LGE counts each [FASTQ](../../GLOSSARY.md#fastq) [bundle](../../GLOSSARY.md#bundle), the folder that holds one sample's reads, against the set's index on your Mac. This route suits a few samples on a Mac with more than 16 GB of memory, since building the index needs about 16.6 GB.
 
 **Plan salmon for a Linux machine.** The same salmon count runs on a Linux machine, on the index a Mac with more than 16 GB built.
 
@@ -89,7 +91,7 @@ This chapter's fixture uses the import, because its counts already exist and an 
 
 Open the project the results should go into, or make one with **File > New Project**, as [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md#procedure) shows.
 
-Building a set, building an index, and quantifying need the **RNA-Seq Analysis** [plugin pack](../../GLOSSARY.md#plugin-pack), pack id `rna-seq`, about 30 MB. It installs salmon 2.11.0, which counts, and gffread 0.12.9, which cuts each transcript's sequence out of the genome by the annotation. [Plugin Packs](../01-foundations/07-plugin-packs.md) shows how to add it. Importing counts needs no pack. [Trim Galore](../../GLOSSARY.md#trim-galore), which trims reads before counting when you ask, is installed with every copy of LGE.
+Installing or building a set, building an index, and counting reads need the **RNA-Seq Analysis** [plugin pack](../../GLOSSARY.md#plugin-pack), pack id `rna-seq`, about 30 MB. It installs salmon 2.11.0, which counts, and gffread 0.12.9, which cuts each transcript's sequence out of the genome by the annotation. [Plugin Packs](../01-foundations/07-plugin-packs.md) shows how to add it. Importing counts needs no pack. [Trim Galore](../../GLOSSARY.md#trim-galore), which trims reads before counting when you ask, is installed with every copy of LGE.
 
 Two steps check the Mac's memory and free disk first.
 
@@ -108,20 +110,45 @@ The `rnaseq-bulk` fixture comes from the [rnaseq-bulk fixture folder](https://gi
 | `salmon-probe-c1/` | `ERCC92.fa`, `ERCC92.gtf`, and the first 6,000 read pairs of SRR896663 |
 | `salmon-c1/` | Two older salmon folders counted on another index, for the refusal check |
 
-Building a set or an index happens in Terminal. Open it from **Applications > Utilities**, click in its window, paste a command with Command-V, and press Return to run it. A `\` at the end of a line means the command continues on the next line, so paste the whole block. [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains how to read the commands, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to make `lungfish-cli` work there.
+Plugin Manager installs the human and mouse sets with their index. Building a set or an index for another species happens in Terminal. Open Terminal from **Applications > Utilities**, click in its window, paste a command with Command-V, and press Return to run it. A `\` at the end of a line means the command continues on the next line, so paste the whole block. [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) explains how to read the commands, and [Finding the program](../appendices/cli-reference.md#finding-the-program) shows how to make `lungfish-cli` work there.
 
 The plan and adopt procedures need what [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md#before-you-start) lists, which is a login to the Linux machine, a staging folder there, and the tool image. If you have no Linux machine, ask your university's research computing group for a login and for the image.
 
 ## Procedure
 
-A Mac that shows 16 GB or less in **About This Mac** skips the salmon index and the Quantify pane. If you have reads and a Linux machine, follow these sections in order.
+On a Mac that shows more than 16 GB in **About This Mac**, the species decides where the set comes from. Follow the sections of your row in order.
+
+| Your samples | Sections in order |
+|---|---|
+| Human or mouse | [Install a reference set in Plugin Manager](#install-a-reference-set-in-plugin-manager), then [Count reads per gene with salmon](#count-reads-per-gene-with-salmon) |
+| Another species, or a set with added sequences such as spike-ins | [Build a reference set with rnaseq reference-set](#build-a-reference-set-with-rnaseq-reference-set), [Build the salmon index with rnaseq index](#build-the-salmon-index-with-rnaseq-index), then [Count reads per gene with salmon](#count-reads-per-gene-with-salmon) |
+
+A Mac that shows 16 GB or less skips the salmon index and the Count Reads per Gene pane. If you have reads and a Linux machine, follow these sections in order.
 
 1. [Build a reference set with rnaseq reference-set](#build-a-reference-set-with-rnaseq-reference-set).
 2. [Build a STAR index with rnaseq index-plan and index-adopt](#build-a-star-index-with-rnaseq-index-plan-and-index-adopt).
 3. [Count bundles that keep their pairs interleaved](#count-bundles-that-keep-their-pairs-interleaved), or [Plan salmon or STAR counting for a Linux machine](#plan-salmon-or-star-counting-for-a-linux-machine) when each bundle's pairs sit in two files.
 4. [Adopt the counts a Linux run returned](#adopt-the-counts-a-linux-run-returned).
 
-If someone else has counted the reads, go to [the import section](#import-salmon-folders-or-a-count-table-with-the-rna-seq-counts-card).
+If someone else has counted the reads, go to [the import section](#import-salmon-folders-or-a-count-table-with-the-existing-bulk-rna-seq-counts-card).
+
+### Install a reference set in Plugin Manager
+
+Plugin Manager installs two named defaults, each with its salmon index, in one step. **Human, GRCh38 with GENCODE 50** is the named default `human/gencode-50`, and **Mouse, GRCm39 with GENCODE M39** is `mouse/gencode-M39`. Each row reads "Genome, genes and salmon index for counting bulk reads." Under that, it gives the download size and what the build needs, about 12 GB kept on disk, 64 GB of free disk and 16.6 GB of memory while it builds, and about an hour.
+
+1. Install the **RNA-Seq Analysis** pack on the **Packs** tab of Plugin Manager if your Mac does not have it, as [Plugin Packs](../01-foundations/07-plugin-packs.md#procedure) shows.
+2. Choose **Tools > Plugin Manager…** and click the **Databases** tab. The **RNA-seq Reference Sets** section sits below the metagenomics databases.
+3. Click **Download** on the **Human, GRCh38 with GENCODE 50** row or the **Mouse, GRCm39 with GENCODE M39** row.
+4. Watch the row in the [Operations Panel](../../GLOSSARY.md#operations-panel) whose title starts with "RNA-seq Reference Set" and ends with the set's name. The Plugin Manager row shows each step under its name while it runs.
+5. Wait for the Plugin Manager row to read **Ready to count**. The Operations row's detail then says the set "is ready to count".
+
+Download checks the Mac's memory and free disk first. It then downloads the genome FASTA and the GTF into the storage folder and checks each file's SHA-256 [checksum](../../GLOSSARY.md#checksum), a fingerprint of the file's bytes, against the named default. Last, it builds the set as [Build a reference set with rnaseq reference-set](#build-a-reference-set-with-rnaseq-reference-set) does and its salmon index at k 31 with the genome as decoys, as [Build the salmon index with rnaseq index](#build-the-salmon-index-with-rnaseq-index) does. The downloads are kept, so a second Download builds nothing. To stop, click **Cancel** on the Plugin Manager row or on the Operations row. The Operations row then reads Cancelled, and the files that finished downloading are kept for the next Download. If a step fails, the Operations row reads "Could not install" and the set's name, and the Plugin Manager row says what failed.
+
+On a Mac with less memory than the index needs, **Download** is off, and a line below the rows reads "Building the salmon index needs about 16.6 GB of memory, more than this Mac has." Plan the count for a Linux machine instead, as [Plan salmon or STAR counting for a Linux machine](#plan-salmon-or-star-counting-for-a-linux-machine) shows.
+
+Without the pack, **Download** is off, and the line below the rows reads "Install the RNA-Seq Analysis pack first, on the Packs tab of Plugin Manager. It holds salmon and gffread."
+
+The Terminal sections that follow are for other species, or for a human or mouse set with added sequences such as the ERCC spike-ins. [On the command line](#on-the-command-line) shows `rnaseq install-reference`, which does what Download does.
 
 ### Build a reference set with rnaseq reference-set
 
@@ -149,6 +176,7 @@ Other species have named defaults too.
 | Named default | Species | Assembly and annotation |
 |---|---|---|
 | `human/gencode-50` | Human | GRCh38, GENCODE 50 |
+| `mouse/gencode-M39` | Mouse | GRCm39, GENCODE M39 |
 | `rhesus/ensembl-116` | Rhesus macaque | Mmul_10, Ensembl 116 |
 | `rhesus/ensembl-100` | Rhesus macaque | Mmul_10, Ensembl 100 |
 | `rhesus/refseq-GCF_003339765.1` | Rhesus macaque | Mmul_10, RefSeq 103 |
@@ -161,7 +189,7 @@ For files with no named default, give `--species`, `--assembly`, `--annotation-s
 
 ### Build the salmon index with rnaseq index
 
-The index is built once for each set, salmon version, k, and decoy choice, and the Quantify pane uses it but never builds one. Building it needs a Mac that shows more than 16 GB in **About This Mac** and about 64 GB of free disk, for every set.
+The index is built once for each set, salmon version, k, and decoy choice, and the Count Reads per Gene pane uses it but never builds one. Building it needs a Mac that shows more than 16 GB in **About This Mac** and about 64 GB of free disk, for every set.
 
 1. Skip this section if your Mac shows 16 GB or less.
 2. In Terminal, set `SET` to the id you copied and run the command below.
@@ -172,32 +200,34 @@ SET="<the id that rnaseq reference-set printed>"
 lungfish-cli rnaseq index --set "$SET"
 ```
 
-The index lives in the storage folder, filed by set, salmon version, k, and decoys. A second run of the same command prints `Reused salmon index` and starts no salmon. Every build runs salmon with 8 threads, so the command refuses `--threads`. Add `--k` or `--decoys none` only if you will choose the same values in the Quantify pane.
+The index lives in the storage folder, filed by set, salmon version, k, and decoys. A second run of the same command prints `Reused salmon index` and starts no salmon. Every build runs salmon with 8 threads, so the command refuses `--threads`. Add `--k` or `--decoys none` only if you will choose the same values in the Count Reads per Gene pane.
 
-### Quantify RNA-seq reads with salmon
+### Count reads per gene with salmon
 
-This procedure counts the fixture's 6,000 read pairs of SRR896663 against the set and index from the two sections above, so it needs a Mac that shows more than 16 GB. On a smaller Mac, follow the list at the top of this Procedure.
+This procedure counts the fixture's 6,000 read pairs of SRR896663 against a set built with the ERCC extra and its index, from the two sections above, so it needs a Mac that shows more than 16 GB. For your own human or mouse samples, the set from Plugin Manager serves. On a smaller Mac, follow the list at the top of this Procedure.
 
 1. Import `SRR896663_1.fastq.gz` and `SRR896663_2.fastq.gz` from `salmon-probe-c1/` as one [paired-end](../../GLOSSARY.md#paired-end) bundle, as [Importing Sequencing Reads](../03-reads/01-importing-fastq.md) shows.
 2. Select the bundle in the sidebar. To count several samples into one result, Command-click each bundle, one per sample.
-3. Choose **Tools > RNA-seq > Quantify RNA-seq Reads…**. The **FASTQ/FASTA Operations** dialog opens on **Quantify RNA-seq Reads**.
+3. Choose **Tools > RNA-seq > Count Reads per Gene…**. The **FASTQ/FASTA Operations** dialog opens on **Count Reads per Gene**.
 4. Under **Inputs**, check the bundle names.
 5. In **Reference set**, choose your set. When only one set is installed, it is chosen already.
 
 <!-- SHOT: rnaseq-quantify-pane -->
 
-Leave **k-mer length** at 31 and **Decoys** at **Genome** unless you built the index with other values. [Poly-G tails](../../GLOSSARY.md#poly-g-tail) come from NovaSeq and NextSeq instruments, and the SEQC reads came from a HiSeq 2000, so leave **Poly-G trimming** off. Until every choice is made, the dialog says why **Run** is off, such as "Choose a reference set."
+With no set installed, the **Reference set** group reads "Download a reference set in Plugin Manager to count these reads." Its **Download Reference Set…** button opens Plugin Manager on the **Databases** tab, as [Install a reference set in Plugin Manager](#install-a-reference-set-in-plugin-manager) shows, and the list fills by itself when the install finishes.
+
+Leave **k-mer length** at 31 and **Decoys** at **Genome** unless you built the index with other values. A set from Plugin Manager has its index at k 31 with the genome as decoys. If the set has no salmon index for the k and decoys you chose, **Run** stays off, and the dialog names them and says to choose k 31 with genome decoys or to download the set again in Plugin Manager. [Poly-G tails](../../GLOSSARY.md#poly-g-tail) come from NovaSeq and NextSeq instruments, and the SEQC reads came from a HiSeq 2000, so leave **Poly-G trimming** off. Until every choice is made, the dialog says why **Run** is off, such as "Choose a reference set."
 
 6. Click **Run**.
-7. Watch the **Quantify RNA-seq** row in the [Operations Panel](../../GLOSSARY.md#operations-panel). Its detail reads "Counting 1 sample against" and the set's id, and it shows the command's messages with no progress bar.
+7. Watch the **Count Reads per Gene** row in the [Operations Panel](../../GLOSSARY.md#operations-panel). Its detail reads "Counting 1 sample against" and the set's id, and it shows the command's messages with no progress bar.
 8. When the detail reads "Counted 1 sample against" and the set's id, find the result **RNA-seq counts** under **Analyses** in the sidebar.
 
-### Import salmon folders or a count table with the RNA-seq Counts card
+### Import salmon folders or a count table with the Existing Bulk RNA-seq Counts card
 
 An import needs no index and no pack, so it runs on any Mac. It reads salmon quant folders, each the folder salmon wrote for one sample with its estimates in `quant.sf`. It also reads one count table with a feature id, such as a gene id, in the first column and one sample per column after it. The card's hint names a merged table from nf-core/rnaseq as an example, but whether a merged table with extra columns, such as a gene name, imports has not been checked, so remove such columns first.
 
 1. Choose **File > Import Center…** and click the **Sequencing Reads** tab.
-2. Click the **RNA-seq Counts** card. A file panel opens.
+2. Click the **Existing Bulk RNA-seq Counts** card. A file panel opens.
 3. Open `rnaseq-bulk/salmon-seqc-ercc`, Command-click the six folders from `SRR896663` to `SRR896775`, and click **Open**. Choose the run folders and not `salmon-seqc-ercc` itself, since each salmon folder must hold its own `quant.sf`.
 4. In the **Import RNA-seq Counts** sheet, check that the line under the title lists the folders, then change **Name** from `salmon-seqc-ercc` to `SEQC A and B on ERCC92`.
 5. Next to **Sample sheet**, click **Choose…** and select `samples.tsv`. Leave **Transcript-to-gene table** at None for this import.
@@ -339,13 +369,13 @@ A library is stranded when its kit keeps which DNA strand each RNA was copied fr
 
 ## Settings
 
-This section covers the Quantify pane and the three Import Center sheets of this chapter. The Single-cell Counts sheet and the single-cell plan sheet are in [Single-Cell RNA-seq Counts](04-single-cell-counts.md#single-cell-counts-sheet-settings).
+This section covers the Count Reads per Gene pane and the three Import Center sheets of this chapter. The Single-cell Counts sheet and the single-cell plan sheet are in [Single-Cell RNA-seq Counts](04-single-cell-counts.md#single-cell-counts-sheet-settings).
 
-### Quantify RNA-seq Reads settings
+### Count Reads per Gene settings
 
-**Reference set.** Picks the reference set whose transcripts and salmon index every read is counted against, from the sets in the storage folder, each shown by its id and species. The default is **Choose a reference set**, or the only set when the storage folder holds exactly one, since LGE cannot guess your species. Choose the set of the species your samples came from. On the command line this is `--set`.
+**Reference set.** Picks the reference set whose transcripts and salmon index every read is counted against, from the sets in the storage folder, each shown by its id and species. The default is **Choose a reference set**, or the only set when the storage folder holds exactly one, since LGE cannot guess your species. With no set in the storage folder, the group shows **Download Reference Set…** in place of the list. Choose the set of the species your samples came from. On the command line this is `--set`.
 
-**k-mer length.** Picks the salmon index by its k, the length in bases of the k-mers it looks reads up by, an odd number from 1 to 31. The default is 31, the k that `lungfish-cli rnaseq index` builds unless told otherwise. Change it only when you built the set's index with another `--k`. On the command line this is `--k`.
+**k-mer length.** Picks the salmon index by its k, the length in bases of the k-mers it looks reads up by, an odd number from 1 to 31. The default is 31, the k that a Plugin Manager download builds and that `lungfish-cli rnaseq index` builds unless told otherwise. Change it only when you built the set's index with another `--k`. On the command line this is `--k`.
 
 **Decoys.** Picks the index that holds the genome as decoys, **Genome**, or the index built without them, **None**. The default is **Genome**, the index `rnaseq index` builds by default, so that reads from outside the transcripts have somewhere else to go. Choose **None** only when you built the index with `--decoys none`. On the command line this is `--decoys`.
 
@@ -422,7 +452,7 @@ The fixture import writes `Analyses/SEQC_A_and_B_on_ERCC92.lungfishrnaseq` with 
 
 Read pairs counted is the number of pairs that salmon placed on a spike-in, out of the 1,000,000 pairs cut from each run. About one pair in a hundred comes from a spike-in, close to the 1 to 2.5 percent of reads that the SEQC paper gives for HiSeq 2000 libraries. At this depth, 43 to 52 of the 92 spike-ins get at least one read, and 22 to 27 get ten or more. Spike-ins added at low amounts get none, so read no small fold change from them.
 
-The result's [provenance](../../GLOSSARY.md#provenance) record names the reference set, the index's hashes, salmon's version, and every setting that changes counts, as [The Inspector on an RNA-seq result](03-reading-and-exporting-bulk-counts.md#the-inspector-on-an-rna-seq-result) shows. A result of **Quantify RNA-seq Reads…** also records whether the import trimmed poly-G tails, this run's own trimming, and that duplicate reads were kept. The Operations Panel row of every run keeps the command that ran. A plan writes a plan folder and no result, as [The plan folder and its README](../08-workflows/04-running-on-a-linux-machine.md#the-plan-folder-and-its-readme) explains.
+The result's [provenance](../../GLOSSARY.md#provenance) record names the reference set, the index's hashes, salmon's version, and every setting that changes counts, as [The Inspector on an RNA-seq result](03-reading-and-exporting-bulk-counts.md#the-inspector-on-an-rna-seq-result) shows. A result of **Count Reads per Gene…** also records whether the import trimmed poly-G tails, this run's own trimming, and that duplicate reads were kept. The Operations Panel row of every run keeps the command that ran. A plan writes a plan folder and no result, as [The plan folder and its README](../08-workflows/04-running-on-a-linux-machine.md#the-plan-folder-and-its-readme) explains.
 
 ## What good looks like
 
@@ -440,15 +470,24 @@ Each of these refusals comes before anything is written, and its message names w
 |---|---|---|
 | "This run needs about" and a memory figure | The Mac cannot build the salmon index | Import counts made elsewhere, plan a STAR chain, or count on a Linux machine |
 | The set "has no salmon index" and "quant never builds one" | No index matches the set, k, and decoys you chose | Run `rnaseq index` with the same `--k` and `--decoys`, then count again, or count on a Linux machine if your Mac shows 16 GB or less |
-| "No reference set is installed under the storage root" | The Quantify pane found no set | Build a set and its index, then reopen the dialog |
+| "Download a reference set in Plugin Manager to count these reads." | The Count Reads per Gene pane found no set | Click **Download Reference Set…** and download a set, or build one in Terminal, and the list fills when the set is ready |
 | The salmon folders "list different transcripts" | The folders were counted on different indexes | Import each index's folders as a result of its own |
 | A bundle "holds its read pairs interleaved in one file" | A plan cannot split the file | Stage its R1 and R2 files, or count the sample on a Mac with more than 16 GB |
+| "This reference set has no salmon index for k" and the k | The Count Reads per Gene pane found no index for the k and decoys you chose | Choose k 31 with genome decoys, or download the set again in Plugin Manager, which builds that index |
 
 The fixture shows the fourth case. Importing `salmon-c1/SRR896663` with `salmon-seqc-ercc/SRR896743` is refused with "The salmon folders SRR896663 and SRR896743 list different transcripts, so they were not quantified on one index and cannot share one table."
 
 ## On the command line
 
-Skip this section if you never open Terminal. It repeats the fixture import, then the salmon route for a Mac with more than 16 GB, following [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). [RNA-seq](../appendices/cli-reference.md#rna-seq) in the CLI Reference lists every flag of these commands, and the [On the command line](../08-workflows/04-running-on-a-linux-machine.md#on-the-command-line) section of Running on a Linux Machine gives the commands of the Linux route.
+Skip this section if you never open Terminal. It shows the install that Download runs in Plugin Manager, then repeats the fixture import and the salmon route for a Mac with more than 16 GB, following [Reading an On the command line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block). [RNA-seq](../appendices/cli-reference.md#rna-seq) in the CLI Reference lists every flag of these commands, and the [On the command line](../08-workflows/04-running-on-a-linux-machine.md#on-the-command-line) section of Running on a Linux Machine gives the commands of the Linux route.
+
+This command installs the human set and its index, as [Install a reference set in Plugin Manager](#install-a-reference-set-in-plugin-manager) describes. For mouse, give `--default mouse/gencode-M39`. It needs the **RNA-Seq Analysis** pack and a Mac that shows more than 16 GB.
+
+```bash
+lungfish-cli rnaseq install-reference --default human/gencode-50
+```
+
+A second run downloads and builds nothing. For the fixture's reads, build the set with the ERCC extra instead.
 
 Make the project first with **File > New Project**, named `MyProject` in your Documents folder, since `lungfish-cli` never creates a project's store. Build the set as [Build a reference set with rnaseq reference-set](#build-a-reference-set-with-rnaseq-reference-set) shows and put its id in `SET`. Before the last command, check the name of the reads bundle in the project's `Imports` folder.
 

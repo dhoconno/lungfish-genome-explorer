@@ -7,7 +7,7 @@ app_state:
   fixture: docs/user-manual/fixtures/rnaseq-bulk
   open_files:
     - path: salmon-seqc-ercc
-      note: six run folders and samples.tsv imported with the RNA-seq Counts card, no transcript-to-gene table
+      note: six run folders and samples.tsv imported with the Existing Bulk RNA-seq Counts card, no transcript-to-gene table
   window_size: [1440, 900]
   appearance: light
 steps:

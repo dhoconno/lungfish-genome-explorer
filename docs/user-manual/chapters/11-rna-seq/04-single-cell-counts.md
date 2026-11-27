@@ -9,11 +9,11 @@ tags: [rna-seq, single-cell, cell-ranger, starsolo, barcodes, umi, pseudobulk, s
 tools: [star]
 parameters_refs: []
 entry_points:
-  - "File > Import Center… (Cmd-Shift-I) > Sequencing Reads > Single-cell Counts"
+  - "File > Import Center… (Cmd-Shift-I) > Sequencing Reads > Existing Single-cell Counts"
   - "File > Import Center… (Cmd-Shift-I) > Sequencing Reads > Single-cell Plan for a Linux Machine"
   - "Select a single-cell RNA-seq result under Analyses in the sidebar"
   - "Tools > RNA-seq > Pseudobulk RNA-seq Cells…"
-  - "Tools > RNA-seq > Export RNA-seq Counts…"
+  - "Tools > RNA-seq > Export Counts and Analysis Scripts…"
   - "CLI: lungfish-cli import rnaseq, lungfish-cli rnaseq solo-plan, lungfish-cli rnaseq pseudobulk, lungfish-cli rnaseq export"
 shots:
   - id: single-cell-counts-import-sheet
@@ -68,7 +68,7 @@ A labels table that comes with the fixture splits the cells into groups of 9, 10
 
 ## Choosing a tool
 
-What you hold decides the route. Counts that Cell Ranger or STARsolo already made come in through the **Single-cell Counts** card, and 10x reads that nobody has counted need a STARsolo plan for a Linux machine. Import the facility's counts when they exist. Plan a STARsolo count only when you must recount, since it needs a Linux machine and a STAR index, and its numbers come out close to the facility's but not equal.
+What you hold decides the route. Counts that Cell Ranger or STARsolo already made come in through the **Existing Single-cell Counts** card, and 10x reads that nobody has counted need a STARsolo plan for a Linux machine. Import the facility's counts when they exist. Plan a STARsolo count only when you must recount, since it needs a Linux machine and a STAR index, and its numbers come out close to the facility's but not equal.
 
 **Cell Ranger** is 10x Genomics' own pipeline for its libraries. It maps the reads, counts UMIs per gene and cell, and calls the cells. Its `outs` folder holds `filtered_feature_bc_matrix` and `metrics_summary.csv`, a table of whole-run numbers. LGE imports the `outs` folder of `cellranger count` and refuses the `outs` folder of `cellranger multi`, whose per-sample folders it does not import yet. Open the folder in Finder to tell them apart. A `count` outs folder holds `filtered_feature_bc_matrix`, and a `multi` outs folder holds `per_sample_outs`, which LGE refuses. A folder of only `.h5` files holds neither, so LGE refuses it too. For either, ask the facility for the `outs` folder of a `cellranger count` run. A Cell Ranger matrix states the program's version, so the result records it.
 
@@ -117,11 +117,11 @@ The fixture is the [rnaseq-single-cell fixture folder](https://github.com/dhocon
 
 ## Procedure
 
-### Import Cell Ranger or STARsolo counts with the Single-cell Counts card
+### Import Cell Ranger or STARsolo counts with the Existing Single-cell Counts card
 
 1. Open your project. Choose **File > Import Center…** (Cmd-Shift-I) and click the **Sequencing Reads** tab.
 
-2. Click **Import…** on the **Single-cell Counts** card. In the panel, select the fixture's `starsolo-pbmc_1k_v3` folder and click **Open**. For your own counts, select the `outs` folder of a `cellranger count` run or the folder that holds it.
+2. Click **Import…** on the **Existing Single-cell Counts** card. In the panel, select the fixture's `starsolo-pbmc_1k_v3` folder and click **Open**. For your own counts, select the `outs` folder of a `cellranger count` run or the folder that holds it.
 
 3. In the **Import Single-cell Counts** sheet, type `STARsolo pbmc_1k_v3 cut` in **Name**. Leave **Sample sheet**, **Genomes**, and **Reference set** empty.
 
@@ -188,7 +188,7 @@ The new result, `STARsolo_pseudobulk.lungfishrnaseq`, sums the other 161 cells i
 
 ### Export single-cell counts for Seurat or Scanpy
 
-1. Choose **Tools > RNA-seq > Export RNA-seq Counts…**. The **Workflow Operations** dialog opens on its **Export RNA-seq Counts** row.
+1. Choose **Tools > RNA-seq > Export Counts and Analysis Scripts…**. The **Workflow Operations** dialog opens on its **Export Counts and Analysis Scripts** row.
 
 2. Under **RNA-seq results**, click **Choose…** and select only `STARsolo_pbmc_1k_v3_cut.lungfishrnaseq`, since a single-cell result exports alone.
 
@@ -238,7 +238,7 @@ Only the four rows that the single-cell plan adds are here. **Reference set**, *
 
 ### Single-cell export settings
 
-A single-cell export uses four controls, which follow. It leaves five at their defaults, **Design** (the model's columns), **Contrasts** (the comparisons), **Adjusted p-value cutoff** (the significance bar), **Fold-change bar** (the smallest change that counts), and **Batch** (the column that names each sample's batch, with **Batch correction** on **None**). [Export RNA-seq Counts settings](03-reading-and-exporting-bulk-counts.md#export-rna-seq-counts-settings) explains all five.
+A single-cell export uses four controls, which follow. It leaves five at their defaults, **Design** (the model's columns), **Contrasts** (the comparisons), **Adjusted p-value cutoff** (the significance bar), **Fold-change bar** (the smallest change that counts), and **Batch** (the column that names each sample's batch, with **Batch correction** on **None**). [Export Counts and Analysis Scripts settings](03-reading-and-exporting-bulk-counts.md#export-counts-and-analysis-scripts-settings) explains all five.
 
 **RNA-seq results.** Chooses the results to export, and a single-cell result must be the only one. It starts as **No RNA-seq results selected**, and **Run** stays off until you choose one. To export several samples of one experiment together, import their folders as one result first.
 

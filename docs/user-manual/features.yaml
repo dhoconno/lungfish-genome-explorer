@@ -4332,7 +4332,7 @@ features:
       disk first, downloads and checks the genome and GTF, builds the set and
       builds its salmon index at k 31 with genome decoys. A row reads Ready to
       count once the set and that index are there. On a Mac with less memory
-      than the index needs, Download is off and the words say why. Other
+      than the index needs, or without the RNA-Seq Analysis pack, Download is off and the words say why. Cancel on the row cancels its Operations row. Other
       species are built with rnaseq reference-set and rnaseq index.
   rnaseq.cell-map-select:
     title: Save or pseudobulk a cell map selection

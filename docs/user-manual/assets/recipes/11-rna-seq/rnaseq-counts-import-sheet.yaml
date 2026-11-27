@@ -25,7 +25,7 @@ steps:
   - action: wait_ready
     signal: main_window_visible
   # PROSE-ONLY: File > Import Center..., Sequencing Reads tab
-  # PROSE-ONLY: scroll the cards to RNA-seq Counts, click its Import... button
+  # PROSE-ONLY: scroll the cards to Existing Bulk RNA-seq Counts, click its Import... button
   # PROSE-ONLY: in the file panel press Command-Shift-G and type the path of rnaseq-bulk/salmon-seqc-ercc, press Return
   # PROSE-ONLY: click SRR896663, Shift-click SRR896775 so the six run folders are selected, click Open
   # PROSE-ONLY: type the Name SEQC A and B on ERCC92 genes (the chapter's step 4 says SEQC A and B on ERCC92)

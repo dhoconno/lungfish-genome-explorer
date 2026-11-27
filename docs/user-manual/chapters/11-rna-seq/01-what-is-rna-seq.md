@@ -9,18 +9,18 @@ tags: [rna-seq, transcriptome, gene-expression, bulk, single-cell, counting, ref
 tools: []
 parameters_refs: []
 entry_points:
-  - "Tools > RNA-seq > Quantify RNA-seq Reads…"
-  - "Tools > RNA-seq > Export RNA-seq Counts…"
+  - "Tools > RNA-seq > Count Reads per Gene…"
+  - "Tools > RNA-seq > Export Counts and Analysis Scripts…"
   - "Tools > RNA-seq > Import Embedding…"
   - "Tools > RNA-seq > Pseudobulk RNA-seq Cells…"
-  - "Import Center > Sequencing Reads > RNA-seq Counts"
-  - "Import Center > Sequencing Reads > Single-cell Counts"
+  - "Import Center > Sequencing Reads > Existing Bulk RNA-seq Counts"
+  - "Import Center > Sequencing Reads > Existing Single-cell Counts"
   - "Import Center > Sequencing Reads > RNA-seq Plan for a Linux Machine"
   - "Import Center > Sequencing Reads > Single-cell Plan for a Linux Machine"
   - "Import Center > Sequencing Reads > RNA-seq Linux Run Result"
 shots:
   - id: rnaseq-tools-submenu
-    caption: "The Tools menu open on its RNA-seq submenu, which lists Quantify RNA-seq Reads… above a separator and then Export RNA-seq Counts…, Import Embedding…, and Pseudobulk RNA-seq Cells…."
+    caption: "The Tools menu open on its RNA-seq submenu, which lists Count Reads per Gene… above a separator and then Export Counts and Analysis Scripts…, Import Embedding…, and Pseudobulk RNA-seq Cells…."
 illustrations: []
 glossary_refs: [genome, cdna, ribosomal-rna, library-prep, read, fragment, exon, intron, paired-end, umi, library, spike-in-control, fastq, gtf, reference-genome, k-mer, splice-aware-mapper, mapping, host-depletion, bundle, plugin-pack, import-center, alignment, fixture, nf-core, terminal]
 features_refs: [rnaseq.quant, rnaseq.export, rnaseq.pseudobulk, rnaseq.cell-map-import, rnaseq.cell-map-compute, rnaseq.reference-set, rnaseq.quality, import.rnaseq-counts, import.rnaseq-plan, import.rnaseq-adopt, plugins.rna-seq-pack, plugins.single-cell-pack]
@@ -94,21 +94,21 @@ LGE groups the genome, annotation, and any extra sequences into a reference set.
 
 `lungfish-cli` is LGE's command-line program. Its `lungfish-cli rnaseq reference-set` command copies files into the set, checks each SHA-256 checksum, a fingerprint of the file's bytes, and uses gffread to extract the transcript sequences. The same files give the same set. LGE stores sets outside individual projects so every project on the Mac can use them. The section [Build a reference set with rnaseq reference-set](02-counting-bulk-reads.md#build-a-reference-set-with-rnaseq-reference-set) explains the command. The guide to [reading a command-line block](../01-foundations/06-the-lungfish-project.md#reading-a-command-line-block) introduces [Terminal](../../GLOSSARY.md#terminal), the app where you type commands.
 
-Named defaults identify specific sequences and annotations. For example, `human/gencode-50` uses the human genome version GRCh38 and GENCODE release 50, and `rhesus/ensembl-116` uses the rhesus macaque genome version Mmul_10 and Ensembl release 116. GENCODE and Ensembl publish gene annotations. You download the genome sequence file and its GTF file from their publisher and supply both files to LGE. LGE compares their SHA-256 checksums with the checksums for the named default.
+Named defaults identify specific sequences and annotations. For example, `human/gencode-50` uses the human genome version GRCh38 and GENCODE release 50, and `rhesus/ensembl-116` uses the rhesus macaque genome version Mmul_10 and Ensembl release 116. GENCODE and Ensembl publish gene annotations. For `human/gencode-50` and `mouse/gencode-M39`, the Databases tab of Plugin Manager downloads both files and builds the set and its index. For the others, you download the genome sequence file and its GTF file from their publisher and supply both files to LGE. LGE compares their SHA-256 checksums with the checksums for the named default.
 
-If you plan to export several bulk results in one table, use the same reference set, counting tool, tool version, and settings that affect counts. **Export RNA-seq Counts…** checks those details. If someone else counts the reads, ask for one table with the samples you plan to compare. LGE exports each bulk import on its own because it cannot verify a shared reference set across imports.
+If you plan to export several bulk results in one table, use the same reference set, counting tool, tool version, and settings that affect counts. **Export Counts and Analysis Scripts…** checks those details. If someone else counts the reads, ask for one table with the samples you plan to compare. LGE exports each bulk import on its own because it cannot verify a shared reference set across imports.
 
 ### The four counting routes
 
 For a Linux run, LGE prepares a plan folder containing instructions and files. When LGE checks the returned files and turns them into a result, it calls this adoption. [Running on a Linux Machine](../08-workflows/04-running-on-a-linux-machine.md) explains how a plan becomes a result.
 
-**salmon** estimates counts by transcript. Its index is a lookup table of [k-mers](../../GLOSSARY.md#k-mer), stretches of exactly k bases. LGE defaults to k = 31. The lookup finds transcripts a read might match. Suppose a read fits only X and Y, equally well. If salmon estimates X to be three times as abundant, X gets 0.75 and Y gets 0.25. LGE sums estimates by gene. By default, the index includes the whole genome as decoys, alternative matches for reads from stray DNA or RNA with introns. salmon counts bulk reads on the Mac through **Tools > RNA-seq > Quantify RNA-seq Reads…**. Counts can reuse the index for the same set and settings.
+**salmon** estimates counts by transcript. Its index is a lookup table of [k-mers](../../GLOSSARY.md#k-mer), stretches of exactly k bases. LGE defaults to k = 31. The lookup finds transcripts a read might match. Suppose a read fits only X and Y, equally well. If salmon estimates X to be three times as abundant, X gets 0.75 and Y gets 0.25. LGE sums estimates by gene. By default, the index includes the whole genome as decoys, alternative matches for reads from stray DNA or RNA with introns. salmon counts bulk reads on the Mac through **Tools > RNA-seq > Count Reads per Gene…**. Counts can reuse the index for the same set and settings.
 
 **STAR** starts with [mapping](../../GLOSSARY.md#mapping), finding where reads fit on the genome. An [alignment](../../GLOSSARY.md#alignment) is one such placement. A read can cross the join between exons that lie far apart in the genome. STAR is a [splice-aware mapper](../../GLOSSARY.md#splice-aware-mapper) because it can place parts of that read on the separate exons. STAR can count reads by gene with its GeneCounts option or give salmon alignments in transcript coordinates. Transcript coordinates are positions along the joined exons. The community-built [nf-core](../../GLOSSARY.md#nf-core)/rnaseq workflow uses the STAR and salmon pairing by default. STAR needs more memory than salmon and runs on one Linux machine or an HTCondor pool, a group of computers that share jobs.
 
 **featureCounts** uses the annotation's exons to count STAR's genome alignments by gene. LGE runs it after STAR in the same Linux plan. Choose it if you want gene counts from those alignments or need to match a study that used featureCounts.
 
-**Counts another tool made** come in through the [Import Center](../../GLOSSARY.md#import-center), LGE's window for bringing in data at **File > Import Center…**. Each import type has a card. **RNA-seq Counts** accepts a salmon quant folder, which holds the estimates salmon writes for one sample, or one table of genes by samples. For a table, confirm whether the values count reads, read pairs, or UMIs so you can state the unit. **Single-cell Counts** accepts folders from STARsolo, STAR's single-cell mode, or from Cell Ranger, the 10x Genomics counting program.
+**Counts another tool made** come in through the [Import Center](../../GLOSSARY.md#import-center), LGE's window for bringing in data at **File > Import Center…**. Each import type has a card. **Existing Bulk RNA-seq Counts** accepts a salmon quant folder, which holds the estimates salmon writes for one sample, or one table of genes by samples. For a table, confirm whether the values count reads, read pairs, or UMIs so you can state the unit. **Existing Single-cell Counts** accepts folders from STARsolo, STAR's single-cell mode, or from Cell Ranger, the 10x Genomics counting program.
 
 | Tool | Built for | Choose it when | Choose something else when |
 |---|---|---|---|
@@ -159,9 +159,9 @@ Differential expression tests whether expression differs between groups while ac
 
 A biological replicate is a sample from a separate individual or culture under the same condition. Replicates show how much samples vary within a group, which helps you judge the size of a difference between groups. A technical replicate repeats the measurement on the same material and shows variation from the method. The bulk fixture's three libraries of sample A came from one commercial RNA. They are technical replicates suited to checking the counts. A comparison of people would need samples from different individuals.
 
-Three biological replicates per group is a common starting point. How many you need depends on how much the samples vary and how small a difference you want to detect. LGE can read animal identities from the `animal` column of a sample sheet, an optional tab-separated table with one row per sample accepted by **RNA-seq Counts** and **Single-cell Counts**.
+Three biological replicates per group is a common starting point. How many you need depends on how much the samples vary and how small a difference you want to detect. LGE can read animal identities from the `animal` column of a sample sheet, an optional tab-separated table with one row per sample accepted by **Existing Bulk RNA-seq Counts** and **Existing Single-cell Counts**.
 
-Pseudobulk sums cell counts within each sample and label to make a bulk-style table. A label names a group of cells, such as a cluster number or a cell type. Another tool or the cell map can supply a table of labels, one per cell. Cells from the same animal share that animal's biology. Treating them as independent replicates can produce false discoveries. LGE uses animals as the replicates. **Export RNA-seq Counts…** requires at least three animals in each group for a pseudobulk comparison.
+Pseudobulk sums cell counts within each sample and label to make a bulk-style table. A label names a group of cells, such as a cluster number or a cell type. Another tool or the cell map can supply a table of labels, one per cell. Cells from the same animal share that animal's biology. Treating them as independent replicates can produce false discoveries. LGE uses animals as the replicates. **Export Counts and Analysis Scripts…** requires at least three animals in each group for a pseudobulk comparison.
 
 The not-host share is the share of a sample's counts that fall on the extra sequences of its reference set. In a study of rhesus macaques with SARS-CoV-2, if the virus is the set's only extra, the share describes counts that landed on the virus. Compare infected and uninfected animals in the same experiment to see how much the shares overlap. All extras contribute, including spike-ins. For a bulk import, the share reads **Not recorded**.
 
@@ -177,24 +177,24 @@ A read [bundle](../../GLOSSARY.md#bundle) is a folder LGE treats as one item, he
 
 | Menu item | What it does | Chapter |
 |---|---|---|
-| **Quantify RNA-seq Reads…** | Counts the selected read bundles with salmon on this Mac, as one result | [Counting Bulk RNA-seq Reads](02-counting-bulk-reads.md) |
-| **Export RNA-seq Counts…** | Writes counts and R scripts for DESeq2, edgeR, limma voom, and dream, or a single-cell result's files and scripts for Seurat and Scanpy | [Reading and Exporting Bulk RNA-seq Counts](03-reading-and-exporting-bulk-counts.md) |
+| **Count Reads per Gene…** | Counts the selected read bundles with salmon on this Mac, as one result | [Counting Bulk RNA-seq Reads](02-counting-bulk-reads.md) |
+| **Export Counts and Analysis Scripts…** | Writes counts and R scripts for DESeq2, edgeR, limma voom, and dream, or a single-cell result's files and scripts for Seurat and Scanpy | [Reading and Exporting Bulk RNA-seq Counts](03-reading-and-exporting-bulk-counts.md) |
 | **Import Embedding…** | Shows a single-cell result's cells on the embedding and clusters that another tool made | [The Cell Map](05-the-cell-map.md) |
 | **Pseudobulk RNA-seq Cells…** | Sums a single-cell result's UMIs by sample and label into a new bulk result | [Single-Cell RNA-seq Counts](04-single-cell-counts.md) |
 
-Of these four items, only **Quantify RNA-seq Reads…** needs the **RNA-Seq Analysis** [plugin pack](../../GLOSSARY.md#plugin-pack), which contains salmon and gffread. [Plugin Packs](../01-foundations/07-plugin-packs.md) explains how to add it.
+Of these four items, only **Count Reads per Gene…** needs the **RNA-Seq Analysis** [plugin pack](../../GLOSSARY.md#plugin-pack), which contains salmon and gffread. [Plugin Packs](../01-foundations/07-plugin-packs.md) explains how to add it.
 
 The Import Center's **Sequencing Reads** tab has five RNA-seq cards.
 
 | Card | What it does |
 |---|---|
-| **RNA-seq Counts** | Imports bulk counts as one result |
-| **Single-cell Counts** | Imports single-cell counts as one result |
+| **Existing Bulk RNA-seq Counts** | Imports bulk counts that another tool made as one result |
+| **Existing Single-cell Counts** | Imports single-cell counts that another tool made as one result |
 | **RNA-seq Plan for a Linux Machine** | Prepares a bulk salmon or STAR run |
 | **Single-cell Plan for a Linux Machine** | Prepares a STARsolo run for 10x libraries |
 | **RNA-seq Linux Run Result** | Imports a completed Linux run as one result |
 
-Three jobs are available only on the command line. The reference set command is `rnaseq reference-set`. Index builds use `rnaseq index` for salmon or `rnaseq index-plan` followed by `rnaseq index-adopt` for STAR. The cell map command is `rnaseq cell-map compute` and needs the **Single-Cell Analysis** pack, about 800 MB.
+The human and mouse reference sets, each with its salmon index, install from the **RNA-seq Reference Sets** section of the **Databases** tab in Plugin Manager. Three jobs are available only on the command line. The command for a set of any other species is `rnaseq reference-set`. Index builds for those sets use `rnaseq index` for salmon or `rnaseq index-plan` followed by `rnaseq index-adopt` for STAR. The cell map command is `rnaseq cell-map compute` and needs the **Single-Cell Analysis** pack, about 800 MB.
 
 Each result opens in its own viewer from **Analyses** in the sidebar. The result folder's name ends in `.lungfishrnaseq`.
 
@@ -206,7 +206,7 @@ Matrix Market is a plain-text format Cell Ranger and STARsolo use for matrices w
 |---|---|---|
 | Test genes for differential expression | Writes counts and R scripts for DESeq2, edgeR, limma voom, and dream | In R, with the exported scripts |
 | Open Seurat `.rds`, Scanpy `.h5ad`, or Cell Ranger HDF5 `.h5` files | Import support for these outputs is limited to Matrix Market folders from Cell Ranger or STARsolo | Use Seurat for `.rds` files and Scanpy for `.h5ad` files. Both can open Cell Ranger HDF5 `.h5` files. |
-| Name cell types or align matching cell types across samples | Writes files and scripts for Seurat and Scanpy | In Seurat or Scanpy, using the scripts from **Export RNA-seq Counts…** |
+| Name cell types or align matching cell types across samples | Writes files and scripts for Seurat and Scanpy | In Seurat or Scanpy, using the scripts from **Export Counts and Analysis Scripts…** |
 
 ## Next
 

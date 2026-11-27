@@ -278,7 +278,7 @@ Almost every analysis starts from the **Tools** menu. Its submenus follow the or
 | Clustering | Savont Clustering…, pbAA Amplicon Clustering… | [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md) |
 | Classification | Kraken2…, EsViritu…, TaxTriage…, 12S Amplicon Matching… | [What Is Read Classification](../06-classification/01-what-is-classification.md) and [12S Amplicon Metabarcoding](../06-classification/10-twelve-s-metabarcoding.md) |
 | Genotyping | MiSeq Amplicon MHC Genotyping…, Full-Length ONT MHC Genotyping…, MHC Haplotype Definitions… | [Running Amplicon MHC Genotyping](../09-genotyping/02-running-genotyping.md) |
-| RNA-seq | Quantify RNA-seq Reads…, Export RNA-seq Counts…, Pseudobulk RNA-seq Cells…, Import Embedding… | [Where the RNA-seq tools live](../11-rna-seq/01-what-is-rna-seq.md#where-the-rna-seq-tools-live) |
+| RNA-seq | Count Reads per Gene…, Export Counts and Analysis Scripts…, Pseudobulk RNA-seq Cells…, Import Embedding… | [Where the RNA-seq tools live](../11-rna-seq/01-what-is-rna-seq.md#where-the-rna-seq-tools-live) |
 | Alignment & Phylogenetics | MAFFT…, Build Tree with IQ-TREE… | [Aligning Sequences](../02-sequences/04-aligning-sequences.md) and [Building Trees](../02-sequences/05-building-trees.md) |
 | PCR Primer Design | Primer3…, PrimalScheme…, Olivar…, varVAMP… | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md) and the rest of the Primer Design part |
 | Workflows | One item for each workflow package you link, then Workflow Library… | [Running External Workflows](../08-workflows/03-running-external-workflows.md) |
@@ -294,7 +294,7 @@ For your lab's FASTQ files, open the Sequencing Reads tab and click **Import…*
 
 | Tab | Cards on it |
 |---|---|
-| Sequencing Reads | **Sequencing Read Files**, FASTQ Sample Sheet, ONT Run Folder, Plan for a Linux Machine, Linux Run Result, RNA-seq Counts, Single-cell Counts, RNA-seq Plan for a Linux Machine, Single-cell Plan for a Linux Machine, RNA-seq Linux Run Result |
+| Sequencing Reads | **Sequencing Read Files**, FASTQ Sample Sheet, ONT Run Folder, Plan for a Linux Machine, Linux Run Result, Existing Bulk RNA-seq Counts, Existing Single-cell Counts, RNA-seq Plan for a Linux Machine, Single-cell Plan for a Linux Machine, RNA-seq Linux Run Result |
 | Alignments | BAM/CRAM Alignments, Multiple Sequence Alignments, Phylogenetic Trees |
 | Variants | VCF Variants |
 | Classification Results | NAO-MGS Results, Kraken2 Results, EsViritu Results, TaxTriage Results, NVD Results, CZ-ID Results |

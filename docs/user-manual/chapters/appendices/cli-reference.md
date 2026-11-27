@@ -4838,6 +4838,22 @@ LGE writes the set's transcripts and then its genome as decoys into one file, ru
 | `--decoys <decoys>` | `genome` to add the genome as decoys, or `none`. The default is `genome`. |
 | `--storage-root <storage-root>` | Managed storage root. The default is the configured location. |
 
+### `rnaseq install-reference`
+
+Downloads a named reference set, builds it and builds its salmon index, as **Download** does in the **RNA-seq Reference Sets** section of Plugin Manager. Explained in [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md#install-a-reference-set-in-plugin-manager).
+
+```text
+lungfish-cli rnaseq install-reference [<options>] --default <default>
+```
+
+LGE first checks that this Mac has the memory and free disk the salmon index needs. It then downloads the set's genome and GTF into the storage folder, checks each file's SHA-256 against the named set, builds the set as `rnaseq reference-set --default` does and builds its index at k 31 with the genome as decoys, as `rnaseq index` does. The downloads are kept, and a second run downloads and builds nothing. The command needs the RNA-Seq Analysis pack, which holds salmon and gffread, and refuses before it downloads anything when the pack is missing.
+
+| Argument or flag | What it does |
+|---|---|
+| `--default <default>` | The named set to install, `human/gencode-50` or `mouse/gencode-M39`. |
+| `--storage-root <storage-root>` | Managed storage root. The default is the configured location. |
+| `--format <format>` | Output format, `text`, `json` or `tsv`. The default is `text`. |
+
 ### `rnaseq quant`
 
 Counts bulk RNA-seq reads in a project with salmon, one FASTQ bundle per sample. Explained in [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md).

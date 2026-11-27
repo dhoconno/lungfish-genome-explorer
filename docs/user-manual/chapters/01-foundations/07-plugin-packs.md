@@ -76,7 +76,7 @@ Check that your Mac meets the memory and disk figures in [System requirements](0
 
 ## Procedure
 
-1. Open the Plugin Manager with **Tools > Plugin Manager…** (Cmd-Shift-B). Three tabs run across the top. **Installed** lists the managed environments LGE has built. **Packs** holds the packs you can install. **Databases** holds the reference databases that classification tools read.
+1. Open the Plugin Manager with **Tools > Plugin Manager…** (Cmd-Shift-B). Three tabs run across the top. **Installed** lists the managed environments LGE has built. **Packs** holds the packs you can install. **Databases** holds the reference databases that classification tools read, and the RNA-seq reference sets.
 
 2. Look at the **Packs** tab. The **Required Setup** section holds the Third-Party Tools pack described above. The **Optional Tools** section below it holds one card per optional pack.
 
@@ -226,7 +226,7 @@ Most packs hold more than one tool for the same kind of job, because no single t
 | PCR Primer Design | Design PCR primers, with Primer3 for a single assay and PrimalScheme, Olivar, and varVAMP for tiled schemes that cover a whole target, varVAMP also designing single and qPCR assays | [What Is Primer Design](../10-primer-design/01-what-is-primer-design.md#choosing-a-tool) |
 | Multiple Sequence Alignment | Line up related sequences column by column with MAFFT, which offers six strategies | [Aligning Sequences](../02-sequences/04-aligning-sequences.md#choosing-a-tool) |
 | Phylogenetics | Build maximum-likelihood family trees from an alignment with IQ-TREE | [Building Trees](../02-sequences/05-building-trees.md#choosing-a-tool) |
-| RNA-Seq Analysis | Count the reads from each transcript, one RNA copy of a gene, with Salmon, and pull transcript sequences out of a genome and its annotation with gffread, for **Tools > RNA-seq > Quantify RNA-seq Reads…** | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
+| RNA-Seq Analysis | Count the reads from each transcript, one RNA copy of a gene, with Salmon, and pull transcript sequences out of a genome and its annotation with gffread, for **Tools > RNA-seq > Count Reads per Gene…** and the RNA-seq reference sets on the Databases tab | [Counting Bulk RNA-seq Reads](../11-rna-seq/02-counting-bulk-reads.md) |
 | Single-Cell Analysis | Compute a two-dimensional cell map and clusters of similar cells from a single-cell result, used only by `lungfish-cli rnaseq cell-map compute` | [The Cell Map](../11-rna-seq/05-the-cell-map.md) |
 | GATK Core | Call inherited variants in human samples with GATK4 | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md#choosing-a-tool) |
 | Variant Phasing | Work out which nearby variants sit on the same copy of a chromosome with WhatsHap | [HaplotypeCaller](../06-human-germline-variants/01-haplotype-caller.md#choosing-a-tool) |
@@ -265,6 +265,8 @@ The reduced databases fit a smaller Mac at some cost in sensitivity. They keep f
 SILVA and Greengenes are built on your Mac rather than downloaded ready-made, which the same **Download** button does after fetching their source sequences. Both come from collections of ribosomal RNA genes, the genes most often used to identify bacteria by sequence. Choose SILVA for the broader reference, and Greengenes when you are comparing results with earlier work that used it. Because they are built locally, Update skips them. Rebuild one by removing it and downloading it again.
 
 Choose the EsViritu Viral DB when viruses are the whole question and you want its curated viral reports, the Kraken 2 Viral database when you want Kraken 2's report limited to viruses, and Standard when you want viruses reported alongside everything else Kraken 2 covers.
+
+Below the metagenomics databases, the **RNA-seq Reference Sets** section offers **Human, GRCh38 with GENCODE 50** and **Mouse, GRCm39 with GENCODE M39**. Each **Download** fetches the genome and its genes and builds the salmon index that **Tools > RNA-seq > Count Reads per Gene…** counts on, and the row then reads **Ready to count**. It needs the RNA-Seq Analysis pack, and [Install a reference set in Plugin Manager](../11-rna-seq/02-counting-bulk-reads.md#install-a-reference-set-in-plugin-manager) gives its sizes and steps.
 
 A database whose files LGE has not checked against a catalog build, such as a download an older copy of LGE made before it recorded its downloads, reads **Unverified** where its version would be. Resting the pointer on that line says "LGE has not checked these files against a catalog build, so their version is not known. Update the database to replace them with a checked copy." SILVA and Greengenes show only the first of those sentences, since they cannot be updated in place. Update or download an Unverified database again before you cite its version.
 

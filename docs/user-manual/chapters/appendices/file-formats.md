@@ -621,7 +621,7 @@ A [cell map](../../GLOSSARY.md#cell-map) is a `.lungfishrnaseq` result whose mod
 
 ### The RNA-seq export folder
 
-**Tools > RNA-seq > Export RNA-seq Counts…** and `lungfish-cli rnaseq export` write a new plain folder, not a bundle, for statistics packages outside LGE. A bulk export serves DESeq2, edgeR, and limma, R packages that test which genes differ between groups of samples. A single-cell result is exported on its own for Seurat and Scanpy, packages for single-cell analysis in R and in Python.
+**Tools > RNA-seq > Export Counts and Analysis Scripts…** and `lungfish-cli rnaseq export` write a new plain folder, not a bundle, for statistics packages outside LGE. A bulk export serves DESeq2, edgeR, and limma, R packages that test which genes differ between groups of samples. A single-cell result is exported on its own for Seurat and Scanpy, packages for single-cell analysis in R and in Python.
 
 | File | Bulk export | Single-cell export |
 |---|---|---|

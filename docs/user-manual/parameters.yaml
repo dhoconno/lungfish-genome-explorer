@@ -7706,9 +7706,9 @@ operations:
       the design reference under attachments/. Chapter: 10-primer-design/05.
 
   rnaseq.quant:
-    title: Quantify RNA-seq Reads
+    title: Count Reads per Gene
     entry_points:
-      - "Tools > RNA-seq > Quantify RNA-seq Reads…"
+      - "Tools > RNA-seq > Count Reads per Gene…"
       - "CLI: lungfish-cli rnaseq quant <bundles> --project <project> --set <set>"
     gating: [rna-seq]
     sources:
@@ -7778,9 +7778,9 @@ operations:
       type A. The labels of this pane may change in ux-text lane TV-SHELL.
 
   rnaseq.export:
-    title: Export RNA-seq Counts
+    title: Export Counts and Analysis Scripts
     entry_points:
-      - "Tools > RNA-seq > Export RNA-seq Counts…"
+      - "Tools > RNA-seq > Export Counts and Analysis Scripts…"
       - "CLI: lungfish-cli rnaseq export <results> --output <folder>"
     gating: []
     sources:
@@ -8060,8 +8060,8 @@ operations:
   import.rnaseq-counts:
     title: Import RNA-seq Counts and Import Single-cell Counts
     entry_points:
-      - "Import Center > Sequencing Reads > RNA-seq Counts"
-      - "Import Center > Sequencing Reads > Single-cell Counts"
+      - "Import Center > Sequencing Reads > Existing Bulk RNA-seq Counts"
+      - "Import Center > Sequencing Reads > Existing Single-cell Counts"
       - "CLI: lungfish-cli import rnaseq <inputs> --project <project> --name <name>"
     gating: []
     sources:
@@ -8129,12 +8129,13 @@ operations:
     cli_only: []
     notes: >-
       Two cards open two sheets that share the Name and Sample sheet rows.
-      RNA-seq Counts takes salmon quant folders or one count table of genes
-      by samples, and Single-cell Counts takes Cell Ranger outs folders or
-      STARsolo run folders. Import stays off until the sheet's values make a
-      command, and the line above the buttons says what is missing. An input
-      outside the project is recorded as <external>/<name>, so its command
-      does not replay. The BAM of <sample> label is built at run time, so a
+      Existing Bulk RNA-seq Counts takes salmon quant folders or one count
+      table of genes by samples, and Existing Single-cell Counts takes Cell
+      Ranger outs folders or STARsolo run folders. Import stays off until the
+      sheet's values make a command, and the line above the buttons says what
+      is missing. Each sheet says under its inputs line that an input outside
+      the project is recorded as <external>/<name>, so its command does not
+      replay. The BAM of <sample> label is built at run time, so a
       chapter writes its angle brackets as HTML entities.
 
   import.rnaseq-plan:
