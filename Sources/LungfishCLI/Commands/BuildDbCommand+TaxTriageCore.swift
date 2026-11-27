@@ -278,8 +278,20 @@ extension BuildDbCommand {
             for (sample, sampleRows) in Dictionary(grouping: rows, by: \.sample) {
                 let gcfmap = (gcfmaps[sample] ?? []).map { (accession: $0.accession, organism: $0.organism) }
                 let groups = taxTriageStrainGroups(organisms: sampleRows.map(\.organism), gcfmap: gcfmap)
+                let claimed = Set(groups.values.joined())
                 for row in sampleRows {
-                    if let primary = row.primaryAccession, let list = groups[row.organism] { listOf["\(sample)\t\(primary)"] = list }
+                    guard let primary = row.primaryAccession else { continue }
+                    if let list = groups[row.organism] {
+                        listOf["\(sample)\t\(primary)"] = list
+                    } else if let organism = gcfmap.first(where: { $0.accession == primary })?.organism {
+                        // A row linked by its tax ID (TT-TAXID-SYNONYM) counts every unclaimed reference of the gcfmap
+                        // organism its primary accession belongs to.
+                        var seen: Set<String> = []
+                        listOf["\(sample)\t\(primary)"] = gcfmap
+                            .filter { $0.organism == organism && !claimed.contains($0.accession) }
+                            .map(\.accession)
+                            .filter { seen.insert($0).inserted }
+                    }
                 }
             }
             return { [listOf] sample, accession in listOf["\(sample)\t\(accession)"] ?? [accession] }

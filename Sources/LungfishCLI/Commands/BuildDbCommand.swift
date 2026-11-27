@@ -338,14 +338,17 @@ extension BuildDbCommand.TaxTriageSubcommand {
         resultURL: URL
     ) throws -> (rows: [TaxTriageTaxonomyRow], accessionMap: [TaxTriageAccessionEntry]) {
         let gcfmapDir = resultURL.appendingPathComponent("combine")
+        let mapDir = resultURL.appendingPathComponent("map")
         var gcfmapCache: [String: [(accession: String, organism: String)]] = [:]
         let reports = try urls.sorted(by: { $0.path < $1.path }).map { try TaxTriageOrganismReport.parse(url: $0) }
         // Every sample of the result is parsed before a BAM is resolved, so none takes another's (BUILDDB-BAM-FIT).
         let bamCache = resolveTaxTriageBAMPaths(samples: Set(reports.joined().map(\.sample)), resultURL: resultURL)
         // Every row of a sample is known before its strains are grouped, so each strain goes to one row (TT-STRAIN-GROUP).
         var organismsOf: [String: [String]] = [:]
+        var taxIDRowsOf: [String: [(organism: String, taxID: Int?)]] = [:]
         for parsed in reports.joined() where organismsOf[parsed.sample]?.contains(parsed.organism) != true {
             organismsOf[parsed.sample, default: []].append(parsed.organism)
+            taxIDRowsOf[parsed.sample, default: []].append((parsed.organism, parsed.taxId))
         }
         var groupsCache: [String: [String: [String]]] = [:]
         var seenKeys: Set<String> = []
@@ -360,7 +363,12 @@ extension BuildDbCommand.TaxTriageSubcommand {
                 if gcfmapCache[sample] == nil {
                     let gcfmap = loadGCFMap(at: gcfmapDir.appendingPathComponent("\(sample).combined.gcfmap.tsv"))
                     gcfmapCache[sample] = gcfmap
-                    groupsCache[sample] = Self.taxTriageStrainGroups(organisms: organismsOf[sample] ?? [], gcfmap: gcfmap)
+                    groupsCache[sample] = Self.taxTriageTaxIDGroups(
+                        Self.taxTriageStrainGroups(organisms: organismsOf[sample] ?? [], gcfmap: gcfmap),
+                        rows: taxIDRowsOf[sample] ?? [],
+                        gcfmap: gcfmap,
+                        referenceTaxIDs: loadReferenceTaxIDs(at: mapDir.appendingPathComponent("\(sample).merged.taxid.tsv"))
+                    )
                 }
                 let bam = bamCache[sample] ?? (nil, nil)
                 let primaryAccession = groupsCache[sample]?[parsed.organism]?.first
@@ -469,7 +477,18 @@ extension BuildDbCommand.TaxTriageSubcommand {
             let organisms = lines.dropFirst().map {
                 cleanOrganismName(field($0.split(separator: "\t", omittingEmptySubsequences: false).map(String.init), nameIndex))
             }
-            let groups = Self.taxTriageStrainGroups(organisms: organisms.filter { !$0.isEmpty }, gcfmap: gcfmapCache[sample] ?? [])
+            let taxIDRows = lines.dropFirst().map { line -> (organism: String, taxID: Int?) in
+                let fields = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                return (cleanOrganismName(field(fields, nameIndex)), parseInt(fields, taxIDIndex))
+            }.filter { !$0.organism.isEmpty }
+            let groups = Self.taxTriageTaxIDGroups(
+                Self.taxTriageStrainGroups(organisms: organisms.filter { !$0.isEmpty }, gcfmap: gcfmapCache[sample] ?? []),
+                rows: taxIDRows,
+                gcfmap: gcfmapCache[sample] ?? [],
+                referenceTaxIDs: loadReferenceTaxIDs(
+                    at: resultURL.appendingPathComponent("map").appendingPathComponent("\(sample).merged.taxid.tsv")
+                )
+            )
 
             let (bamPath, bamIndexPath) = bamCache[sample] ?? (nil, nil)
 
@@ -708,6 +727,49 @@ extension BuildDbCommand.TaxTriageSubcommand {
         }
         for (row, owner) in sharers { groups[row] = groups[owner] }
         return groups
+    }
+
+    /// `groups` with each row that no gcfmap name matched linked by its NCBI tax ID instead (TT-TAXID-SYNONYM). TaxTriage
+    /// can report an organism under one name and download its reference under another, as Haemophilus parainfluenzae
+    /// (taxid 729) whose reference the assembly summary names Parahaemophilus parainfluenzae. A row takes the gcfmap
+    /// references of its tax ID, in gcfmap order, that no row already holds, when they belong to one gcfmap organism and
+    /// no other unmatched row of the sample has that tax ID. Anything less certain leaves the row with no reference.
+    /// `referenceTaxIDs` maps each accession to its tax ID, from `map/<sample>.merged.taxid.tsv`.
+    static func taxTriageTaxIDGroups(
+        _ groups: [String: [String]],
+        rows: [(organism: String, taxID: Int?)],
+        gcfmap: [(accession: String, organism: String)],
+        referenceTaxIDs: [String: Int]
+    ) -> [String: [String]] {
+        guard !referenceTaxIDs.isEmpty else { return groups }
+        let unmatched = rows.filter { groups[$0.organism] == nil && $0.taxID != nil }
+        let unmatchedCount = Dictionary(grouping: unmatched, by: { $0.taxID! }).mapValues(\.count)
+        let claimed = Set(groups.values.joined())
+        var result = groups
+        for row in unmatched {
+            guard let taxID = row.taxID, unmatchedCount[taxID] == 1 else { continue }
+            let entries = gcfmap.filter { referenceTaxIDs[$0.accession] == taxID && !claimed.contains($0.accession) }
+            guard Set(entries.map(\.organism)).count == 1 else { continue }
+            var seen: Set<String> = []
+            result[row.organism] = entries.map(\.accession).filter { seen.insert($0).inserted }
+        }
+        return result
+    }
+
+    /// The tax ID of each reference accession in TaxTriage's `<sample>.merged.taxid.tsv` (`append_taxid.py`), whose
+    /// columns are `Acc`, `Assembly`, `Organism_Name`, `Description` and `Mapped_Value`, the tax ID, which pandas can
+    /// write as `729.0`. Empty when the file is missing, since the build's cleanup removes `map/`.
+    func loadReferenceTaxIDs(at url: URL) -> [String: Int] {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        var taxIDs: [String: Int] = [:]
+        for line in content.components(separatedBy: .newlines).dropFirst() where !line.isEmpty {
+            let cols = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard cols.count >= 5, !cols[0].isEmpty else { continue }
+            let raw = cols[4].trimmingCharacters(in: .whitespaces)
+            guard let taxID = Int(raw) ?? Double(raw).map({ Int($0) }) else { continue }
+            taxIDs[cols[0]] = taxID
+        }
+        return taxIDs
     }
 
     private func topReportSampleID(from url: URL) -> String {
