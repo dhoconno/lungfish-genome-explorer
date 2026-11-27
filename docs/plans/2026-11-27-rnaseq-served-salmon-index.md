@@ -60,9 +60,34 @@ The rhesus index of `macaca_mulatta-Mmul_10-ensembl116-lge-3f0fee25ce9e` was bui
 
 So a served index equals the one the Mac would build, given the same set id and salmon build, and the rule above holds. The archive still gets its own sha256, because `provenance/` holds times and paths that differ between builds.
 
+## Archives built (2026-11-27)
+
+`scripts/rnaseq/serve-index.py` zipped each index on galah from the storage root `/Volumes/lge_scratch/lge/rnaseq/lge-installs/novice-path/root`, into `/Volumes/lge_scratch/lge/rnaseq/served-index/databases/rnaseq-index/`. Each archive is deflated with a fixed time and mode on every entry, read back entry by entry against the published files' sha256, and checked for local paths. All four were built by `salmon-2.11.0-hfc06a8d_0` at k 31 with genome decoys.
+
+| Set | Archive bytes | Unpacked bytes | Archive sha256 |
+|---|---|---|---|
+| `homo_sapiens-GRCh38-gencode50-lge-c287524e9a53` | 5,817,381,408 | 10,505,298,684 | `b0d09323c726c37a…` |
+| `mus_musculus-GRCm39-gencodem39-lge-398effa30daf` | 4,398,536,780 | 8,694,199,814 | `457e140292832440…` |
+| `macaca_mulatta-Mmul_10-ensembl116-lge-3f0fee25ce9e` | 5,275,380,007 | 8,449,585,883 | `c870d7d3338c499a…` |
+| `macaca_fascicularis-T2T-MFA8v1.1-refseqrs_2025_03-lge-b514efeeb33d` | 5,875,003,363 | 9,602,008,677 | `e7e702bab69248a4…` |
+
+The full fields of each row are in `served-index/<species>.json` beside the archives. Together they are 21.4 GB.
+
+**End-to-end check (rhesus).** The archive was served from galah over HTTP on 127.0.0.1, and a test build of the CLI pointed the rhesus row at it (the change was not committed). The install ran into a fresh storage root that held only the conda link and the kept genome and GTF downloads:
+- `rnaseq install-reference --default rhesus/ensembl-116` built the set, which got the served id, and downloaded and adopted the index.
+- It took 472 s with a peak resident set of 0.8 GB, against 2,427 s and 18.9 GB for the local build.
+- It removed the archive afterwards.
+- The adopted `index/` and `index-key.json` were byte-identical to the local build.
+- The record was "RNA-seq salmon index, served", with the URL and sha256, and named no path of the building root.
+- Counting the same 1M SRR34827382 pairs against it gave a `genes.counts.tsv` byte-identical to the count against the local index.
+
+The mouse set and index were installed for this step: 3,325 s, exit 0, set `mus_musculus-GRCm39-gencodem39-lge-398effa30daf`.
+
+The largest archive is 5.9 GB, so the open hosting check is now that an anonymous GET of a file of about 6 GB from the public LabKey area streams to the end.
+
 ## Order of work
 
 1. The tests and `SalmonIndexCache.adopt`, `servedIndex`, and the install branch, with no URL in any row. The served path is tested on file URLs. Done 2026-11-27: `SalmonIndexCache+Adopt.swift`, `ReferenceSetCatalogEntry.servedIndex` and `memoryNeedBytes`, the install branch, `--build-index`, the app's per-row memory check and words. The archive holds no `provenance/`, since that names the building Mac's paths. The cache writes the record on adopt.
-2. Build the four archives on galah with the script (mouse needs its index built first).
+2. Build the four archives on galah with the script (mouse needs its index built first). Done 2026-11-27, above.
 3. Upload to the public LabKey area after the owner's yes on the file list, then put the URLs and pins in the rows, in one commit with a real install on a smaller-memory path (galah with the memory check set to a 16 GB host).
 4. Manual: the row's words, and the memory table in `02-counting-bulk-reads.md`.
