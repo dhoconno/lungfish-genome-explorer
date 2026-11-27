@@ -42,7 +42,7 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
     private static let removedSeed = [
         "count/SRR35517702.fastq.gz", "count/SRR35517703.fastq.gz",
         "fastp/SRR35517702.fastp.fastq.gz", "fastp/SRR35517703_1.fastq", "fastp/SRR35517703.trimmed.gz",
-        "filterkraken/SRR35517702.filtered.kraken2.report.txt", "get/SRR35517702.get.tsv", "map/SRR35517702.merged.taxid.tsv",
+        "filterkraken/SRR35517702.filtered.kraken2.report.txt", "get/SRR35517702.get.tsv", "map/SRR35517702.get.tsv",
         "samtools/SRR35517702.stats.txt", "bedtools/SRR35517702.bedtools.cov.tsv", "mergedsubspecies/SRR35517702.merged.tsv",
         "mergedkrakenreport/SRR35517702.merged.report.txt",
     ]
@@ -53,7 +53,7 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         "fastp/SRR35517702.fastp.html", "fastp/SRR35517702.fastp.json", "fastp/SRR35517702.fastp.log",
         "fastp/nested/SRR35517702.nested.fastq.gz", "download/SRR35517702.dwnld.references.fasta",
         "krona/SRR35517702.krona.html", "kraken2/SRR35517702.kraken2.report.txt", "pipeline_info/execution_trace.txt",
-        "samplesheet.csv", "trace.txt",
+        "samplesheet.csv", "trace.txt", "map/SRR35517702.merged.taxid.tsv",
     ]
 
     private func fixture(_ name: String) -> URL {
@@ -113,7 +113,8 @@ final class BuildDbTaxTriageCleanupFreezeTests: XCTestCase {
         try await buildDb(result)
 
         let after = try listing(of: result)
-        let folders = ["bedtools", "count", "filterkraken", "get", "map", "mergedkrakenreport", "mergedsubspecies", "samtools"]
+        // `map/` stays with the reference tax IDs of `map/SRR35517702.merged.taxid.tsv` (TT-TAXID-SYNONYM).
+        let folders = ["bedtools", "count", "filterkraken", "get", "mergedkrakenreport", "mergedsubspecies", "samtools"]
         let removed = Set(folders + Self.removedSeed)
         XCTAssertTrue(exists("top/SRR35517702.top_report.tsv", in: result), "the cleanup keeps top/ (TT-m1)")
         XCTAssertEqual(Set(before).subtracting(after), removed)

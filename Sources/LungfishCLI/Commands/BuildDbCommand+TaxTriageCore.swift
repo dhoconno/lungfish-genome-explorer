@@ -11,7 +11,8 @@
 // record, and a cancel writes none. Its cleanup takes one of two forms (decision T5 of Phase 2.8).
 //
 // - `.legacy`, the command's, for a folder with no record of `taxtriage run` (an older run or an import).
-//   `performCleanup` removes `count/`, the fastp FASTQ files and the seven folders of `removedFolderNames` between
+//   `performCleanup` removes `count/`, the fastp FASTQ files and the seven folders of `removedFolderNames` (all but
+//   `map/<sample>.merged.taxid.tsv`, `keptThroughCleanup`) between
 //   the unique-read pass and the record, and records no step. It keeps `top/`, the only source of a sample whose
 //   rows come from it, which it removed until TT-m1, so older folders can lack it. The app's recount on display
 //   passes `--no-cleanup` (`LungfishCLIRunner.buildClassifierDatabase`). `BuildDbTaxTriageCleanupFreezeTests` pins
@@ -387,6 +388,13 @@ extension BuildDbCommand {
         /// The intermediate folders either cleanup removes whole. Neither removes `top/` (TT-m1).
         static let removedFolderNames = ["filterkraken", "get", "map", "samtools", "bedtools", "mergedsubspecies", "mergedkrakenreport"]
 
+        /// Whether either cleanup keeps `file` though its folder is removed. `map/<sample>.merged.taxid.tsv` is the only
+        /// record of each reference's tax ID, which links a row reported under a synonym (TT-TAXID-SYNONYM), so a
+        /// rebuild after the cleanup still links it. Its folder stays with it.
+        static func keptThroughCleanup(_ file: URL) -> Bool {
+            file.lastPathComponent.hasSuffix(".merged.taxid.tsv")
+        }
+
         private func performCleanup(resultURL: URL, events: BuildDbEventSink) throws {
             var freedBytes: Int64 = 0
 
@@ -451,7 +459,7 @@ extension BuildDbCommand {
                     let folder = cleanupRoot.appendingPathComponent(name, isDirectory: true)
                     guard fm.fileExists(atPath: folder.path), !Self.isSymbolicLink(folder) else { continue }
                     folders.append(folder)
-                    files += Self.regularFiles(under: folder)
+                    files += Self.regularFiles(under: folder).filter { !Self.keptThroughCleanup($0) }
                 }
                 for file in files {
                     let key = Self.resolvedPath(file)
@@ -468,7 +476,7 @@ extension BuildDbCommand {
                         removed.append(descriptor.withRole(.input))
                     }
                 }
-                for folder in folders {
+                for folder in folders where !Self.regularFiles(under: folder).contains(where: Self.keptThroughCleanup) {
                     try? fm.removeItem(at: folder)
                 }
             }
@@ -563,7 +571,14 @@ extension BuildDbCommand {
             // Delete intermediate pipeline directories. `top/` stays, the only source of a sample whose rows come from it (TT-m1).
             for dirname in Self.removedFolderNames {
                 let dir = resultURL.appendingPathComponent(dirname)
-                if let size = directorySize(dir) {
+                let files = Self.regularFiles(under: dir)
+                if files.contains(where: Self.keptThroughCleanup) {
+                    for file in files where !Self.keptThroughCleanup(file) {
+                        let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                        try? fm.removeItem(at: file)
+                        freedBytes += Int64(size)
+                    }
+                } else if let size = directorySize(dir) {
                     try? fm.removeItem(at: dir)
                     freedBytes += size
                 }

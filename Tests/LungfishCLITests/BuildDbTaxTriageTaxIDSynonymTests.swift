@@ -50,6 +50,20 @@ final class BuildDbTaxTriageTaxIDSynonymTests: XCTestCase {
         XCTAssertEqual(view.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "2", "the row's BAM holds both reads on synthetic_ref")
     }
 
+    /// The cleanup keeps `map/<sample>.merged.taxid.tsv`, so a rebuild of the cleaned folder links the row again.
+    func testRebuildAfterCleanupKeepsTheLink() async throws {
+        let samtools = try await ToolAvailability.require("samtools", environment: "samtools")
+        let result = try makeResult(referenceTaxID: 729, samtools: samtools)
+
+        try await BuildDbCommand.TaxTriageSubcommand.parse([result.path, "-q"]).run()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.appendingPathComponent("map/pilot.merged.taxid.tsv").path))
+        try await BuildDbCommand.TaxTriageSubcommand.parse([result.path, "-q", "--force"]).run()
+
+        let database = try TaxTriageDatabase(at: result.appendingPathComponent("taxtriage.sqlite"))
+        let row = try XCTUnwrap(try database.fetchRows(samples: ["pilot"]).first { $0.taxId == 729 })
+        XCTAssertEqual(row.primaryAccession, "synthetic_ref")
+    }
+
     /// The negative control. A reference of another tax ID is not the row's, so the row stays unlinked.
     func testRowStaysUnlinkedWhenTheReferenceTaxIDDiffers() async throws {
         let samtools = try await ToolAvailability.require("samtools", environment: "samtools")
