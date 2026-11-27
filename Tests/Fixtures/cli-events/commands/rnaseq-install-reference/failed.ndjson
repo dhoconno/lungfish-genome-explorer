@@ -1,0 +1,2 @@
+{"event":"start","message":"Installing the reference set mouse\/gencode-M39","progress":0,"schemaVersion":2}
+{"error":"Install the RNA-Seq Analysis pack first, on the Packs tab of Plugin Manager. It holds salmon and gffread.","event":"failed","schemaVersion":2}

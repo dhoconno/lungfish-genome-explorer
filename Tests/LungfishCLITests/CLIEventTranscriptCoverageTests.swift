@@ -97,6 +97,10 @@ final class CLIEventTranscriptCoverageTests: XCTestCase {
         // on a loopback stand-in that serves a small archive (DemoFetchEventTranscriptReplayTests, lane A45 of
         // Phase 2.10).
         "demo fetch",
+        // `rnaseq install-reference` downloads a genome and builds a salmon index with gffread and salmon. Its transcripts
+        // are runs of the built CLI on galah: a set already installed under the storage root, rewritten to `/work`, and
+        // a refused run on an empty storage root with no RNA-Seq pack (2026-11-26 novice path).
+        "rnaseq install-reference",
     ]
 
     static var transcriptsFolder: URL {

@@ -1,0 +1,4 @@
+{"event":"start","message":"Installing the reference set human\/gencode-50","progress":0,"schemaVersion":2}
+{"event":"log","level":"info","message":"Building the reference set from the genome and the genes","schemaVersion":2}
+{"event":"log","level":"info","message":"Building the salmon index, which takes about an hour","schemaVersion":2}
+{"event":"complete","message":"Ready to count with the reference set homo_sapiens-GRCh38-gencode50-lge-c287524e9a53","output":"\/work\/rnaseq-reference-sets\/homo_sapiens-GRCh38-gencode50-lge-c287524e9a53.lungfishrefset","outputs":["\/work\/rnaseq-reference-sets\/homo_sapiens-GRCh38-gencode50-lge-c287524e9a53.lungfishrefset","\/work\/rnaseq-index-cache\/homo_sapiens-GRCh38-gencode50-lge-c287524e9a53\/salmon-2.11.0-k31-genome-decoys\/index"],"progress":1,"schemaVersion":2}
