@@ -87,7 +87,7 @@ final class ReferenceSetInstallTests: XCTestCase {
         try Data("PK index".utf8).write(to: archive)
         return ServedSalmonIndex(
             url: archive.absoluteString, archiveBytes: archive.fileSizeBytes, archiveSHA256: try FileDigest.sha256(of: archive),
-            unpackedBytes: 100, setID: setID, salmonBuild: salmonBuild, k: 31, decoys: .genome)
+            unpackedBytes: 100, setID: setID, setContentSHA256: "c", salmonBuild: salmonBuild, k: 31, decoys: .genome)
     }
 
     // MARK: - The served index

@@ -19,20 +19,24 @@ package struct ServedSalmonIndex: Sendable, Equatable {
     /// The bytes of `index/` once unpacked, for the disk check.
     package var unpackedBytes: Int64
     package var setID: String
+    /// ``ReferenceSetManifest/contentSHA256(of:)`` of the set it was built from. The manifest's own sha256 also covers the
+    /// Lungfish version that built the set, so it differs between a packaged app and the build that made the archive.
+    package var setContentSHA256: String
     /// `<name>-<version>-<build>` of the salmon that built it, as `index-key.json` names it.
     package var salmonBuild: String
     package var k: Int
     package var decoys: SalmonIndexDecoys
 
     package init(
-        url: String, archiveBytes: Int64, archiveSHA256: String, unpackedBytes: Int64, setID: String, salmonBuild: String,
-        k: Int, decoys: SalmonIndexDecoys
+        url: String, archiveBytes: Int64, archiveSHA256: String, unpackedBytes: Int64, setID: String,
+        setContentSHA256: String, salmonBuild: String, k: Int, decoys: SalmonIndexDecoys
     ) {
         self.url = url
         self.archiveBytes = archiveBytes
         self.archiveSHA256 = archiveSHA256
         self.unpackedBytes = unpackedBytes
         self.setID = setID
+        self.setContentSHA256 = setContentSHA256
         self.salmonBuild = salmonBuild
         self.k = k
         self.decoys = decoys
@@ -125,8 +129,9 @@ extension SalmonIndexCache {
         }
     }
 
-    /// The unpacked `index-key.json` names this key, the served salmon build and this Mac's set manifest, and salmon's
-    /// `info.json` gives the same k, version and hashes.
+    /// The unpacked `index-key.json` names this key and the served salmon build, this Mac's set has the contents the row
+    /// names, and salmon's `info.json` gives the same k, version and hashes. The key file is rewritten to name this Mac's
+    /// set manifest, so the published key says which set it serves here.
     func servedKeyFile(
         in stage: URL, key: SalmonIndexKey, served: ServedSalmonIndex, set: ReferenceSetOutcome
     ) throws -> SalmonIndexKeyFile {
@@ -134,13 +139,15 @@ extension SalmonIndexCache {
               let file = try? JSONDecoder().decode(SalmonIndexKeyFile.self, from: data) else {
             throw SalmonIndexError.servedIndexDiffers("The archive's \(SalmonIndexKeyFile.filename) could not be read.")
         }
-        let manifest = try ProvenanceFileHasher.sha256(of: set.url.appendingPathComponent(ReferenceSetManifest.filename))
-        let checks = [
-            ("key", "\(key)", "\(file.key)"), ("salmon build", served.salmonBuild, file.salmonBuild),
-            ("set manifest sha256", manifest, file.referenceSetSHA256),
-        ]
+        let checks = [("key", "\(key)", "\(file.key)"), ("salmon build", served.salmonBuild, file.salmonBuild)]
         for (field, expected, found) in checks where expected != found {
             throw SalmonIndexError.servedIndexDiffers("The archive's \(SalmonIndexKeyFile.filename) gives \(field) \(found), not \(expected).")
+        }
+        let manifestURL = set.url.appendingPathComponent(ReferenceSetManifest.filename)
+        let contents = try ReferenceSetManifest.contentSHA256(of: manifestURL)
+        guard contents == served.setContentSHA256 else {
+            throw SalmonIndexError.servedIndexDiffers(
+                "This Mac's set contents have sha256 \(contents), not \(served.setContentSHA256), the set the index was built from.")
         }
         let info = stage.appendingPathComponent("\(Self.indexFolderName)/info.json")
         guard let infoData = try? Data(contentsOf: info),
@@ -158,6 +165,29 @@ extension SalmonIndexCache {
         for (field, expected, found) in given where expected != found {
             throw SalmonIndexError.indexDisagrees(field: field, expected: expected ?? "none", found: found ?? "none")
         }
-        return file
+        var local = file
+        local.referenceSetSHA256 = try ProvenanceFileHasher.sha256(of: manifestURL)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try DurableReplace.replace(try encoder.encode(local), named: SalmonIndexKeyFile.filename, in: stage)
+        return local
+    }
+}
+
+extension ReferenceSetManifest {
+    /// The sha256 of the manifest with the version of each file Lungfish itself wrote left out, as sorted-key JSON. Two
+    /// builds of one set by different Lungfish versions give the same digest (walk of 2026-11-27).
+    package static func contentSHA256(of url: URL) throws -> String {
+        func strip(_ value: Any) -> Any {
+            if var object = value as? [String: Any] {
+                if object["tool"] as? String == "lungfish" { object["version"] = nil }
+                return object.mapValues(strip)
+            }
+            if let array = value as? [Any] { return array.map(strip) }
+            return value
+        }
+        let object = strip(try JSONSerialization.jsonObject(with: Data(contentsOf: url)))
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+        return FileDigest.sha256Hex(of: data)
     }
 }

@@ -56,30 +56,35 @@ package enum ReferenceSetCatalog {
         ReferenceSetCatalogEntry(
             id: "human/gencode-50", title: "Human, GRCh38 with GENCODE 50", downloadBytes: 970_285_312,
             servedIndex: served(set: "homo_sapiens-GRCh38-gencode50-lge-c287524e9a53", bytes: 5_817_381_408,
-                                sha256: "b0d09323c726c37a244b8b35fdae96f787086b0d41cefff13b71274c4a967a0b", unpacked: 10_505_298_684), installedBytes: 18_600_000_000),
+                                sha256: "b0d09323c726c37a244b8b35fdae96f787086b0d41cefff13b71274c4a967a0b", contents: "246a7b2a877b4e931aa61f9eff9191f846b356938e5155b6e9c85527a6e82798",
+                                unpacked: 10_505_298_684), installedBytes: 18_600_000_000),
         ReferenceSetCatalogEntry(
             id: "mouse/gencode-M39", title: "Mouse, GRCm39 with GENCODE M39", downloadBytes: 866_420_506,
             servedIndex: served(set: "mus_musculus-GRCm39-gencodem39-lge-398effa30daf", bytes: 4_398_536_780,
-                                sha256: "457e1402928324405620a89f3016dae95d646803125850c25dbcffebdb2abbb7", unpacked: 8_694_199_814), installedBytes: 15_000_000_000),
+                                sha256: "457e1402928324405620a89f3016dae95d646803125850c25dbcffebdb2abbb7", contents: "aba24fc71a42ffb68fd2685ab920e4cb5e7a1b25fbe6bd5016580434c74dc685",
+                                unpacked: 8_694_199_814), installedBytes: 15_000_000_000),
         ReferenceSetCatalogEntry(
             id: "rhesus/ensembl-116", title: "Rhesus macaque, Mmul_10 with Ensembl 116", downloadBytes: 892_739_343,
             servedIndex: served(set: "macaca_mulatta-Mmul_10-ensembl116-lge-3f0fee25ce9e", bytes: 5_275_380_007,
-                                sha256: "c870d7d3338c499ae3dd15c20bad64e47f8e390bce7742e7dd94a1ee87e8e27a", unpacked: 8_449_585_883), installedBytes: 10_900_000_000),
+                                sha256: "c870d7d3338c499ae3dd15c20bad64e47f8e390bce7742e7dd94a1ee87e8e27a", contents: "3ee11b2e9b3e820bc93814e902fe1279a28e09191e7316a013cef5fd73d83319",
+                                unpacked: 8_449_585_883), installedBytes: 10_900_000_000),
         ReferenceSetCatalogEntry(
             id: "cynomolgus/refseq-GCF_037993035.2", title: "Cynomolgus macaque, T2T-MFA8v1.1 with RefSeq", downloadBytes: 954_363_387,
             servedIndex: served(set: "macaca_fascicularis-T2T-MFA8v1.1-refseqrs_2025_03-lge-b514efeeb33d", bytes: 5_875_003_363,
-                                sha256: "e7e702bab69248a44d4da29174d84c149c08ddf904c9d1fcc59f13cab1688c3d", unpacked: 9_602_008_677), installedBytes: 13_500_000_000),
+                                sha256: "e7e702bab69248a44d4da29174d84c149c08ddf904c9d1fcc59f13cab1688c3d", contents: "8598db49e086f66b1269c9146d2b1e5b7a30712326aafa294f974336af60f2ca",
+                                unpacked: 9_602_008_677), installedBytes: 13_500_000_000),
     ]
 
     /// The public LGE LabKey folder of the served indexes (`docs/development/large-files.md`).
     package static let servedIndexBase = "https://dholk.primate.wisc.edu/_webdav/dho/public/lge/%40files/databases/rnaseq-index/"
 
     /// A served index of `set` built by salmon 2.11.0 at k 31 with genome decoys, at its folder of the public area.
-    static func served(set: String, bytes: Int64, sha256: String, unpacked: Int64) -> ServedSalmonIndex {
+    /// `contents` is `ReferenceSetManifest.contentSHA256(of:)` of galah's set, measured 2026-11-27.
+    static func served(set: String, bytes: Int64, sha256: String, contents: String, unpacked: Int64) -> ServedSalmonIndex {
         let key = "salmon-2.11.0-k31-genome-decoys"
         return ServedSalmonIndex(
             url: servedIndexBase + "\(set)/\(key)/\(set)-\(key).zip", archiveBytes: bytes, archiveSHA256: sha256,
-            unpackedBytes: unpacked, setID: set, salmonBuild: "salmon-2.11.0-hfc06a8d_0", k: 31, decoys: .genome)
+            unpackedBytes: unpacked, setID: set, setContentSHA256: contents, salmonBuild: "salmon-2.11.0-hfc06a8d_0", k: 31, decoys: .genome)
     }
 
     package static let description = "Genome, genes and salmon index for counting bulk RNA-seq reads."

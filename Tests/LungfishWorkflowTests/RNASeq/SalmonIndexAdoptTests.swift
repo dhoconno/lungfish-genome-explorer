@@ -33,7 +33,9 @@ extension SalmonIndexCacheTests {
         try FileManager.default.removeItem(at: built.url)
         let served = ServedSalmonIndex(
             url: archive.absoluteString, archiveBytes: archive.fileSizeBytes, archiveSHA256: try FileDigest.sha256(of: archive),
-            unpackedBytes: 1_000, setID: set.manifest.id, salmonBuild: file.salmonBuild, k: file.k, decoys: file.decoys)
+            unpackedBytes: 1_000, setID: set.manifest.id,
+            setContentSHA256: try ReferenceSetManifest.contentSHA256(of: set.url.appendingPathComponent(ReferenceSetManifest.filename)),
+            salmonBuild: file.salmonBuild, k: file.k, decoys: file.decoys)
         return (archive, served, set)
     }
 
@@ -106,6 +108,39 @@ extension SalmonIndexCacheTests {
             // These are the words of the check before the archive is read, not of the key file's check after it.
             XCTAssertEqual(error, .servedIndexDiffers(
                 "The served index was built by salmon-9.9.9-h0_0, and this Mac's salmon is \(local)."))
+        }
+        XCTAssertEqual(try entries(setFolder(set.manifest.id)), [])
+    }
+
+    /// The packaged app writes its own version into the set it builds, so its manifest's bytes differ from those of the
+    /// set the served index was built from (walk of 2026-11-27). The contents are the same, so the index is adopted and
+    /// its key names this Mac's manifest.
+    func testASetBuiltByAnotherLungfishVersionAdoptsTheServedIndex() async throws {
+        let (archive, served, set) = try await servedArchive()
+        let manifestURL = set.url.appendingPathComponent(ReferenceSetManifest.filename)
+        let text = try String(contentsOf: manifestURL, encoding: .utf8)
+        let other = text.replacingOccurrences(of: WorkflowRun.currentAppVersion, with: "Lungfish 1999.1.1 (1)")
+        XCTAssertNotEqual(other, text, "the stand-in set records the Lungfish version")
+        try Data(other.utf8).write(to: manifestURL)
+        let outcome = try await adopt(archive, served)
+        let file = try JSONDecoder().decode(
+            SalmonIndexKeyFile.self, from: Data(contentsOf: outcome.url.appendingPathComponent(SalmonIndexKeyFile.filename)))
+        XCTAssertEqual(file.referenceSetSHA256, try ProvenanceFileHasher.sha256(of: manifestURL))
+        XCTAssertEqual(file.hashes, outcome.hashes)
+    }
+
+    func testASetWithOtherContentsPublishesNothing() async throws {
+        let (archive, served, set) = try await servedArchive()
+        let manifestURL = set.url.appendingPathComponent(ReferenceSetManifest.filename)
+        let sha = set.manifest.derived.files[0].sha256
+        let text = try String(contentsOf: manifestURL, encoding: .utf8)
+        try Data(text.replacingOccurrences(of: sha, with: String(repeating: "0", count: 64)).utf8).write(to: manifestURL)
+        do {
+            _ = try await adopt(archive, served)
+            XCTFail("an index of a set with other contents was adopted")
+        } catch let error as SalmonIndexError {
+            guard case .servedIndexDiffers(let reason) = error else { return XCTFail("\(error)") }
+            XCTAssertNotNil(reason.range(of: "set contents"), reason)
         }
         XCTAssertEqual(try entries(setFolder(set.manifest.id)), [])
     }

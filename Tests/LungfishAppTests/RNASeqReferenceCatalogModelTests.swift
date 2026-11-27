@@ -115,7 +115,7 @@ final class RNASeqReferenceCatalogModelTests: XCTestCase {
         var served = ReferenceSetCatalog.entries[0]
         served.servedIndex = ServedSalmonIndex(
             url: "https://example.org/i.zip", archiveBytes: 8_000_000_000, archiveSHA256: String(repeating: "a", count: 64),
-            unpackedBytes: 10_000_000_000, setID: "s", salmonBuild: "salmon-2.11.0-h0_0", k: 31, decoys: .genome)
+            unpackedBytes: 10_000_000_000, setID: "s", setContentSHA256: "c", salmonBuild: "salmon-2.11.0-h0_0", k: 31, decoys: .genome)
         var built = ReferenceSetCatalog.entries[1]
         built.servedIndex = nil
         let model = RNASeqReferenceCatalogModel(
