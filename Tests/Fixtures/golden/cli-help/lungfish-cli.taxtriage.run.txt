@@ -67,7 +67,9 @@ OPTIONS:
   --db <db>               Path to existing Kraken2 database
   --confidence <confidence>
                           Kraken2 confidence threshold (default: 0.2)
-  --top-hits <top-hits>   Number of top hits to report (default: 10)
+  --top-hits <top-hits>   Number of top species to align (each gets a BAM and
+                          Unique Reads); 1000000 aligns every species Kraken2
+                          finds (default: 10)
   --rank <rank>           Taxonomic rank: D,P,C,O,F,G,S (default: S)
   --skip-assembly         Skip genome assembly steps (default: true)
   --no-skip-assembly      Enable genome assembly steps
