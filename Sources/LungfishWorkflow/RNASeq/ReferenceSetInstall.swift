@@ -182,10 +182,11 @@ package struct ReferenceSetInstall: Sendable {
     ) async throws -> URL {
         let name = url.lastPathComponent
         let archive = try await fetch(url, sha256: served.archiveSHA256, into: folder) { done, total in
-            let part = total.map { $0 > 0 ? min(Double(done) / Double($0), 1) : 0 } ?? 0
+            // The LabKey server sends no Content-Length, so the row's archive bytes stand in for it.
+            let known = (total ?? 0) > 0 ? total! : served.archiveBytes
+            let part = known > 0 ? min(Double(done) / Double(known), 1) : 0
             progress(.downloading(
-                fraction: part,
-                message: "Downloading the salmon index \(name), \(Self.megabytes(done)) of \(total.map(Self.megabytes) ?? "unknown")"))
+                fraction: part, message: "Downloading the salmon index \(name), \(Self.megabytes(done)) of \(Self.megabytes(known))"))
         }
         defer { try? FileManager.default.removeItem(at: archive) }
         progress(.stage("Unpacking and checking the salmon index"))

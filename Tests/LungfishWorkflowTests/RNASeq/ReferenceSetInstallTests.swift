@@ -134,6 +134,42 @@ final class ReferenceSetInstallTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: kept.path).sorted(), ["test.annotation.gtf", "test.genome.fa"])
     }
 
+    /// A loader that copies a file URL and reports no total, as the LabKey server sends no Content-Length.
+    final class NoLengthLoader: DemoProjectArchiveLoading, @unchecked Sendable {
+        func download(from url: URL, to destination: URL, progress: @escaping @Sendable (Int64, Int64?) -> Void) async throws {
+            try FileManager.default.copyItem(at: url, to: destination)
+            let size = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int64) ?? 0
+            progress(size / 2, nil)
+            progress(size, nil)
+        }
+    }
+
+    final class Steps: @unchecked Sendable {
+        let lock = NSLock()
+        var all: [ReferenceSetInstallProgress] = []
+        func add(_ step: ReferenceSetInstallProgress) { lock.withLock { all.append(step) } }
+    }
+
+    /// With no Content-Length the served download's fraction comes from the row's archive bytes, not 0 of unknown.
+    func testAServedDownloadWithNoLengthReportsItsFractionFromTheArchiveBytes() async throws {
+        let first = try await installer(CopyingArchiveLoader()).install(row: try row())
+        let steps = Steps()
+        let root = self.root!
+        let install = ReferenceSetInstall(
+            storageRoot: root, loader: NoLengthLoader(),
+            owner: ReferenceSetOwner(storageRoot: root, deriver: StandInTranscriptDeriver(), provenanceWriter: ProvenanceWriter(signingProvider: nil)),
+            indexer: { _, _ in XCTFail("no index is built"); return root },
+            adopter: { _, _, _ in root }, salmonBuild: { Self.salmonBuild }, preflight: { _ in })
+        let served = try served(setID: first.setID)
+        _ = try await install.install(row: try row(), served: served) { steps.add($0) }
+        let downloads = steps.all.compactMap { step -> (Double, String)? in
+            if case .downloading(let fraction, let message) = step { return (fraction, message) }
+            return nil
+        }
+        XCTAssertEqual(downloads.map(\.0), [0.5, 1.0])
+        XCTAssertNil(downloads.last?.1.range(of: "unknown"), downloads.last?.1 ?? "")
+    }
+
     func testAServedIndexForAnotherSetIdIsNotDownloadedAndTheIndexIsBuilt() async throws {
         let loader = CopyingArchiveLoader(), calls = Calls()
         let outcome = try await installer(loader, calls: calls).install(row: try row(), served: try served(setID: "testus-other-lge-000000000000"))
