@@ -402,9 +402,10 @@ final class OperationsDialogPaneOrderTests: XCTestCase {
             "Inputs",
             "/tmp/reads.fastq",
             "Reference set",
-            "Choose a reference set",
-            "Reference set",
-            "Lungfish counts on the reference set's own index and never builds one. A set without an index for these settings stops the run, and the Operations row says so.",
+            // With no set installed the group says where to get one, in place of the empty picker (2026-11-26).
+            "Download a reference set in Plugin Manager to count these reads.",
+            "Download Reference Set\u{2026}",
+            "Lungfish counts on the reference set's own index and never builds one here. A set downloaded in Plugin Manager has its index at k 31 with the genome as decoys.",
             "Index",
             "k-mer length",
             "k",
